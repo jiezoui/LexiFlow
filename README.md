@@ -45,6 +45,48 @@
 
 ---
 
+## 🚀 快速启动指南 (Quick Start)
+
+### 1. 环境准备
+* **Java**: JDK 17 或 JDK 21
+* **构建工具**: Maven 3.8+
+* **Node.js**: Node 18.x 或更高版本（推荐使用 `pnpm`）
+* **数据库**: MySQL 8.0+
+
+### 2. 数据库初始化
+1. 启动本地 MySQL 服务（端口 3306）。
+2. 在 MySQL 中创建数据库 `lexiflow_db`：
+   ```sql
+   CREATE DATABASE IF NOT EXISTS lexiflow_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   ```
+3. 按顺序导入 `server/src/main/resources/db/` 目录下的 SQL 脚本：
+   - 运行 `schema.sql`（基础表结构）
+   - 运行 `seed.sql`（核心词书及系统初始数据）
+   - 运行 `migration_reading.sql`（分级阅读扩展结构）
+4. 检查后端数据库连接：
+   - 打开 `server/src/main/resources/application.yml`，确认 `username`（默认 `root`）和 `password`（默认 `root`）与本地 MySQL 一致。
+
+### 3. 启动后端工程
+```bash
+cd server
+mvn spring-boot:run
+```
+* 后端服务根路径：`http://localhost:8080`
+* OpenAPI / Swagger 接口文档：`http://localhost:8080/swagger-ui.html`
+* *注：后端在启动时会自动读取 `material/ecdict.csv` 构建 77 万词条的亚毫秒级内存索引。*
+
+### 4. 启动前端工程
+打开新的命令行终端：
+```bash
+cd LexiFlow
+pnpm install
+pnpm dev
+```
+* 浏览器访问地址：`http://localhost:3000`
+* 前端通过 Next.js 内置反向代理自动将 `/api/*` 请求转发至后端的 `http://127.0.0.1:8080/api/*`，无需额外配置跨域。
+
+---
+
 ## 📄 许可证与开源引用
 
 本项目开源引用及许可证合规清单请参见 [`material/参考资料与引用出处.md`](./material/参考资料与引用出处.md)。
