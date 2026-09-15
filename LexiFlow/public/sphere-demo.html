@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>语脉 · LexiFlow 3D 核心词汇球 (Cinematic Lexical Sphere)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      user-select: none;
+    }
+    body {
+      background: #020306;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #fafafa;
+    }
+
+    /* Cinematic Deep Space Vignette */
+    .bg-vignette {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: 
+        radial-gradient(circle at 50% 50%, rgba(18, 24, 40, 0.45) 0%, rgba(2, 3, 6, 0.98) 72%),
+        radial-gradient(circle at 20% 30%, rgba(56, 189, 248, 0.04) 0%, transparent 40%),
+        radial-gradient(circle at 80% 70%, rgba(99, 102, 241, 0.04) 0%, transparent 40%);
+      z-index: 0;
+    }
+
+    #canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      cursor: default;
+      z-index: 1;
+    }
+
+    /* Top Left Brand Bar */
+    .brand-bar {
+      position: fixed;
+      top: 24px;
+      left: 28px;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(10, 12, 20, 0.65);
+      padding: 8px 16px;
+      border-radius: 40px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(16px);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+    }
+    .brand-logo {
+      width: 30px;
+      height: 30px;
+      background: #ffffff;
+      color: #030306;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 15px;
+      box-shadow: 0 0 16px rgba(255, 255, 255, 0.35);
+    }
+    .brand-info {
+      display: flex;
+      flex-direction: column;
+    }
+    .brand-title {
+      font-size: 14px;
+      font-weight: 800;
+      color: #ffffff;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .brand-tag {
+      font-size: 10px;
+      font-family: 'DM Mono', monospace;
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.12);
+      padding: 1px 6px;
+      border-radius: 12px;
+      border: 1px solid rgba(56, 189, 248, 0.25);
+    }
+    .brand-sub {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.4);
+    }
+
+    /* Bottom Left Caption (1:1 with reference picture) */
+    .caption-box {
+      position: fixed;
+      bottom: 28px;
+      left: 32px;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .caption-line {
+      width: 28px;
+      height: 2px;
+      background: rgba(255, 255, 255, 0.45);
+      border-radius: 2px;
+    }
+    .caption-text {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.5);
+      letter-spacing: 0.02em;
+      line-height: 1.4;
+      font-weight: 400;
+    }
+
+    /* Right Control Deck */
+    .control-deck {
+      position: fixed;
+      top: 24px;
+      right: 28px;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: rgba(10, 12, 20, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 14px 18px;
+      border-radius: 18px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.6);
+      width: 250px;
+    }
+    .control-header {
+      font-size: 12px;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .control-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .control-label {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.55);
+      display: flex;
+      justify-content: space-between;
+      font-family: 'DM Mono', monospace;
+    }
+    .control-slider {
+      width: 100%;
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.15);
+      outline: none;
+      -webkit-appearance: none;
+    }
+    .control-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #38bdf8;
+      cursor: pointer;
+      box-shadow: 0 0 8px #38bdf8;
+    }
+    .btn-row {
+      display: flex;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .mini-btn {
+      flex: 1;
+      padding: 5px 8px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.7);
+      border-radius: 8px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+    }
+    .mini-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+    }
+    .mini-btn.active {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: rgba(56, 189, 248, 0.6);
+      color: #38bdf8;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-vignette"></div>
+  <canvas id="canvas"></canvas>
+
+  <!-- Brand -->
+  <div class="brand-bar">
+    <div class="brand-logo">脉</div>
+    <div class="brand-info">
+      <div class="brand-title">
+        <span>LexiFlow Sphere</span>
+        <span class="brand-tag">Cinematic 3D</span>
+      </div>
+      <div class="brand-sub">超密围绕 · 实心轮廓 · 自主平稳旋转</div>
+    </div>
+  </div>
+
+  <!-- Bottom Left Caption (1:1 with reference picture) -->
+  <div class="caption-box">
+    <div class="caption-line"></div>
+    <div class="caption-text">Flow into a more efficient acoustic language landscape</div>
+  </div>
+
+  <!-- Controls -->
+  <div class="control-deck">
+    <div class="control-header">
+      <span>视觉参数微调</span>
+      <span style="font-size: 10px; color: #38bdf8;">1:1 对标</span>
+    </div>
+
+    <div class="control-row">
+      <div class="control-label">
+        <span>核心居中词</span>
+      </div>
+      <div class="btn-row">
+        <button class="mini-btn active" id="btn-hero-lexi" onclick="setHeroWord('LexiFlow')">LexiFlow</button>
+        <button class="mini-btn" id="btn-hero-fexi" onclick="setHeroWord('Fexiflow')">Fexiflow (原图)</button>
+      </div>
+    </div>
+
+    <div class="control-row">
+      <div class="control-label">
+        <span>倾斜轨道光环</span>
+      </div>
+      <div class="btn-row">
+        <button class="mini-btn active" id="btn-ring-on" onclick="setRingVisible(true)">开启光环</button>
+        <button class="mini-btn" id="btn-ring-off" onclick="setRingVisible(false)">关闭光环</button>
+      </div>
+    </div>
+
+    <div class="control-row">
+      <div class="control-label">
+        <span>悬浮微光方块</span>
+      </div>
+      <div class="btn-row">
+        <button class="mini-btn active" id="btn-dust-on" onclick="setDustVisible(true)">开启微尘</button>
+        <button class="mini-btn" id="btn-dust-off" onclick="setDustVisible(false)">关闭微尘</button>
+      </div>
+    </div>
+
+    <div class="control-row">
+      <div class="control-label">
+        <span>球体词汇密度</span>
+        <span id="val-density">900 词</span>
+      </div>
+      <div class="btn-row">
+        <button class="mini-btn" onclick="setDensity(600)">高密</button>
+        <button class="mini-btn active" id="btn-dens-std" onclick="setDensity(900)">极密实体 (原图)</button>
+        <button class="mini-btn" onclick="setDensity(1200)">超聚簇</button>
+      </div>
+    </div>
+
+    <div class="control-row">
+      <div class="control-label">
+        <span>球体半径</span>
+        <span id="val-radius">1.0x</span>
+      </div>
+      <input type="range" class="control-slider" id="slider-radius" min="0.8" max="1.3" step="0.05" value="1.0" />
+    </div>
+
+    <div class="control-row">
+      <div class="control-label">
+        <span>自转速度</span>
+      </div>
+      <div class="btn-row">
+        <button class="mini-btn" onclick="setSpeed(0.0015)">静谧</button>
+        <button class="mini-btn active" id="btn-speed-std" onclick="setSpeed(0.0028)">标准</button>
+        <button class="mini-btn" onclick="setSpeed(0.0055)">灵动</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+
+      const sliderRadius = document.getElementById('slider-radius');
+      const valRadius = document.getElementById('val-radius');
+      const valDensity = document.getElementById('val-density');
+
+      let W, H, CX, CY, dpr;
+
+      // ─── 1. Vocabulary Pool ────────────────────────────────────────────────
+      let currentHeroText = "LexiFlow";
+
+      const WORDS_DEF = [
+        // Center Hero
+        { w: "LexiFlow", tier: "hero" },
+
+        // Front Prominent Words (matching reference image)
+        { w: "flow", tier: "huge" },
+        { w: "create", tier: "huge" },
+        { w: "design", tier: "huge" },
+        { w: "system", tier: "huge" },
+        { w: "productivity", tier: "large" },
+        { w: "workspace", tier: "large" },
+        { w: "data", tier: "large" },
+        { w: "build", tier: "large" },
+        { w: "digital", tier: "large" },
+        { w: "code", tier: "large" },
+        { w: "technology", tier: "large" },
+        { w: "innovation", tier: "large" },
+        { w: "future", tier: "large" },
+        { w: "workflow", tier: "large" },
+        { w: "redesign", tier: "large" },
+        { w: "ereclign", tier: "large" },
+        { w: "cognition", tier: "large" },
+        { w: "shadowing", tier: "large" },
+        { w: "retrieval", tier: "large" },
+        { w: "resonance", tier: "large" },
+        { w: "collaborate", tier: "large" },
+        { w: "collabpratent", tier: "large" },
+        { w: "fsrs", tier: "large" },
+
+        // Secondary Varied Depth Words
+        { w: "ephemeral", tier: "mid" },
+        { w: "serendipity", tier: "mid" },
+        { w: "neuroplasticity", tier: "mid" },
+        { w: "eloquent", tier: "mid" },
+        { w: "prosody", tier: "mid" },
+        { w: "cadence", tier: "mid" },
+        { w: "nuance", tier: "mid" },
+        { w: "ubiquitous", tier: "mid" },
+        { w: "equilibrium", tier: "mid" },
+        { w: "catalyst", tier: "mid" },
+        { w: "lucid", tier: "mid" },
+        { w: "zenith", tier: "mid" },
+        { w: "paradigm", tier: "mid" },
+        { w: "synergy", tier: "mid" },
+        { w: "aesthetic", tier: "mid" },
+        { w: "trajectory", tier: "mid" },
+        { w: "luminary", tier: "mid" },
+        { w: "velocity", tier: "mid" },
+        { w: "lexicon", tier: "mid" },
+        { w: "acoustic", tier: "mid" },
+        { w: "immersion", tier: "mid" },
+        { w: "matrix", tier: "mid" },
+        { w: "mnemonic", tier: "mid" },
+        { w: "fluency", tier: "mid" },
+        { w: "polyglot", tier: "mid" },
+        { w: "vernacular", tier: "mid" },
+        { w: "articulate", tier: "mid" },
+        { w: "comprehend", tier: "mid" },
+        { w: "retention", tier: "mid" },
+        { w: "context", tier: "mid" },
+        { w: "perception", tier: "mid" },
+        { w: "whisper", tier: "mid" },
+        { w: "waveform", tier: "mid" },
+        { w: "stability", tier: "mid" },
+        { w: "difficulty", tier: "mid" },
+        { w: "half-life", tier: "mid" },
+        { w: "decide", tier: "mid" },
+        { w: "deante", tier: "mid" },
+        { w: "digiten", tier: "mid" },
+        { w: "desteen", tier: "mid" },
+        { w: "duture", tier: "mid" },
+        { w: "deilletaxation", tier: "mid" },
+        { w: "aderkflen", tier: "mid" },
+        { w: "delaboran", tier: "mid" },
+
+        // Small & Micro Fillers
+        { w: "code", tier: "micro" },
+        { w: "date", tier: "micro" },
+        { w: "web", tier: "micro" },
+        { w: "net", tier: "micro" },
+        { w: "synapse", tier: "micro" },
+        { w: "interval", tier: "micro" },
+        { w: "decay", tier: "micro" },
+        { w: "pitch", tier: "micro" },
+        { w: "timbre", tier: "micro" },
+        { w: "weeb", tier: "micro" },
+        { w: "lexi-", tier: "micro" },
+        { w: "-flow", tier: "micro" },
+        { w: "/æ/", tier: "micro" },
+        { w: "/ə/", tier: "micro" },
+        { w: "/θ/", tier: "micro" },
+        { w: "/ð/", tier: "micro" },
+        { w: "/ŋ/", tier: "micro" },
+        { w: "/ʃ/", tier: "micro" },
+        { w: "λ", tier: "micro" },
+        { w: "Ω", tier: "micro" },
+        { w: "∫", tier: "micro" },
+      ];
+
+      // Configuration
+      let showRing = true;
+      let showDust = true;
+      let radiusMultiplier = 1.0;
+      let autoSpinSpeed = 0.0028;
+      let totalNodes = 900; // 🌟 HIGH DENSITY to form solid sphere
+
+      window.setHeroWord = function (word) {
+        currentHeroText = word;
+        document.getElementById('btn-hero-lexi').classList.toggle('active', word === 'LexiFlow');
+        document.getElementById('btn-hero-fexi').classList.toggle('active', word === 'Fexiflow');
+        buildSphere();
+      };
+
+      window.setRingVisible = function (val) {
+        showRing = val;
+        document.getElementById('btn-ring-on').classList.toggle('active', val);
+        document.getElementById('btn-ring-off').classList.toggle('active', !val);
+      };
+
+      window.setDustVisible = function (val) {
+        showDust = val;
+        document.getElementById('btn-dust-on').classList.toggle('active', val);
+        document.getElementById('btn-dust-off').classList.toggle('active', !val);
+      };
+
+      window.setDensity = function (count) {
+        totalNodes = count;
+        valDensity.textContent = count + " 词";
+        document.querySelectorAll('.control-deck button').forEach(b => {
+          if (b.getAttribute('onclick')?.includes(`setDensity(${count})`)) {
+            b.classList.add('active');
+          } else if (b.getAttribute('onclick')?.includes('setDensity')) {
+            b.classList.remove('active');
+          }
+        });
+        buildSphere();
+      };
+
+      window.setSpeed = function (speed) {
+        autoSpinSpeed = speed;
+        document.querySelectorAll('.control-deck button').forEach(b => {
+          if (b.getAttribute('onclick')?.includes(speed.toString())) {
+            b.classList.add('active');
+          } else if (b.getAttribute('onclick')?.includes('setSpeed')) {
+            b.classList.remove('active');
+          }
+        });
+      };
+
+      sliderRadius.addEventListener('input', (e) => {
+        radiusMultiplier = parseFloat(e.target.value);
+        valRadius.textContent = radiusMultiplier.toFixed(2) + "x";
+      });
+
+      // ─── 2. Spherical Node Class (Solid Contrast, No Low Opacity Fade) ────
+      class SphereWordNode {
+        constructor(data, phi, theta, radialRatio, isFixedHero = false) {
+          this.data = data;
+          this.text = isFixedHero ? currentHeroText : data.w;
+          this.isFixedHero = isFixedHero;
+          this.phi = phi;
+          this.theta = theta;
+          this.radialRatio = radialRatio;
+
+          // Extreme Irregular Size Variety
+          if (this.isFixedHero || data.tier === "hero") {
+            this.baseSize = 50;
+            this.weight = "900";
+            this.tilt = 0;
+          } else if (data.tier === "huge") {
+            this.baseSize = 28 + Math.floor(Math.random() * 14); // 28 ~ 42px
+            this.weight = "900";
+            this.tilt = (Math.random() - 0.5) * 0.38;
+          } else if (data.tier === "large") {
+            this.baseSize = 17 + Math.floor(Math.random() * 10); // 17 ~ 27px
+            this.weight = "800";
+            this.tilt = (Math.random() - 0.5) * 0.32;
+          } else if (data.tier === "mid") {
+            this.baseSize = 11 + Math.floor(Math.random() * 7); // 11 ~ 18px
+            this.weight = Math.random() < 0.6 ? "700" : "600";
+            this.tilt = (Math.random() - 0.5) * 0.25;
+          } else {
+            this.baseSize = 8 + Math.floor(Math.random() * 4); // 8 ~ 12px
+            this.weight = "500";
+            this.tilt = (Math.random() - 0.5) * 0.18;
+          }
+
+          this.x = 0; this.y = 0; this.z = 0;
+          this.screenX = 0; this.screenY = 0;
+          this.scale = 1;
+          this.cosAngle = 1;
+          this.squashX = 1;
+          this.contourAngle = 0;
+        }
+
+        update(rotX, rotY, nominalRadius, fov, cameraZ, cx, cy) {
+          const r = nominalRadius * this.radialRatio;
+
+          const x0 = r * Math.cos(this.theta) * Math.sin(this.phi);
+          const y0 = r * Math.sin(this.theta) * Math.sin(this.phi);
+          const z0 = r * Math.cos(this.phi);
+
+          // Rotation Y
+          const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+          const x1 = x0 * cosY - z0 * sinY;
+          const z1 = x0 * sinY + z0 * cosY;
+
+          // Rotation X
+          const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+          const y2 = y0 * cosX - z1 * sinX;
+          const z2 = y0 * sinX + z1 * cosX;
+
+          this.x = x1;
+          this.y = y2;
+          this.z = z2;
+
+          // Perspective
+          const zDist = z2 + cameraZ;
+          this.scale = fov / (fov + zDist);
+          this.screenX = cx + x1 * this.scale;
+          this.screenY = cy + y2 * this.scale;
+
+          const cosView = z2 / r;
+          this.cosAngle = cosView;
+
+          // Curvature compression along horizon
+          this.squashX = Math.max(0.24, Math.min(1.0, 0.30 + 0.70 * Math.abs(cosView)));
+
+          // Tangent contour rotation
+          const distNorm = Math.min(1.0, Math.hypot(x1, y2) / nominalRadius);
+          if (distNorm > 0.35 && !this.isFixedHero) {
+            const radialAngle = Math.atan2(y2, x1);
+            this.contourAngle = Math.sin(radialAngle * 2) * 0.28 * Math.pow(distNorm, 1.8);
+          } else {
+            this.contourAngle = 0;
+          }
+        }
+      }
+
+      // ─── 3. Floating Dust & Geometric Micro Cubes ─────────────────────────
+      class FloatingDust {
+        constructor(baseRadius) {
+          this.reset(baseRadius, true);
+        }
+
+        reset(baseRadius, initial = false) {
+          const r = baseRadius * (1.08 + Math.random() * 0.45);
+          const theta = Math.random() * Math.PI * 2;
+          const phi = Math.acos(Math.random() * 2 - 1);
+
+          this.x0 = r * Math.sin(phi) * Math.cos(theta);
+          this.y0 = r * Math.sin(phi) * Math.sin(theta);
+          this.z0 = r * Math.cos(phi);
+
+          const roll = Math.random();
+          if (roll < 0.15) {
+            this.size = 7 + Math.random() * 3;
+            this.isSquare = true;
+          } else if (roll < 0.45) {
+            this.size = 3.5 + Math.random() * 2.5;
+            this.isSquare = true;
+          } else {
+            this.size = 1.4 + Math.random() * 1.6;
+            this.isSquare = Math.random() < 0.3;
+          }
+
+          this.rot = Math.random() * Math.PI * 2;
+          this.rotSpeed = (Math.random() - 0.5) * 0.02;
+          this.alpha = 0.45 + Math.random() * 0.50;
+        }
+
+        render(rotX, rotY, fov, cameraZ, cx, cy) {
+          const cosY = Math.cos(rotY * 0.7), sinY = Math.sin(rotY * 0.7);
+          const x1 = this.x0 * cosY - this.z0 * sinY;
+          const z1 = this.x0 * sinY + this.z0 * cosY;
+
+          const cosX = Math.cos(rotX * 0.7), sinX = Math.sin(rotX * 0.7);
+          const y2 = this.y0 * cosX - z1 * sinX;
+          const z2 = this.y0 * sinX + z1 * cosX;
+
+          const zDist = z2 + cameraZ;
+          if (zDist < 20) return;
+
+          const scale = fov / (fov + zDist);
+          const sx = cx + x1 * scale;
+          const sy = cy + y2 * scale;
+
+          this.rot += this.rotSpeed;
+
+          ctx.save();
+          ctx.translate(sx, sy);
+          ctx.rotate(this.rot);
+
+          ctx.fillStyle = `rgba(255, 255, 255, ${this.alpha})`;
+          if (this.size > 4 && z2 > 0) {
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 8;
+          }
+
+          if (this.isSquare) {
+            ctx.fillRect(-this.size / 2, -this.size / 2, this.size, this.size);
+          } else {
+            ctx.beginPath();
+            ctx.arc(0, 0, this.size * 0.6, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          ctx.restore();
+        }
+      }
+
+      // ─── 4. Build Sphere Mesh with 900+ Dense Volumetric Words ─────────────
+      let sphereNodes = [];
+      let dustParticles = [];
+
+      function buildSphere() {
+        sphereNodes = [];
+        const TOTAL = totalNodes;
+
+        const pool = [];
+        while (pool.length < TOTAL + 100) {
+          pool.push(...WORDS_DEF);
+        }
+
+        // 1. Center Hero word
+        const heroData = { w: currentHeroText, tier: "hero" };
+        sphereNodes.push(new SphereWordNode(heroData, Math.PI / 2, 0, 1.04, true));
+
+        // 2. Primary overlapping anchors (1:1 with reference picture layout)
+        const frontAnchors = [
+          { w: "flow", tier: "huge", phi: Math.PI / 2 - 0.28, theta: 0.32, rRatio: 1.08 },
+          { w: "create", tier: "huge", phi: Math.PI / 2 - 0.40, theta: -0.12, rRatio: 1.02 },
+          { w: "design", tier: "huge", phi: Math.PI / 2 - 0.10, theta: -0.52, rRatio: 1.06 },
+          { w: "ereclign", tier: "large", phi: Math.PI / 2 - 0.22, theta: -0.04, rRatio: 0.94 },
+          { w: "system", tier: "huge", phi: Math.PI / 2 + 0.26, theta: 0.08, rRatio: 1.02 },
+          { w: "data", tier: "large", phi: Math.PI / 2 + 0.16, theta: 0.50, rRatio: 1.04 },
+          { w: "build", tier: "large", phi: Math.PI / 2 + 0.36, theta: 0.60, rRatio: 1.00 },
+          { w: "workspace", tier: "large", phi: Math.PI / 2 + 0.50, theta: 0.16, rRatio: 0.98 },
+          { w: "productivity", tier: "large", phi: Math.PI / 2 + 0.34, theta: -0.46, rRatio: 0.96 },
+          { w: "digital", tier: "large", phi: Math.PI / 2 + 0.48, theta: -0.30, rRatio: 0.92 },
+          { w: "technology", tier: "large", phi: Math.PI / 2 + 0.76, theta: 0.04, rRatio: 1.02 },
+          { w: "innovation", tier: "large", phi: Math.PI / 2 + 0.70, theta: -0.28, rRatio: 0.98 },
+          { w: "workflow", tier: "large", phi: Math.PI / 2 - 0.08, theta: 0.82, rRatio: 1.02 },
+          { w: "future", tier: "large", phi: Math.PI / 2 + 0.66, theta: 0.56, rRatio: 1.04 },
+          { w: "code", tier: "large", phi: Math.PI / 2 - 0.62, theta: 0.42, rRatio: 0.95 },
+        ];
+
+        frontAnchors.forEach((anc) => {
+          const matched = WORDS_DEF.find(w => w.w.toLowerCase() === anc.w.toLowerCase()) || { w: anc.w, tier: anc.tier };
+          sphereNodes.push(new SphereWordNode(matched, anc.phi, anc.theta, anc.rRatio));
+        });
+
+        // 3. Dense Fibonacci distribution for all remaining words to solidly enclose the sphere
+        const remainingCount = TOTAL - sphereNodes.length;
+        for (let i = 0; i < remainingCount; i++) {
+          const phi = Math.acos(-1 + (2 * (i + 1)) / (remainingCount + 1));
+          const theta = Math.sqrt(remainingCount * Math.PI) * phi;
+          
+          // Volumetric XYZ radial variation: 0.86 ~ 1.15
+          const rSpread = 0.86 + ((i * 17) % 29) / 100 + (Math.sin(i * 3.1) * 0.04);
+          
+          sphereNodes.push(new SphereWordNode(pool[i % pool.length], phi, theta, rSpread));
+        }
+
+        // 4. Floating Dust Particles
+        dustParticles = Array.from({ length: 65 }, () => new FloatingDust(Math.min(W, H) * 0.48));
+      }
+
+      // ─── 5. Autonomous Gentle Animation (No Dragging) ──────────────────────
+      let rotX = 0.06;
+      let rotY = 0;
+      let timeSec = 0;
+
+      // ─── 6. Resize ─────────────────────────────────────────────────────────
+      function resize() {
+        dpr = window.devicePixelRatio || 1;
+        W = window.innerWidth;
+        H = window.innerHeight;
+        CX = W / 2;
+        CY = H / 2;
+        canvas.width = W * dpr;
+        canvas.height = H * dpr;
+        canvas.style.width = W + 'px';
+        canvas.style.height = H + 'px';
+        ctx.scale(dpr, dpr);
+        buildSphere();
+      }
+
+      window.addEventListener('resize', () => {
+        ctx.resetTransform();
+        resize();
+      });
+
+      // ─── 7. Main Rendering Loop ────────────────────────────────────────────
+      const FOV = 520;
+      const CAMERA_Z = 560;
+      let ringPhotonPhase = 0;
+
+      function render() {
+        // Continuous smooth celestial rotation
+        timeSec += 0.016;
+        rotY += autoSpinSpeed;
+        // Gentle organic pitch precession
+        rotX = 0.06 + Math.sin(timeSec * 0.35) * 0.04;
+
+        ctx.clearRect(0, 0, W, H);
+
+        // 🌟 EVEN LARGER SPHERE RADIUS (0.48 ~ 0.50 screen dimension)
+        const baseRadius = Math.min(W, H) * (W < 768 ? 0.50 : 0.47) * radiusMultiplier;
+
+        // Spherical ambient glow behind sphere
+        const ambientGlow = ctx.createRadialGradient(CX, CY, baseRadius * 0.2, CX, CY, baseRadius * 1.35);
+        ambientGlow.addColorStop(0, 'rgba(18, 26, 46, 0.45)');
+        ambientGlow.addColorStop(0.5, 'rgba(8, 12, 22, 0.25)');
+        ambientGlow.addColorStop(1, 'transparent');
+        ctx.fillStyle = ambientGlow;
+        ctx.beginPath();
+        ctx.arc(CX, CY, baseRadius * 1.35, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Update words
+        for (let i = 0; i < sphereNodes.length; i++) {
+          sphereNodes[i].update(rotX, rotY, baseRadius, FOV, CAMERA_Z, CX, CY);
+        }
+
+        // Sort words by Z depth (Back to Front)
+        sphereNodes.sort((a, b) => a.z - b.z);
+
+        // ── 7.1 Render Orbital Ring: BACK HALF (Z < 0) ────────────────────────
+        ringPhotonPhase += 0.018;
+        if (showRing) {
+          drawOrbitRing(baseRadius, rotX, rotY, false);
+        }
+
+        // ── 7.2 Render 3D Sphere Words (SOLID OPACITY, NO FADING AT BOUNDARY) ──
+        for (let i = 0; i < sphereNodes.length; i++) {
+          const node = sphereNodes[i];
+          const { screenX, screenY, scale, cosAngle, squashX, contourAngle, isFixedHero, data, tilt } = node;
+
+          const depthMultiplier = 0.74 + (cosAngle > 0 ? cosAngle * 0.60 : 0);
+          const finalFontSize = Math.round(node.baseSize * scale * depthMultiplier);
+          if (finalFontSize < 5) continue;
+
+          const isMonospace = data.tier === 'micro';
+          const fontFam = isMonospace ? "'DM Mono', monospace" : "'Inter', sans-serif";
+          ctx.font = `${node.weight} ${finalFontSize}px ${fontFam}`;
+
+          ctx.save();
+          ctx.translate(screenX, screenY);
+
+          // Curvature horizontal compression
+          ctx.scale(squashX, 1.0);
+
+          // Tilt angle
+          ctx.rotate(tilt + contourAngle);
+
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+
+          // 🌟 REMOVE LOW OPACITY FADING AT BOUNDARY:
+          // Keep all words crisp and solid so they clearly sculpt the spherical outline!
+          if (cosAngle > 0.15) {
+            // Front Hemisphere
+            if (isFixedHero || data.tier === "hero") {
+              ctx.fillStyle = '#ffffff';
+              ctx.shadowColor = 'rgba(255, 255, 255, 0.9)';
+              ctx.shadowBlur = Math.round(18 * cosAngle);
+            } else if (data.tier === 'huge') {
+              ctx.fillStyle = '#ffffff';
+              if (cosAngle > 0.5) {
+                ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+                ctx.shadowBlur = Math.round(12 * cosAngle);
+              }
+            } else if (data.tier === 'large') {
+              ctx.fillStyle = '#f1f5f9';
+            } else if (data.tier === 'mid') {
+              ctx.fillStyle = '#cbd5e1';
+            } else {
+              ctx.fillStyle = '#7dd3fc';
+            }
+          } else if (cosAngle >= -0.15) {
+            // 🌟 SPHERICAL RIM / BOUNDARY:
+            // Crisp light-slate, high opacity (0.92), clearly defining the outer circular silhouette!
+            ctx.fillStyle = 'rgba(203, 213, 225, 0.92)';
+          } else {
+            // Back Hemisphere: Solid deep slate mass (opacity 0.75), forming the dense dark interior
+            ctx.fillStyle = 'rgba(71, 85, 105, 0.75)';
+          }
+
+          ctx.fillText(node.text, 0, 0);
+          ctx.restore();
+        }
+
+        // ── 7.3 Render Orbital Ring: FRONT HALF (Z >= 0) ───────────────────────
+        if (showRing) {
+          drawOrbitRing(baseRadius, rotX, rotY, true);
+        }
+
+        // ── 7.4 Render Floating Dust & Micro Cubes ─────────────────────────────
+        if (showDust) {
+          dustParticles.forEach(d => d.render(rotX, rotY, FOV, CAMERA_Z, CX, CY));
+        }
+
+        requestAnimationFrame(render);
+      }
+
+      // ─── 8. Draw Orbital Planetary Ring ────────────────────────────────────
+      function drawOrbitRing(baseRadius, rotX, rotY, isFront) {
+        const ringRadius = baseRadius * 1.30;
+        const SEGMENTS = 160;
+        const tiltZ = -22 * (Math.PI / 180);
+        const cosTiltZ = Math.cos(tiltZ), sinTiltZ = Math.sin(tiltZ);
+        const cosIncl = 0.32;
+        const sinIncl = 0.95;
+
+        const pts = [];
+        for (let i = 0; i <= SEGMENTS; i++) {
+          const t = (i / SEGMENTS) * Math.PI * 2;
+          const u = ringRadius * Math.cos(t);
+          const v = ringRadius * Math.sin(t);
+
+          const rx0 = u;
+          const ry0 = v * cosIncl;
+          const rz0 = v * sinIncl;
+
+          const rx1 = rx0 * cosTiltZ - ry0 * sinTiltZ;
+          const ry1 = rx0 * sinTiltZ + ry0 * cosTiltZ;
+          const rz1 = rz0;
+
+          const cosY = Math.cos(rotY * 0.8), sinY = Math.sin(rotY * 0.8);
+          const x2 = rx1 * cosY - rz1 * sinY;
+          const z2 = rx1 * sinY + rz1 * cosY;
+
+          const cosX = Math.cos(rotX * 0.8), sinX = Math.sin(rotX * 0.8);
+          const y3 = ry1 * cosX - z2 * sinX;
+          const z3 = ry1 * sinX + z2 * cosX;
+
+          const zDist = z3 + CAMERA_Z;
+          const scale = FOV / (FOV + zDist);
+          const sx = CX + x2 * scale;
+          const sy = CY + y3 * scale;
+
+          pts.push({ sx, sy, z3, t });
+        }
+
+        ctx.beginPath();
+        let started = false;
+
+        for (let i = 0; i < pts.length; i++) {
+          const p = pts[i];
+          const matches = isFront ? p.z3 >= 0 : p.z3 < 0;
+
+          if (matches) {
+            if (!started) {
+              ctx.moveTo(p.sx, p.sy);
+              started = true;
+            } else {
+              ctx.lineTo(p.sx, p.sy);
+            }
+          } else {
+            started = false;
+          }
+        }
+
+        if (isFront) {
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+          ctx.lineWidth = 1.6;
+          ctx.shadowColor = '#38bdf8';
+          ctx.shadowBlur = 10;
+          ctx.stroke();
+
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.32)';
+          ctx.lineWidth = 3.5;
+          ctx.shadowBlur = 0;
+          ctx.stroke();
+
+          // Upper-right orbital flare ray
+          const flareIdx = Math.floor(SEGMENTS * 0.26);
+          const flarePt = pts[flareIdx];
+          if (flarePt && flarePt.z3 >= -20) {
+            ctx.save();
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(flarePt.sx, flarePt.sy);
+            ctx.lineTo(flarePt.sx + 50, flarePt.sy - 26);
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(flarePt.sx + 50, flarePt.sy - 26, 1.6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
+
+          // Sparks
+          const photonCount = 4;
+          for (let p = 0; p < photonCount; p++) {
+            const phase = (ringPhotonPhase + (p / photonCount) * Math.PI * 2) % (Math.PI * 2);
+            const idx = Math.floor((phase / (Math.PI * 2)) * SEGMENTS);
+            const pt = pts[idx];
+            if (pt && pt.z3 >= 0) {
+              ctx.save();
+              ctx.fillStyle = '#ffffff';
+              ctx.shadowColor = '#38bdf8';
+              ctx.shadowBlur = 14;
+              ctx.beginPath();
+              ctx.arc(pt.sx, pt.sy, 2.6, 0, Math.PI * 2);
+              ctx.fill();
+
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+              ctx.fillRect(pt.sx - 6, pt.sy - 0.7, 12, 1.4);
+              ctx.fillRect(pt.sx - 0.7, pt.sy - 6, 1.4, 12);
+              ctx.restore();
+            }
+          }
+        } else {
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+          ctx.lineWidth = 0.9;
+          ctx.shadowBlur = 0;
+          ctx.stroke();
+        }
+      }
+
+      resize();
+      render();
+    })();
+  </script>
+</body>
+</html>

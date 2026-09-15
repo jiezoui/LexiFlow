@@ -1,0 +1,39 @@
+﻿# Dependencies
+node_modules/
+**/node_modules/
+.pnpm-store/
+**/.pnpm-store/
+
+# Build outputs
+dist/
+**/dist/
+build/
+**/build/
+.next/
+**/.next/
+out/
+**/out/
+target/
+**/target/
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Environment and sensitive files
+.env
+.env*.local
+*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# IDE & Editors
+.idea/
+*.iml
+.vscode/
+
+# OS Files
+.DS_Store
+Thumbs.db

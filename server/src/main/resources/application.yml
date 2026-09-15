@@ -1,0 +1,54 @@
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: lexiflow-server
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/lexiflow_db?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: root
+    password: root
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+# MyBatis-Plus Configuration
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: null
+
+# SpringDoc OpenAPI 3 / Swagger
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    operations-sorter: method
+    tags-sorter: alpha
+
+# LexiFlow Custom Config
+lexiflow:
+  jwt:
+    # 256-bit+ secure base64 secret for HMAC-SHA256
+    secret: TGV4aUZsb3dNdWx0aU1vZGFsQ29nbml0aXZlU3BhY2VkUmVwZXRpdGlvbkp3dFNlY3JldEtleTIwMjY=
+    expiration: 604800000 # 7 days (ms)
+  fsrs:
+    request-retention: 0.90
+    maximum-interval: 36500

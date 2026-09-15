@@ -1,0 +1,22 @@
+
+CREATE TABLE IF NOT EXISTS 
+eading_article (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '文章唯一ID',
+    channel VARCHAR(50) NOT NULL DEFAULT 'WORLD' COMMENT '频道分类: WORLD, TECH, BUSINESS, SCIENCE, ENTERTAINMENT',
+    source_name VARCHAR(50) NOT NULL DEFAULT 'BBC News' COMMENT '来源期刊',
+    	itle VARCHAR(255) NOT NULL COMMENT '文章标题',
+    link VARCHAR(512) NOT NULL COMMENT '原文链接',
+    guid VARCHAR(255) NOT NULL COMMENT 'RSS唯一标识',
+    cover_url VARCHAR(512) DEFAULT NULL COMMENT '封面图片URL',
+    summary TEXT NOT NULL COMMENT '导读/前言',
+    content_clean MEDIUMTEXT DEFAULT NULL COMMENT '清洗后的文章正文段落 (JSON 数组格式)',
+    word_count INT NOT NULL DEFAULT 0 COMMENT '全文字数',
+    cefr_level VARCHAR(10) NOT NULL DEFAULT 'B2' COMMENT 'CEFR预估难度 (B1, B2, C1, C2)',
+    	arget_words TEXT DEFAULT NULL COMMENT '推荐研读核心词 (JSON)',
+    published_at DATETIME DEFAULT NULL COMMENT '发布时间',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '抓取时间',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_guid (guid),
+    KEY idx_channel_pub (channel, published_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='沉浸阅读文章库';
