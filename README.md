@@ -1,70 +1,92 @@
-# 语脉 · LexiFlow
+﻿# 语脉 · LexiFlow
 
 > **通连读语脉，入记忆心流。**  
-> An AI-native, multi-modal English learning platform that bridges systematic wordbook memorization with real-world video context harvesting, powered by FSRS spaced repetition.
+> An AI-native, multi-modal English learning platform that bridges systematic wordbook memorization with real-world context harvesting, powered by FSRS spaced repetition.
 
 ---
 
-## 🌟 核心理念与差异化护城河
+## 🌟 核心特性与架构亮点
 
-现有语言学习工具迫使学习者在两条路线中二选一：
-* **词书背诵类**：解决了考纲**覆盖率**，但例句脱离真实语境，背完在真实语料里遇不到（“背了遇不到”）；
-* **语境字幕类**：解决了语料**鲜活度**，但缺乏科学的记忆排期算法，只积累不复习（“遇了记不住”）。
+传统语言学习工具往往割裂了“词书背诵”与“真实语境”：背词书例句脱离真实语境，遇到又认不出；看生肉语料又缺乏科学排期，难以持久巩固。**《语脉 · LexiFlow》** 采用 **双向反哺闭环 + 统合记忆引擎** 的架构方案：
 
-**《语脉 · LexiFlow》的核心解法：入口可以有两个（词书 / 视频），引擎必须只有一个（FSRS）！**
-
-1. **原声反哺词书**：背词书时，例句优先从**你自己看过的视频中提取原句**，并回放原演讲者**那一秒的原声音频**（非生硬的合成音）；
-2. **看视频正向反馈**：看视频时，系统自动识别并高亮标出“这句话里有你正在背诵的考纲词”；
-3. **行为动力学客观映射**：打字默写（耗时/退格）、听音拼写、影子跟读等客观练习信号，直接映射为 FSRS 记忆算法的四档评级（Easy / Good / Hard / Again）。
-
----
-
-## 📚 文档导航
-
-所有产品、架构与竞赛相关规范已完整归档于 [`docs/`](./docs/) 目录：
-
-* [**01-产品定义.md**](./docs/01-产品定义.md)：一句话定位、闭环逻辑与非目标（Non-goals）
-* [**02-研发路线图.md**](./docs/02-研发路线图.md)：S1~S9 阶段工作量预估与量化验收标准
-* [**03-技术架构.md**](./docs/03-技术架构.md)：Java 21 + Spring Boot 3.3 模块化单体与数据表架构
-* [**04-页面与信息架构.md**](./docs/04-页面与信息架构.md)：38 个路由规划与交互状态机
-* [**05-算法大赛参赛指南.md**](./docs/05-算法大赛参赛指南.md)：第八届全球校园人工智能算法精英大赛得分亮点与包装策略
-* [**06-设计风格与UI规范.md**](./docs/06-设计风格与UI规范.md)：现代纸感编辑风（Modern Paper Editorial）与 Design Tokens
-* [**07-开发规范与工程准则.md**](./docs/07-开发规范与工程准则.md)：ArchUnit 架构守卫、三层流转规范与 Git 提交准则
-* [**语脉LexiFlow-产品需求文档.md**](./docs/语脉LexiFlow-产品需求文档.md)：完整的中文产品需求文档（PRD）
-* [**开发日志.md**](./开发日志.md)：实时记录当前做到哪了、下一步做什么的追踪日志
+1. **🧠 FSRS 自适应记忆引擎**：
+   - 告别传统艾宾浩斯与粗糙的 SM-2 算法，全面接入 **FSRS (Free Spaced Repetition Scheduler)**；
+   - 结合用户打字默写（耗时/退格）、拼写与复述等客观行为动力学信号，精准映射为四档记忆评级（Easy / Good / Hard / Again）。
+2. **⚡ 亚毫秒级 ECDICT 本地词典引擎**：
+   - 内置 **77 万词条** 全量离线词典数据库，后端基于内存行首偏移量索引技术，启动仅需 160ms，实现 **0.02ms** 亚毫秒级查词与词形还原（Lemmatization）。
+3. **📰 分级阅读与语境反哺闭环**：
+   - 抓取真实双语外刊与资讯语料，结合 CEFR 分级算法实时计算文章难度与已知词覆盖率；
+   - 沉浸式分段阅读，支持点词即查、语境生词高亮与一键收录生词本。
+4. **🤖 AI 语境精翻与助记网关**：
+   - 内置智能网关，针对当前上下文进行长难句深度拆解、语境精准释义与词源记忆故事生成。
+5. **🎨 现代纸感编辑风 UI（Modern Paper Editorial）**：
+   - 采用 Next.js 14 App Router + Tailwind CSS + shadcn/ui，全站等宽数字排版、沉浸式卡片流与优雅的暗色/纸质质感交互。
 
 ---
 
 ## 🛠️ 技术栈总览
 
-* **核心算法与 AI 模型**：FSRS (Free Spaced Repetition Scheduler)、OpenAI Whisper (影子跟读发音对齐评测)、ECDICT (770万词典与词形还原反查库)、LibreTranslate (开源神经机翻离线兜底)、Spring AI (LLM 语境精翻与助记)
-* **后端工程**：Java 21 (虚拟线程 Virtual Threads) + Spring Boot 3.3 + MyBatis-Plus + ArchUnit 架构测试守卫 + AES-GCM-256 密钥加密
-* **数据与存储**：MySQL 8.4 (InnoDB + ngram 全文索引 + JSON 预分词) + Redis 7 (热词缓存与限流)
-* **前端交互**：React / Next.js / Vue 3 + Tailwind CSS + shadcn/ui + `requestAnimationFrame` 毫秒级字幕同步 + Web Audio API 录音
-* **部署运维**：单机 Docker Compose 一键启动
+| 维度 | 技术选型 | 说明 |
+| :--- | :--- | :--- |
+| **前端架构** | **Next.js 14 (App Router) + React 19** | 全栈 SSR / 客户端混合渲染 |
+| **UI 与样式** | **Tailwind CSS + shadcn/ui + Lucide** | 现代极简编辑风格、Design Tokens 规范 |
+| **后端架构** | **Java 17 / 21 + Spring Boot 3.3** | 模块化单体架构，高性能与高扩展性 |
+| **持久层** | **MyBatis-Plus + MySQL 8.0+** | UTF8MB4 字符集、自动分页与状态机流转 |
+| **核心算法** | **FSRS Algorithm + ECDICT Engine** | 间隔重复排期算法 + 本地离线快速字典 |
+| **接口文档** | **SpringDoc OpenAPI 3 (Swagger-UI)** | 标准化 RESTful API 文档与联调工作台 |
+
+---
+
+## 📁 工程目录架构
+
+```text
+LexiFlow-Core/
+├── LexiFlow/                 # 【前端工程】
+│   ├── src/                  # Next.js 源码 (app路由、components、hooks、lib)
+│   ├── public/               # 静态图标与矢量素材
+│   ├── package.json          # 前端依赖配置
+│   ├── pnpm-lock.yaml        # 依赖版本精准锁定文件
+│   └── tsconfig.json 等      # 构建配置
+│
+├── server/                   # 【后端工程】
+│   ├── src/main/java/        # Java 源码 (Controller, Service, Mapper, FSRS算法)
+│   ├── src/main/resources/   # 配置文件 (application.yml) 与数据库脚本 (db/*.sql)
+│   └── pom.xml               # Maven 依赖与构建配置
+│
+├── material/                 # 【核心数据物料】
+│   ├── ecdict.csv            # 77万词条离线字典 (亚毫秒内存索引数据源)
+│   ├── ecdict.mini.csv       # 轻量词条测试样本
+│   └── 参考资料与引用出处.md # 开源协议与合规清单
+│
+├── deploy/                   # 【部署脚本】
+│   └── nginx/                # 反代与端口配置文件
+│
+├── .gitignore                # 生产级 Git 忽略规则
+└── README.md                 # 项目总览与使用说明
+```
 
 ---
 
 ## 🚀 快速启动指南 (Quick Start)
 
-### 1. 环境准备
-* **Java**: JDK 17 或 JDK 21
+### 1. 环境准备要求
+* **Java 环境**: JDK 17 或 JDK 21（项目使用 Spring Boot 3）
+* **Node.js**: Node.js 18.x 或更高版本（推荐使用 `pnpm`）
 * **构建工具**: Maven 3.8+
-* **Node.js**: Node 18.x 或更高版本（推荐使用 `pnpm`）
 * **数据库**: MySQL 8.0+
 
 ### 2. 数据库初始化
-1. 启动本地 MySQL 服务（端口 3306）。
+1. 启动本地 MySQL 服务（默认端口 3306）。
 2. 在 MySQL 中创建数据库 `lexiflow_db`：
    ```sql
    CREATE DATABASE IF NOT EXISTS lexiflow_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
    ```
 3. 按顺序导入 `server/src/main/resources/db/` 目录下的 SQL 脚本：
-   - 运行 `schema.sql`（基础表结构）
-   - 运行 `seed.sql`（核心词书及系统初始数据）
-   - 运行 `migration_reading.sql`（分级阅读扩展结构）
-4. 检查后端数据库连接：
-   - 打开 `server/src/main/resources/application.yml`，确认 `username`（默认 `root`）和 `password`（默认 `root`）与本地 MySQL 一致。
+   - 运行 `schema.sql`（创建核心数据表结构）
+   - 运行 `seed.sql`（导入基础词书、示例卡片与默认测试用户）
+   - 运行 `migration_reading.sql`（导入分级阅读与生词流扩展结构）
+4. 确认数据库连接：
+   - 打开 `server/src/main/resources/application.yml`，确认 `username`（默认 `root`）和 `password`（默认 `root`）与本地 MySQL 匹配。
 
 ### 3. 启动后端工程
 ```bash
@@ -72,21 +94,29 @@ cd server
 mvn spring-boot:run
 ```
 * 后端服务根路径：`http://localhost:8080`
-* OpenAPI / Swagger 接口文档：`http://localhost:8080/swagger-ui.html`
+* 接口文档地址：`http://localhost:8080/swagger-ui.html`
 * *注：后端在启动时会自动读取 `material/ecdict.csv` 构建 77 万词条的亚毫秒级内存索引。*
 
 ### 4. 启动前端工程
-打开新的命令行终端：
+在项目根目录下打开新的终端窗口：
 ```bash
 cd LexiFlow
 pnpm install
 pnpm dev
 ```
 * 浏览器访问地址：`http://localhost:3000`
-* 前端通过 Next.js 内置反向代理自动将 `/api/*` 请求转发至后端的 `http://127.0.0.1:8080/api/*`，无需额外配置跨域。
+* 前端通过 Next.js 内置反向代理（Rewrite）自动将 `/api/*` 请求转发至后端的 `http://127.0.0.1:8080/api/*`，开发环境下无需额外配置跨域。
+
+### 5. 默认测试账号
+如果已导入 `seed.sql`，可直接使用系统预置的测试账号体验全功能：
+* **账号**：`lin`
+* **密码**：`123456`
+*(也可以在注册页面直接注册全新账号体验)*
 
 ---
 
 ## 📄 许可证与开源引用
 
-本项目开源引用及许可证合规清单请参见 [`material/参考资料与引用出处.md`](./material/参考资料与引用出处.md)。
+本项目开源引用及合规清单请参见 [`material/参考资料与引用出处.md`](./material/参考资料与引用出处.md)。
+* 核心词典数据源基于 [ECDICT](https://github.com/skywind3000/ECDICT)（MIT License）。
+* 记忆排期算法基于 [FSRS](https://github.com/open-spaced-repetition/fsrs4anki) 记忆模型原理自研实现。
