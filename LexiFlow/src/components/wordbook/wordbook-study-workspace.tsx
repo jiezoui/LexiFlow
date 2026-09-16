@@ -113,7 +113,7 @@ export function WordbookStudyWorkspace({
     try {
       setIsDeleting(true)
       await wordbookApi.delete(bookId)
-      showToast("🗑️ 词书已删除")
+      showToast("词书已删除")
       setShowDeleteModal(false)
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("lexiflow_wordbook_updated", { detail: { bookId } }))
@@ -337,7 +337,7 @@ export function WordbookStudyWorkspace({
         wordIds: Array.from(selectedWordIds),
         action,
       })
-      showToast(`🎉 ${res.message}`)
+      showToast(res.message)
       setSelectedWordIds(new Set())
       await Promise.all([fetchCountsAndMeta(), fetchWordItems()])
       if (typeof window !== "undefined") {
@@ -380,7 +380,7 @@ export function WordbookStudyWorkspace({
     link.download = `${bookInfo?.title || "LexiFlow_Wordbook"}_${new Date().toISOString().slice(0, 10)}.csv`
     link.click()
     URL.revokeObjectURL(url)
-    showToast(`✅ 已成功导出 ${targetWords.length} 个单词`)
+    showToast(`已成功导出 ${targetWords.length} 个单词`)
   }
 
   // 单个快捷操作
@@ -391,7 +391,7 @@ export function WordbookStudyWorkspace({
         wordIds: [wordId],
         action: currentKnown ? "RESET" : "MARK_KNOWN",
       })
-      showToast(currentKnown ? "已取消标熟" : "⚔️ 已成功斩词标熟！")
+      showToast(currentKnown ? "已取消标熟" : "已成功斩词标熟")
       await Promise.all([fetchCountsAndMeta(), fetchWordItems()])
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("lexiflow_wordbook_updated", { detail: { bookId } }))
@@ -410,7 +410,7 @@ export function WordbookStudyWorkspace({
         wordIds: [wordId],
         action: "LEARN",
       })
-      showToast("🚀 已推入今日闪卡研习！")
+      showToast("已推入今日闪卡研习")
       await Promise.all([fetchCountsAndMeta(), fetchWordItems()])
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("lexiflow_wordbook_updated", { detail: { bookId } }))
@@ -560,7 +560,7 @@ export function WordbookStudyWorkspace({
                   包含 <span className="font-mono font-semibold text-foreground">{counts.allCount}</span> 个词条。
                 </p>
                 <div className="mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-[11px] leading-relaxed">
-                  ⚠️ 此操作将永久移除该词书的所有大纲词条。已添加到个人生词本复习的单词将保留在记忆库中，不会丢失。
+                  此操作将永久移除该词书的所有大纲词条。已添加到个人生词本复习的单词将保留在记忆库中，不会丢失。
                 </div>
               </div>
             </div>

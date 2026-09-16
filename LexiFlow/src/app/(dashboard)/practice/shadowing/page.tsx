@@ -287,7 +287,7 @@ export default function ShadowingPracticePage() {
       setIsEvaluating(false)
 
       setFeedbackToast(
-        `✓ 声学对齐计算完毕 (耗时: ${result.processingTimeMs}ms) · 综合跟读分: ${result.overallScore}`
+        `声学对齐计算完毕 (耗时: ${result.processingTimeMs}ms) · 综合跟读分: ${result.overallScore}`
       )
       setTimeout(() => setFeedbackToast(null), 4000)
     }, 450)
@@ -564,7 +564,7 @@ export default function ShadowingPracticePage() {
 
           <p className="text-[11px] font-mono text-muted-foreground">
             {isRecording
-              ? "🎙️ 请面对麦克风自然朗读上方英文，读完点击红色停止按钮..."
+              ? "请面对麦克风自然朗读上方英文，读完点击红色停止按钮..."
               : "跟读要诀：建议先听 1~2 遍标准原声，随后模仿母语者语流与连读语调"}
           </p>
         </div>
@@ -595,10 +595,10 @@ export default function ShadowingPracticePage() {
               </span>
               <span className="text-[10px] font-mono text-primary/80 mt-1 font-semibold">
                 {alignmentResult.overallScore >= 85
-                  ? "🌟 发音极佳 (肌肉记忆固化)"
+                  ? "发音极佳 (肌肉记忆固化)"
                   : alignmentResult.overallScore >= 70
-                  ? "👍 良好 (部分连读需注意)"
-                  : "💡 建议慢速多练 2 遍"}
+                  ? "良好 (部分连读需注意)"
+                  : "建议慢速多练 2 遍"}
               </span>
             </div>
 

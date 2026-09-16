@@ -2,6 +2,7 @@ package com.lexiflow.common.exception;
 
 import com.lexiflow.common.result.Result;
 import com.lexiflow.common.result.ResultCode;
+import com.lexiflow.infra.storage.StorageException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
@@ -28,6 +29,12 @@ public class GlobalExceptionHandler {
         }
         log.warn("参数校验异常: {}", sb);
         return Result.error(ResultCode.BAD_REQUEST.getCode(), sb.toString());
+    }
+
+    @ExceptionHandler(StorageException.class)
+    public Result<Void> handleStorageException(StorageException e) {
+        log.error("存储基础设施异常: {}", e.getMessage(), e);
+        return Result.error(e.getCode(), e.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

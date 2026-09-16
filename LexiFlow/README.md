@@ -1,113 +1,33 @@
-<div align="center">
+# LexiFlow 前端
 
-# Shadcn Fintech
+LexiFlow 的 Web 前端，基于 Next.js App Router、React、TypeScript 和 Tailwind CSS 构建。
 
-A premium, open-source fintech dashboard built with Next.js, shadcn/ui, and Tailwind CSS.
+## 运行
 
-[![CI](https://github.com/abderrahimghazali/shadcn-fintech/actions/workflows/ci.yml/badge.svg)](https://github.com/abderrahimghazali/shadcn-fintech/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE)
-[![Next.js](https://img.shields.io/badge/Next.js-16-black)](https://nextjs.org)
-[![shadcn/ui](https://img.shields.io/badge/shadcn%2Fui-latest-black)](https://ui.shadcn.com)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind-v4-black)](https://tailwindcss.com)
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-black)](https://typescriptlang.org)
-
-[Live Demo](https://shadcn-fintech.vercel.app) · [Report Bug](https://github.com/abderrahimghazali/shadcn-fintech/issues) · [Request Feature](https://github.com/abderrahimghazali/shadcn-fintech/issues)
-
-![Shadcn Fintech Dashboard](public/screenshots/shadcn-fintech.png)
-
-</div>
-
-## Features
-
-- **11 fully built pages** — Dashboard, Accounts, Transactions, Transfers, Cards, Crypto, Analytics, Investments, Budgets, Settings, Notifications
-- **Crypto dashboard** — Candlestick chart, live portfolio, trade form, market overview with 8 coins
-- **Drag-and-drop dashboard** — Rearrange widgets with dnd-kit, persisted to localStorage
-- **Interactive credit cards** — 3D flip animation, freeze toggle, virtual card generator
-- **Live investment ticker** — Simulated real-time price updates with flash animations
-- **Spending heatmap** — GitHub-style 365-day calendar visualization
-- **Actionable notifications** — Accept/decline money requests and device authorization inline
-- **Smart analytics** — Category drill-down donuts, recurring charge detector, AI insights
-- **Budget tracking** — Animated SVG progress rings, savings goals, month projection
-- **Quick transfers** — Contact selector with send simulation
-- **Auth pages** — Sign in / sign up with animated 3D globe, powered by [Clerk](https://clerk.com)
-- **Dark mode** — Full dark/light/system theme support
-- **Responsive** — Works on desktop, tablet, and mobile
-
-## Pages
-
-| Page | Description |
-|------|-------------|
-| `/dashboard` | Financial overview, wallet cards, quick transfer, spending limit, money movement |
-| `/accounts` | Linked bank accounts with balances, add account flow |
-| `/transactions` | Searchable table with filters, expandable rows, bulk CSV export |
-| `/transfers` | Send/receive/scheduled transfers with stats and quick send |
-| `/cards` | 3D flip card, freeze/unfreeze, spending controls, virtual card creator |
-| `/analytics` | Spending heatmap, category breakdown, recurring charges, AI insights |
-| `/crypto` | Candlestick chart, portfolio balance, top coins, trade form, market overview |
-| `/investments` | Portfolio allocation, holdings with sparklines, live ticker, watchlist |
-| `/budgets` | Budget rings, savings goals, spending calendar, month projection |
-| `/settings` | Profile, security, notifications, billing, appearance |
-| `/notifications` | Filterable notification feed with dismiss animations |
-| `/sign-in` | Auth page with animated 3D globe, social login, powered by Clerk |
-| `/sign-up` | Registration with name, email, password, terms acceptance |
-
-## Tech Stack
-
-| | Technology |
-|---|---|
-| Framework | [Next.js 16](https://nextjs.org) (App Router) |
-| UI | [shadcn/ui](https://ui.shadcn.com) |
-| Styling | [Tailwind CSS v4](https://tailwindcss.com) |
-| Charts | [Recharts](https://recharts.org) |
-| Animations | [Motion](https://motion.dev) |
-| Drag & Drop | [@dnd-kit](https://dndkit.com) |
-| Auth | [Clerk](https://clerk.com) |
-| 3D Globe | [three-globe](https://github.com/vasturiano/three-globe) + [Aceternity UI](https://ui.aceternity.com) |
-| Icons | [Lucide React](https://lucide.dev) |
-| Language | TypeScript |
-
-## Getting Started
-
-```bash
-git clone https://github.com/abderrahimghazali/shadcn-fintech.git
-cd shadcn-fintech
-pnpm install
-pnpm dev
+```powershell
+npm install
+npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to see the dashboard.
+访问 `http://localhost:3000`。
 
-## Customization
+后端默认运行在 `http://localhost:8080`。`next.config.ts` 将 `/api/*` 代理到后端，浏览器端应使用相对 API 地址。
 
-**Theme** — Edit `src/app/globals.css` to customize colors. Full dark mode support via CSS variables.
+## 常用命令
 
-**Mock Data** — All demo data lives in `src/data/seed.ts`. Replace with your own data or connect to a real API.
+```powershell
+npm run dev
+npm run build
+npm run start
+npm run lint
+```
 
-**Dashboard Layout** — Click "Customize" on the dashboard to drag and rearrange widgets. Persists to localStorage.
+## 视频模块
 
-## Sponsor this project
+- `/videos`：视频库、本地视频导入与处理状态
+- `/videos/[id]`：视频精听工作台与双语字幕
+- 视频与字幕数据来自后端 API，不在前端维护静态视频列表
+- 详情页播放、字幕定位和句子跳转以服务端 cue 时间轴为准
+- 媒体和字幕均为 `READY` 时，完整精听流程可用
 
-This project is free and open-source. If it helped you build something, saved you time, or you just think it's cool — consider supporting its development. Your sponsorship helps keep this project maintained, improved, and free for everyone.
-
-<a href="https://github.com/sponsors/abderrahimghazali">
-  <img src="https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=github&logoColor=white" alt="Sponsor on GitHub" />
-</a>
-<a href="https://buymeacoffee.com/abderrahimghazali">
-  <img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?logo=buy-me-a-coffee&logoColor=black" alt="Buy Me a Coffee" />
-</a>
-
-Every star, share, and contribution also goes a long way. Thank you for your support!
-
-## License
-
-Licensed under the [MIT License](LICENSE).
-
-## Author
-
-Created with ❤️ by **[Abderrahim Ghazali](https://github.com/abderrahimghazali)**
-
-Need help getting started or have a question? Feel free to reach out — I'm happy to help.
-
-<a href="https://cal.com/abderrahimghazali/15min?overlayCalendar=true">
-  <img src="https://img.shields.io/badge/Book%20a%20call-Cal.com-292929?logo=cal.com&logoColor=white" alt="Book a call" />
-</a>
+项目整体启动方式、Worker 配置和模型下载说明见仓库根目录 [README](../README.md)。

@@ -115,7 +115,7 @@ function WordbooksPageContent() {
         handleCloseDrawer()
       }
 
-      setImportSuccessMsg(`🗑️ 词书「${deleteTarget.title}」已安全删除！`)
+      setImportSuccessMsg(`词书「${deleteTarget.title}」已安全删除`)
       setTimeout(() => setImportSuccessMsg(null), 4000)
       setDeleteTarget(null)
       await loadWordbooks()
@@ -275,7 +275,7 @@ function WordbooksPageContent() {
       setUploadTitle("")
       setUploadDesc("")
       setUploadTags("")
-      setImportSuccessMsg(`🎉 自定义词书「${newBook.title}」导入成功！共计 ${newBook.totalWords} 词`)
+      setImportSuccessMsg(`自定义词书「${newBook.title}」导入成功，共计 ${newBook.totalWords} 词`)
       setTimeout(() => setImportSuccessMsg(null), 5000)
       await loadWordbooks()
     } catch (err: unknown) {
@@ -839,7 +839,7 @@ function WordbooksPageContent() {
                   该词书共收录 <span className="font-mono font-semibold text-foreground">{deleteTarget.totalWords}</span> 个词条。
                 </p>
                 <div className="mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-[11px] leading-relaxed">
-                  ⚠️ 此操作将永久移除该词书的所有大纲词条。已添加到个人生词本复习的单词将保留在记忆库中，不会丢失。
+                  此操作将永久移除该词书的所有大纲词条。已添加到个人生词本复习的单词将保留在记忆库中，不会丢失。
                 </div>
               </div>
             </div>

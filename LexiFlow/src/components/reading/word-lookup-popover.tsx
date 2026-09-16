@@ -671,7 +671,7 @@ export function WordLookupPopover({
         ) : (
           /* ==================== 模式 A：单词就近快查小窗 (1:1 参考图) ==================== */
           <div className="flex flex-col gap-2.5">
-            {/* 1. 顶部操作行：单词 + [✔ 标熟] + [♡ 收藏] */}
+            {/* 1. 顶部操作行：单词、标熟与收藏 */}
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-extrabold tracking-tight text-foreground">
                 {entry?.lemma || word}
@@ -771,7 +771,7 @@ export function WordLookupPopover({
                 <div className="text-xs text-muted-foreground py-1">
                   {entry?.definitionCn && !entry.definitionCn.includes("自定义导入词条")
                     ? entry.definitionCn
-                    : "暂无本地离线释义，可点击右下角 ✨ 调起 AI 解析"}
+                    : "暂无本地离线释义，可点击右下角调用 AI 解析"}
                 </div>
               )}
             </div>
@@ -784,7 +784,7 @@ export function WordLookupPopover({
               </div>
             )}
 
-            {/* 5. 底部工具状态栏：⏱ 复习次数 + [✨ AI] + [📖 词典抽屉] + [⚙ 设置] */}
+            {/* 5. 底部工具状态栏：复习次数、AI、词典抽屉与设置 */}
             <div className="flex items-center justify-between pt-2 border-t border-border/60">
               {/* 记忆复习状态 */}
               <div className="flex items-center gap-1.5">
@@ -1107,7 +1107,7 @@ export function WordLookupPopover({
                         {aiResult.examTips && !isThinkingNoise(aiResult.examTips) && (
                           <div className="p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/15 text-[11px] text-muted-foreground space-y-1 select-text">
                             <span className="font-bold text-blue-600 dark:text-blue-400 block text-[10px] tracking-wide">
-                              🎯 考点要点
+                              考点要点
                             </span>
                             <p className="text-foreground/85 leading-relaxed">{aiResult.examTips.replace(/<[^>]+>/g, "").trim()}</p>
                           </div>
@@ -1115,7 +1115,7 @@ export function WordLookupPopover({
                         {aiResult.mnemonics && !isThinkingNoise(aiResult.mnemonics) && (
                           <div className="p-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/15 text-[11px] text-muted-foreground space-y-1 select-text">
                             <span className="font-bold text-emerald-600 dark:text-emerald-400 block text-[10px] tracking-wide">
-                              💡 助记策略
+                              助记策略
                             </span>
                             <p className="text-foreground/85 leading-relaxed">{aiResult.mnemonics.replace(/<[^>]+>/g, "").trim()}</p>
                           </div>

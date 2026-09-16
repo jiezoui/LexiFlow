@@ -26,6 +26,74 @@ export interface LoginResult {
   user: UserInfo
 }
 
+export interface MediaUploadSession {
+  uploadId: string
+  mediaId: string
+  totalSize: number
+  partSize: number
+  totalParts: number
+  uploadedBytes: number
+  status: string
+  expiresAt: string
+}
+
+export interface MediaUploadPart {
+  partNumber: number
+  size: number
+  sha256: string
+  uploadedBytes: number
+  totalParts: number
+}
+
+export interface CompletedMediaUpload {
+  mediaId: string
+  sha256: string
+  mimeType: string
+  job: {
+    id: number
+    status: string
+    stage: string
+    progress: number
+  }
+}
+
+export interface MediaPlayback {
+  type: string | null
+  url: string | null
+  mimeType: string | null
+  fileSize: number | null
+}
+
+export interface MediaItem {
+  id: string
+  title: string
+  creator: string | null
+  source: string
+  coverUrl: string | null
+  durationSeconds: number | null
+  width: number | null
+  height: number | null
+  level: string | null
+  wpm: number | null
+  status: "UPLOADING" | "PROCESSING" | "WAITING_SUBTITLE" | "READY" | "FAILED" | string
+  processingStage: string | null
+  subtitleStatus: string
+  errorMessage: string | null
+  playback: MediaPlayback
+  createdAt: string
+}
+
+export interface MediaCue {
+  id: number
+  sequenceNo: number
+  startMs: number
+  endMs: number
+  sourceText: string
+  translation: string | null
+  translationLang: string | null
+  tokens: string | null
+}
+
 export interface DictEntry {
   id: number
   lemma: string
@@ -40,6 +108,11 @@ export interface DictEntry {
   frequencyRank: number
   sampleSentence: string
   sampleTranslation: string
+  synonyms?: string | null
+  antonyms?: string | null
+  derivatives?: string | null
+  spokenExamples?: string | null
+  ieltsUsage?: string | null
 }
 
 export interface Wordbook {
@@ -69,6 +142,11 @@ export interface WordbookItem {
   audioUs: string
   sampleSentence: string
   sampleTranslation: string
+  synonyms?: string | null
+  antonyms?: string | null
+  derivatives?: string | null
+  spokenExamples?: string | null
+  ieltsUsage?: string | null
   isInUserVocab: boolean
   cardState: number | null
   isKnown: boolean
@@ -86,6 +164,11 @@ export interface WordbookStudyItem {
   audioUs?: string
   sampleSentence?: string
   sampleTranslation?: string
+  synonyms?: string | null
+  antonyms?: string | null
+  derivatives?: string | null
+  spokenExamples?: string | null
+  ieltsUsage?: string | null
   studyStatus: "UNLEARNED" | "REVIEWING" | "COMPLETED" | "MASTERED"
   isKnown: number
   masteredDate?: string | null
@@ -121,6 +204,11 @@ export interface UserWordCard {
   source: string
   contextSentence: string
   contextTranslation: string
+  synonyms?: string | null
+  antonyms?: string | null
+  derivatives?: string | null
+  spokenExamples?: string | null
+  ieltsUsage?: string | null
   state: number
   stateDescription: string
   stability: number
@@ -157,6 +245,11 @@ export interface ReviewQueueCard {
   source: string
   contextSentence: string
   contextTranslation: string
+  synonyms?: string | null
+  antonyms?: string | null
+  derivatives?: string | null
+  spokenExamples?: string | null
+  ieltsUsage?: string | null
   state: number
   stability: number
   difficulty: number
@@ -183,7 +276,74 @@ export interface NewWordQuiz {
   tags: string
   sampleSentence: string
   sampleTranslation: string
+  synonyms?: string | null
+  antonyms?: string | null
+  derivatives?: string | null
+  spokenExamples?: string | null
+  ieltsUsage?: string | null
   options: QuizOption[]
+}
+
+export interface IeltsUsage {
+  label: string
+  scene: string
+}
+
+/**
+ * Parse relation data returned by the backend. New data is stored as a JSON
+ * array, while the delimiter fallback keeps older imported dictionary rows
+ * usable as well.
+ */
+export function parseJsonArray(value?: string | null): string[] {
+  const source = value?.trim()
+  if (!source) return []
+
+  try {
+    const parsed: unknown = JSON.parse(source)
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    }
+  } catch {
+    // Older dictionary rows may contain a plain delimiter-separated string.
+  }
+
+  return source
+    .split(/[,，;；\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+/** Parse the IELTS usage JSON object without letting malformed legacy data break the UI. */
+export function parseIeltsUsage(value?: string | null): IeltsUsage | null {
+  const source = value?.trim()
+  if (!source) return null
+
+  try {
+    const parsed: unknown = JSON.parse(source)
+    if (typeof parsed === "string") {
+      const scene = parsed.trim()
+      return scene ? { label: "IELTS", scene } : null
+    }
+
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const record = parsed as Record<string, unknown>
+      const rawLabel = record.label ?? record.level ?? record.band ?? record.title
+      const rawScene = record.scene ?? record.context ?? record.description ?? record.usage
+      const label = typeof rawLabel === "string" ? rawLabel.trim() : ""
+      const scene = typeof rawScene === "string" ? rawScene.trim() : ""
+
+      if (label || scene) {
+        return { label: label || "IELTS", scene }
+      }
+    }
+  } catch {
+    // Preserve a readable fallback for legacy plain-text values.
+  }
+
+  return { label: "IELTS", scene: source }
 }
 
 export interface ReviewResult {
@@ -292,8 +452,8 @@ async function request<T>(
       headers,
       signal: options.signal || controller.signal,
     })
-  } catch (err: any) {
-    if (err.name === "AbortError") {
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") {
       throw new Error(`网络请求超时 (8s): ${endpoint}`)
     }
     throw err
@@ -316,6 +476,37 @@ async function request<T>(
   }
 
   return json.data
+}
+
+async function uploadBinary<T>(endpoint: string, body: Blob, signal?: AbortSignal): Promise<T> {
+  const token = getToken()
+  const headers: Record<string, string> = {
+    "Content-Type": "application/octet-stream",
+  }
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+
+  const response = await fetch(endpoint, {
+    method: "PUT",
+    headers,
+    body,
+    signal,
+  })
+  if (!response.ok) {
+    let message = `HTTP Error: ${response.status} ${response.statusText}`
+    try {
+      const payload = await response.json()
+      if (payload.message) message = payload.message
+    } catch {}
+    throw new Error(message)
+  }
+
+  const payload: ApiResponse<T> = await response.json()
+  if (payload.code !== 200) {
+    throw new Error(payload.message || "分片上传失败")
+  }
+  return payload.data
 }
 
 // 01. 身份认证 API
@@ -556,6 +747,39 @@ export const readingApi = {
     request<ChannelStat[]>("/api/reading/channels"),
 }
 
+// 09. 本地视频上传与媒体处理 API
+export const mediaApi = {
+  list: () => request<MediaItem[]>("/api/media"),
+  detail: (mediaId: string) =>
+    request<MediaItem>(`/api/media/${encodeURIComponent(mediaId)}`),
+  cues: (mediaId: string) =>
+    request<MediaCue[]>(`/api/media/${encodeURIComponent(mediaId)}/cues`),
+  delete: (mediaId: string) =>
+    request<void>(`/api/media/${encodeURIComponent(mediaId)}`, { method: "DELETE" }),
+  createUpload: (file: File, signal?: AbortSignal) =>
+    request<MediaUploadSession>("/api/media/uploads", {
+      method: "POST",
+      signal,
+      body: JSON.stringify({
+        filename: file.name,
+        contentType: file.type || "application/octet-stream",
+        size: file.size,
+        title: file.name.replace(/\.[^.]+$/, ""),
+      }),
+    }),
+  uploadPart: (uploadId: string, partNumber: number, part: Blob, signal?: AbortSignal) =>
+    uploadBinary<MediaUploadPart>(
+      `/api/media/uploads/${encodeURIComponent(uploadId)}/parts/${partNumber}`,
+      part,
+      signal
+    ),
+  completeUpload: (uploadId: string, signal?: AbortSignal) =>
+    request<CompletedMediaUpload>(
+      `/api/media/uploads/${encodeURIComponent(uploadId)}/complete`,
+      { method: "POST", signal }
+    ),
+}
+
 // 08. AI 助理与模型网关 API
 export interface AiTestConnectionResult {
   success: boolean
@@ -601,5 +825,3 @@ export const aiApi = {
       body: JSON.stringify(data),
     }),
 }
-
-

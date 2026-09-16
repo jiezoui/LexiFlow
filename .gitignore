@@ -17,6 +17,7 @@ target/
 **/target/
 *.tsbuildinfo
 **/*.tsbuildinfo
+server/storage/
 
 # Environment and sensitive files
 .env

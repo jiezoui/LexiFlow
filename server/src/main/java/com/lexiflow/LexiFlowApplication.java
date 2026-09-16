@@ -12,7 +12,9 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
         "com.lexiflow.modules.vocabulary.mapper",
         "com.lexiflow.modules.review.mapper",
         "com.lexiflow.modules.stats.mapper",
-        "com.lexiflow.modules.reading.mapper"
+        "com.lexiflow.modules.reading.mapper",
+        "com.lexiflow.modules.media.mapper",
+        "com.lexiflow.infra.asyncjob.mapper"
 })
 public class LexiFlowApplication {
 

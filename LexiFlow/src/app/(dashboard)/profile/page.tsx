@@ -31,7 +31,7 @@ export default function ProfilePage() {
               开源语言研习者 · 专注 FSRS 记忆间隔模型与多模态语料采摘
             </p>
             <div className="mt-2.5 flex items-center gap-3 text-xs font-mono text-muted-foreground">
-              <span>📍 本地离线优先</span>
+              <span>本地离线优先</span>
               <span>•</span>
               <span>加入于 2026 年 3 月</span>
             </div>
