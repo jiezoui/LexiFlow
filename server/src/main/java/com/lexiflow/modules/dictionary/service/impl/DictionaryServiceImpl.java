@@ -265,7 +265,7 @@ public class DictionaryServiceImpl extends ServiceImpl<DictEntryMapper, DictEntr
             log.warn("MyMemory 降级翻译异常: {}", e.getMessage());
         }
 
-        return "（在线长句翻译通道暂时繁忙，支持点击下方 ✨ 使用 AI 深度语境精析）";
+        return "（在线长句翻译通道暂时繁忙，可点击下方使用 AI 深度语境精析）";
     }
 
     @Override

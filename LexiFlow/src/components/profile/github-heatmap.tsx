@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import { FlameIcon, CalendarIcon, TrophyIcon, SparklesIcon, CheckCircle2Icon } from "lucide-react"
+import { FlameIcon, TrophyIcon, SparklesIcon, CheckCircle2Icon } from "lucide-react"
 
 // Generate 52 weeks (364 days) of realistic review contribution data
 function generateYearContributionData() {
@@ -144,7 +144,7 @@ export function GithubHeatmap() {
             <div className="min-h-[18px]">
               {hoveredDay ? (
                 <span className="font-semibold text-foreground">
-                  📅 {hoveredDay.date} · <strong>{hoveredDay.count} 次</strong> FSRS 记忆反馈与语境采词
+                  {hoveredDay.date} · <strong>{hoveredDay.count} 次</strong> FSRS 记忆反馈与语境采词
                 </span>
               ) : (
                 <span>悬停方格查看每日研习明细</span>

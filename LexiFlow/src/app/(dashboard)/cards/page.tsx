@@ -216,7 +216,7 @@ export default function CardsPage() {
       localStorage.setItem("lexiflow_learn_batch_size", String(cleanSize))
     } catch {}
     setShowBatchModal(false)
-    setLastFeedback(`✓ 已设定每次研习新词数量为 ${cleanSize} 词/组`)
+    setLastFeedback(`已设定每次研习新词数量为 ${cleanSize} 词/组`)
     setTimeout(() => setLastFeedback(null), 3000)
 
     // 重新拉取新词队列并从头开始研习
@@ -240,14 +240,14 @@ export default function CardsPage() {
         resetLearnState()
         setCompletedLearnCards([])
         setIsLearnGroupCompleted(false)
-        setLastFeedback(`✓ ${res.message || "已成功彻底清空全部闪卡"}`)
+        setLastFeedback(res.message || "已成功彻底清空全部闪卡")
       } else if (activeMode === "REVIEW") {
         const res = await reviewApi.clearReviewQueue()
         setReviewQueue([])
         setReviewIndex(0)
         setIsFlipped(false)
         setCompletedReviewCards([])
-        setLastFeedback(`✓ ${res.message || "已成功清空复习闪卡"}`)
+        setLastFeedback(res.message || "已成功清空复习闪卡")
       } else {
         const res = await reviewApi.clearNewWordsQueue()
         setLearnQueue([])
@@ -255,7 +255,7 @@ export default function CardsPage() {
         resetLearnState()
         setCompletedLearnCards([])
         setIsLearnGroupCompleted(false)
-        setLastFeedback(`✓ ${res.message || "已成功清空未学新词闪卡"}`)
+        setLastFeedback(res.message || "已成功清空未学新词闪卡")
       }
       setTimeout(() => setLastFeedback(null), 3500)
       setShowClearModal(false)
@@ -533,7 +533,7 @@ export default function CardsPage() {
 
       const ratingLabel = rating === 1 ? "遗忘" : rating === 2 ? "困难" : rating === 3 ? "良好" : "简单"
       setLastFeedback(
-        `✓ 默写完成 [${currentCard.lemma}] · 评级: ${ratingLabel} · 调度至: ${res.intervalText} 后`
+        `默写完成 [${currentCard.lemma}] · 评级: ${ratingLabel} · 调度至: ${res.intervalText} 后`
       )
       setTimeout(() => setLastFeedback(null), 3000)
 
@@ -543,7 +543,7 @@ export default function CardsPage() {
         } else {
           // 全部通关！
           setChallengeSession({ active: false, sourceType: "AFTER_REVIEW", cards: [], currentIndex: 0 })
-          setLastFeedback("🎉 恭喜！本轮单词默写全部完成！记忆参数已同步更新。")
+          setLastFeedback("本轮单词默写全部完成，记忆参数已同步更新。")
           setIsLearnGroupCompleted(false)
           setCompletedLearnCards([])
           loadAllQueues(learnBatchSize)
@@ -645,7 +645,7 @@ export default function CardsPage() {
 
       setLastFeedback(
         finalCorrect
-          ? `✓ 已纳管新词 [${currentLearnCard.lemma}] · 纳入明日复习`
+          ? `已纳管新词 [${currentLearnCard.lemma}] · 纳入明日复习`
           : `↺ 已记录 [${currentLearnCard.lemma}] · 需重点回炉加固`
       )
       setTimeout(() => setLastFeedback(null), 3000)
@@ -756,7 +756,7 @@ export default function CardsPage() {
         durationMs: 1500,
       })
 
-      setLastFeedback(`⚔️ 已斩词 [${currentLearnCard.lemma}] · 永久移出复习流`)
+      setLastFeedback(`已斩词 [${currentLearnCard.lemma}] · 永久移出复习流`)
       setTimeout(() => setLastFeedback(null), 3000)
 
       setSessionCount((prev) => prev + 1)
@@ -1982,7 +1982,7 @@ export default function CardsPage() {
                             </div>
                           ) : (
                             <span className="text-xs sm:text-sm font-semibold text-muted-foreground">
-                              💡 需手动加固理解 · 已同步朗读 · 按 [S] 重听例句 · 确认后按 [Enter] 继续
+                              需手动加固理解 · 已同步朗读 · 按 [S] 重听例句 · 确认后按 [Enter] 继续
                             </span>
                           )}
                         </div>
@@ -2067,7 +2067,7 @@ export default function CardsPage() {
                           : "border-border bg-muted/40 text-foreground hover:bg-muted hover:border-primary/40"
                       }`}
                     >
-                      {size} 词{size === 10 ? " 🌟" : ""}
+                      {size} 词
                     </button>
                   ))}
                 </div>
@@ -2138,7 +2138,6 @@ export default function CardsPage() {
 
               {/* 科学说明 */}
               <div className="p-3 rounded-2xl bg-primary/5 border border-primary/15 text-[11px] text-muted-foreground leading-relaxed flex items-start gap-2">
-                <span className="text-primary text-base leading-none">💡</span>
                 <span>
                   <strong>认知心理学建议</strong>：每组 10~15 词最符合工作记忆广度（米勒法则）。学完一组后立刻进行单词默写检验，短时记忆向长时记忆转化率提升 40% 以上。
                 </span>
@@ -2168,7 +2167,7 @@ export default function CardsPage() {
                     {activeMode === "REVIEW" ? "清空复习闪卡" : "清空未学新词"}
                   </h3>
                   <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 font-semibold mt-0.5">
-                    {activeMode === "REVIEW" ? "⚡ 复习模式 · 独立清空" : "🌱 研习新词 · 独立清空"}
+                    {activeMode === "REVIEW" ? "复习模式 · 独立清空" : "研习新词 · 独立清空"}
                   </span>
                 </div>
               </div>
@@ -2286,7 +2285,7 @@ export default function CardsPage() {
                 ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
                 : lastFeedback.includes("良好") || lastFeedback.includes("Good")
                 ? "bg-sky-500/15 text-sky-600 dark:text-sky-400"
-                : lastFeedback.includes("⚡")
+                : lastFeedback.includes("盲打熟练")
                 ? "bg-violet-500/15 text-violet-600 dark:text-violet-400"
                 : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
             }`}
@@ -2297,7 +2296,7 @@ export default function CardsPage() {
               <ClockIcon className="size-3.5" />
             ) : lastFeedback.includes("良好") || lastFeedback.includes("Good") ? (
               <CheckCircle2Icon className="size-3.5" />
-            ) : lastFeedback.includes("⚡") ? (
+            ) : lastFeedback.includes("盲打熟练") ? (
               <ZapIcon className="size-3.5" />
             ) : (
               <CheckCircle2Icon className="size-3.5" />

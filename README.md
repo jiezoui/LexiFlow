@@ -1,122 +1,125 @@
-﻿# 语脉 · LexiFlow
+# 语脉 · LexiFlow
 
-> **通连读语脉，入记忆心流。**  
-> An AI-native, multi-modal English learning platform that bridges systematic wordbook memorization with real-world context harvesting, powered by FSRS spaced repetition.
+LexiFlow 是一个面向英语学习者的多模态学习系统，将词书、真实语境、视频字幕采词和 FSRS 间隔复习连接到同一套学习闭环中。
 
----
+## 核心能力
 
-## 🌟 核心特性与架构亮点
+- FSRS 自适应记忆排期与行为反馈
+- ECDICT 本地词典、词形还原与语境查词
+- 分级阅读、语境采词和生词本
+- AI 语境释义、长难句分析与助记
+- 本地视频上传、播放、字幕提取和精听
 
-传统语言学习工具往往割裂了“词书背诵”与“真实语境”：背词书例句脱离真实语境，遇到又认不出；看生肉语料又缺乏科学排期，难以持久巩固。**《语脉 · LexiFlow》** 采用 **双向反哺闭环 + 统合记忆引擎** 的架构方案：
+## 当前视频模块
 
-1. **🧠 FSRS 自适应记忆引擎**：
-   - 告别传统艾宾浩斯与粗糙的 SM-2 算法，全面接入 **FSRS (Free Spaced Repetition Scheduler)**；
-   - 结合用户打字默写（耗时/退格）、拼写与复述等客观行为动力学信号，精准映射为四档记忆评级（Easy / Good / Hard / Again）。
-2. **⚡ 亚毫秒级 ECDICT 本地词典引擎**：
-   - 内置 **77 万词条** 全量离线词典数据库，后端基于内存行首偏移量索引技术，启动仅需 160ms，实现 **0.02ms** 亚毫秒级查词与词形还原（Lemmatization）。
-3. **📰 分级阅读与语境反哺闭环**：
-   - 抓取真实双语外刊与资讯语料，结合 CEFR 分级算法实时计算文章难度与已知词覆盖率；
-   - 沉浸式分段阅读，支持点词即查、语境生词高亮与一键收录生词本。
-4. **🤖 AI 语境精翻与助记网关**：
-   - 内置智能网关，针对当前上下文进行长难句深度拆解、语境精准释义与词源记忆故事生成。
-5. **🎨 现代纸感编辑风 UI（Modern Paper Editorial）**：
-   - 采用 Next.js 14 App Router + Tailwind CSS + shadcn/ui，全站等宽数字排版、沉浸式卡片流与优雅的暗色/纸质质感交互。
+已经完成：
 
----
+- 本地视频分片上传、合并、元数据探测与 HTTP Range 播放
+- 独立媒体 Worker、任务领取、心跳、失败重试与进度状态
+- FFmpeg 探测与按需 H.264/AAC 转码
+- 用户字幕、内嵌字幕和 Whisper ASR 分级处理
+- faster-whisper `small + int8` CPU 推理
+- 字幕回传、视频库与双语字幕精听页面
+- Whisper 模型持久化缓存及断点续传
 
-## 🛠️ 技术栈总览
+YouTube、Bilibili 地址导入和翻译引擎的完整生产链路仍属于后续阶段。
 
-| 维度 | 技术选型 | 说明 |
-| :--- | :--- | :--- |
-| **前端架构** | **Next.js 14 (App Router) + React 19** | 全栈 SSR / 客户端混合渲染 |
-| **UI 与样式** | **Tailwind CSS + shadcn/ui + Lucide** | 现代极简编辑风格、Design Tokens 规范 |
-| **后端架构** | **Java 17 / 21 + Spring Boot 3.3** | 模块化单体架构，高性能与高扩展性 |
-| **持久层** | **MyBatis-Plus + MySQL 8.0+** | UTF8MB4 字符集、自动分页与状态机流转 |
-| **核心算法** | **FSRS Algorithm + ECDICT Engine** | 间隔重复排期算法 + 本地离线快速字典 |
-| **接口文档** | **SpringDoc OpenAPI 3 (Swagger-UI)** | 标准化 RESTful API 文档与联调工作台 |
+## 项目结构
 
----
+| 目录 | 说明 |
+| --- | --- |
+| `LexiFlow/` | Next.js 前端，默认端口 `3000` |
+| `server/` | Spring Boot API 与任务调度服务，默认端口 `8080` |
+| `media-worker/` | Python、FFmpeg、faster-whisper 媒体处理 Worker |
+| `material/` | 词典数据与第三方资料 |
+| `deploy/` | 部署配置 |
 
-## 📁 工程目录架构
+## 技术栈
 
-```text
-LexiFlow-Core/
-├── LexiFlow/                 # 【前端工程】
-│   ├── src/                  # Next.js 源码 (app路由、components、hooks、lib)
-│   ├── public/               # 静态图标与矢量素材
-│   ├── package.json          # 前端依赖配置
-│   ├── pnpm-lock.yaml        # 依赖版本精准锁定文件
-│   └── tsconfig.json 等      # 构建配置
-│
-├── server/                   # 【后端工程】
-│   ├── src/main/java/        # Java 源码 (Controller, Service, Mapper, FSRS算法)
-│   ├── src/main/resources/   # 配置文件 (application.yml) 与数据库脚本 (db/*.sql)
-│   └── pom.xml               # Maven 依赖与构建配置
-│
-├── material/                 # 【核心数据物料】
-│   ├── ecdict.csv            # 77万词条离线字典 (亚毫秒内存索引数据源)
-│   ├── ecdict.mini.csv       # 轻量词条测试样本
-│   └── 参考资料与引用出处.md # 开源协议与合规清单
-│
-├── deploy/                   # 【部署脚本】
-│   └── nginx/                # 反代与端口配置文件
-│
-├── .gitignore                # 生产级 Git 忽略规则
-└── README.md                 # 项目总览与使用说明
+- 前端：Next.js 16、React 19、TypeScript、Tailwind CSS 4
+- 后端：Java 17、Spring Boot 3.2.3、MyBatis-Plus、Flyway
+- 数据：MySQL 8、Redis、本地文件存储或 MinIO
+- 媒体处理：Python 3.11、FFmpeg、faster-whisper
+- 默认模型：`Systran/faster-whisper-small`，CPU 使用 `int8`
+
+## 本地运行
+
+### 1. 准备数据库
+
+启动 MySQL 和 Redis，并创建数据库：
+
+```sql
+CREATE DATABASE IF NOT EXISTS lexiflow_db
+  DEFAULT CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
 ```
 
----
+Flyway 会在后端启动时执行 `server/src/main/resources/db/migration/` 中的版本化迁移。示例数据仍可按需导入 `server/src/main/resources/db/seed.sql`。
 
-## 🚀 快速启动指南 (Quick Start)
+### 2. 启动后端
 
-### 1. 环境准备要求
-* **Java 环境**: JDK 17 或 JDK 21（项目使用 Spring Boot 3）
-* **Node.js**: Node.js 18.x 或更高版本（推荐使用 `pnpm`）
-* **构建工具**: Maven 3.8+
-* **数据库**: MySQL 8.0+
-
-### 2. 数据库初始化
-1. 启动本地 MySQL 服务（默认端口 3306）。
-2. 在 MySQL 中创建数据库 `lexiflow_db`：
-   ```sql
-   CREATE DATABASE IF NOT EXISTS lexiflow_db DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-   ```
-3. 按顺序导入 `server/src/main/resources/db/` 目录下的 SQL 脚本：
-   - 运行 `schema.sql`（创建核心数据表结构）
-   - 运行 `seed.sql`（导入基础词书、示例卡片与默认测试用户）
-   - 运行 `migration_reading.sql`（导入分级阅读与生词流扩展结构）
-4. 确认数据库连接：
-   - 打开 `server/src/main/resources/application.yml`，确认 `username`（默认 `root`）和 `password`（默认 `root`）与本地 MySQL 匹配。
-
-### 3. 启动后端工程
-```bash
+```powershell
 cd server
 mvn spring-boot:run
 ```
-* 后端服务根路径：`http://localhost:8080`
-* 接口文档地址：`http://localhost:8080/swagger-ui.html`
-* *注：后端在启动时会自动读取 `material/ecdict.csv` 构建 77 万词条的亚毫秒级内存索引。*
 
-### 4. 启动前端工程
-在项目根目录下打开新的终端窗口：
-```bash
+- API：`http://localhost:8080`
+- Swagger UI：`http://localhost:8080/swagger-ui.html`
+
+### 3. 启动前端
+
+```powershell
 cd LexiFlow
-pnpm install
-pnpm dev
+npm install
+npm run dev
 ```
-* 浏览器访问地址：`http://localhost:3000`
-* 前端通过 Next.js 内置反向代理（Rewrite）自动将 `/api/*` 请求转发至后端的 `http://127.0.0.1:8080/api/*`，开发环境下无需额外配置跨域。
 
-### 5. 默认测试账号
-如果已导入 `seed.sql`，可直接使用系统预置的测试账号体验全功能：
-* **账号**：`lin`
-* **密码**：`123456`
-*(也可以在注册页面直接注册全新账号体验)*
+访问 `http://localhost:3000`。前端的 `/api/*` 请求会代理到 `http://127.0.0.1:8080/api/*`。
 
----
+### 4. 启动媒体 Worker
 
-## 📄 许可证与开源引用
+```powershell
+docker build -t lexiflow-media-worker:local ./media-worker
+docker volume create lexiflow-whisper-cache
+docker run -d --name lexiflow-media-worker --restart unless-stopped `
+  -e LEXIFLOW_API_BASE=http://host.docker.internal:8080 `
+  -e LEXIFLOW_MEDIA_WORKER_TOKEN=change-me-in-production `
+  -e LEXIFLOW_WORKER_ID=media-worker-1 `
+  -e LEXIFLOW_WHISPER_MODEL=small `
+  -e LEXIFLOW_WHISPER_DEVICE=cpu `
+  -e LEXIFLOW_WHISPER_COMPUTE_TYPE=int8 `
+  -v lexiflow-whisper-cache:/root/.cache/huggingface `
+  lexiflow-media-worker:local
+```
 
-本项目开源引用及合规清单请参见 [`material/参考资料与引用出处.md`](./material/参考资料与引用出处.md)。
-* 核心词典数据源基于 [ECDICT](https://github.com/skywind3000/ECDICT)（MIT License）。
-* 记忆排期算法基于 [FSRS](https://github.com/open-spaced-repetition/fsrs4anki) 记忆模型原理自研实现。
+Worker Token 必须与后端 `lexiflow.async-job.worker-token` 一致。
+
+## 视频处理阶段
+
+```text
+UPLOADING
+  -> PROBING
+  -> TRANSCODING（按需）
+  -> ACQUIRING_SUBTITLE
+  -> DOWNLOADING_MODEL（首次运行）
+  -> TRANSCRIBING
+  -> NORMALIZING
+  -> FINALIZING
+  -> READY
+```
+
+Whisper `small` 模型首次下载约 484 MB，缓存保存在 Docker 卷 `lexiflow-whisper-cache` 中。连接中断时可以续传，重建 Worker 容器不会清空模型。
+
+完整精听功能可用时，状态应为：
+
+- 媒体：`READY`
+- 字幕：`READY`
+- 任务：`SUCCEEDED`
+- 进度：`100`
+
+## 文档
+
+- [产品说明](./PRODUCT.md)
+- [视频模块开发文档](./视频模块开发文档.md)
+- [媒体 Worker 说明](./media-worker/README.md)
+- [第三方资料与许可证](./material/参考资料与引用出处.md)

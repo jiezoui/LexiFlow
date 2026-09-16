@@ -35,7 +35,7 @@ export default function DashboardLayout({
           </div>
         </header>
         <CommandPalette />
-        <main className="flex flex-1 flex-col">{children}</main>
+        <main className="flex min-h-0 flex-1 flex-col">{children}</main>
       </SidebarInset>
     </SidebarProvider>
   )

@@ -287,9 +287,9 @@ public class WordbookServiceImpl extends ServiceImpl<WordbookMapper, WordbookEnt
 
         String msg;
         if (remainingCount == 0) {
-            msg = String.format("🎉 成功推入最后 %d 个新词！该词书已全部加入闪卡库。", importedCount);
+            msg = String.format("成功推入最后 %d 个新词，该词书已全部加入闪卡库。", importedCount);
         } else {
-            msg = String.format("🎉 成功推入本周期 %d 个新词至闪卡！该词书剩余待学 %d 词。", importedCount, remainingCount);
+            msg = String.format("成功推入本周期 %d 个新词至闪卡，该词书剩余待学 %d 词。", importedCount, remainingCount);
         }
 
         log.info("用户 {} 从词书 {} 成功推入 {} 个词，剩余未推入 {} 词", userId, wordbookId, importedCount, remainingCount);

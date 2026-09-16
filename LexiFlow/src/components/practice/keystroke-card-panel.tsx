@@ -182,7 +182,7 @@ export function KeystrokeCardPanel({
         return {
           rating: 4 as const,
           label: "简单 · Easy",
-          reason: `⚡ 盲打熟练，反应极佳 (思考用时: ${rtMs}ms)`,
+          reason: `盲打熟练，反应极佳 (思考用时: ${rtMs}ms)`,
           rtMs,
           ikdStd,
           backspaces,

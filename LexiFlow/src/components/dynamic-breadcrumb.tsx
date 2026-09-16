@@ -1,5 +1,6 @@
 "use client"
 
+import { Fragment } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
@@ -33,22 +34,25 @@ export function DynamicBreadcrumb() {
       <BreadcrumbList>
         {segments.map((segment, index) => {
           const href = "/" + segments.slice(0, index + 1).join("/")
-          const label = labelMap[segment] || segment.charAt(0).toUpperCase() + segment.slice(1)
+          const label =
+            index > 0 && segments[0] === "videos"
+              ? "精听工作台"
+              : labelMap[segment] || segment.charAt(0).toUpperCase() + segment.slice(1)
           const isLast = index === segments.length - 1
 
           return (
-            <BreadcrumbItem key={href} className={index === 0 && segments.length > 1 ? "hidden md:block" : undefined}>
-              {isLast ? (
-                <BreadcrumbPage className="font-semibold text-foreground">{label}</BreadcrumbPage>
-              ) : (
-                <>
+            <Fragment key={href}>
+              <BreadcrumbItem className={index === 0 && segments.length > 1 ? "hidden md:block" : undefined}>
+                {isLast ? (
+                  <BreadcrumbPage className="font-semibold text-foreground">{label}</BreadcrumbPage>
+                ) : (
                   <BreadcrumbLink render={<Link href={href} />} className="text-muted-foreground hover:text-primary">
                     {label}
                   </BreadcrumbLink>
-                  <BreadcrumbSeparator className="hidden md:block" />
-                </>
-              )}
-            </BreadcrumbItem>
+                )}
+              </BreadcrumbItem>
+              {!isLast && <BreadcrumbSeparator className="hidden md:block" />}
+            </Fragment>
           )
         })}
       </BreadcrumbList>

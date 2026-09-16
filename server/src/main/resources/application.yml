@@ -6,8 +6,26 @@ server:
       force: true
 
 spring:
+  servlet:
+    multipart:
+      max-file-size: 12MB
+      max-request-size: 13MB
   application:
     name: lexiflow-server
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 1
+    validate-on-migrate: true
+
+  data:
+    redis:
+      host: ${LEXIFLOW_REDIS_HOST:localhost}
+      port: ${LEXIFLOW_REDIS_PORT:6379}
+      password: ${LEXIFLOW_REDIS_PASSWORD:}
+      timeout: 2s
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -52,3 +70,41 @@ lexiflow:
   fsrs:
     request-retention: 0.90
     maximum-interval: 36500
+  storage:
+    type: ${LEXIFLOW_STORAGE_TYPE:local}
+    local:
+      root: ${LEXIFLOW_STORAGE_ROOT:./storage}
+    minio:
+      endpoint: ${LEXIFLOW_MINIO_ENDPOINT:http://localhost:9000}
+      access-key: ${LEXIFLOW_MINIO_ACCESS_KEY:minioadmin}
+      secret-key: ${LEXIFLOW_MINIO_SECRET_KEY:minioadmin}
+      bucket: ${LEXIFLOW_MINIO_BUCKET:lexiflow-media}
+  async-job:
+    worker-token: ${LEXIFLOW_MEDIA_WORKER_TOKEN:change-me-in-production}
+    claim-batch-size: 4
+    poll-interval-ms: 5000
+    reclaim-interval-ms: 30000
+    lock-timeout-seconds: 600
+    base-retry-seconds: 5
+    max-retry-seconds: 300
+    sse-timeout-ms: 1800000
+  media:
+    upload-part-size: 8388608
+    max-file-size: 4294967296
+    user-storage-quota: 21474836480
+    upload-expiration-hours: 24
+    max-duration-seconds: 14400
+    max-subtitle-size: 10485760
+    max-subtitle-cues: 20000
+    upload-cleanup-interval-ms: 3600000
+    deleted-retention-hours: 24
+    deleted-cleanup-interval-ms: 3600000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when_authorized

@@ -17,7 +17,18 @@ public enum ResultCode {
     PASSWORD_ERROR(1003, "密码错误"),
     WORD_NOT_FOUND(2001, "词条不存在"),
     CARD_NOT_FOUND(3001, "生词卡片不存在"),
-    CARD_ALREADY_EXISTS(3002, "该单词已在生词本中");
+    CARD_ALREADY_EXISTS(3002, "该单词已在生词本中"),
+    MEDIA_NOT_FOUND(4001, "视频素材不存在"),
+    MEDIA_UPLOAD_NOT_FOUND(4002, "视频上传会话不存在或已过期"),
+    MEDIA_UPLOAD_CONFLICT(4003, "视频上传状态冲突"),
+    MEDIA_FILE_INVALID(4004, "文件不是受支持的视频格式"),
+    MEDIA_QUOTA_EXCEEDED(4005, "视频大小或存储配额超限"),
+    MEDIA_RANGE_INVALID(4006, "视频播放区间无效"),
+    SUBTITLE_INVALID(4007, "字幕格式或时间轴无效"),
+    JOB_NOT_FOUND(4101, "异步任务不存在"),
+    JOB_STATE_CONFLICT(4102, "异步任务当前状态不允许该操作"),
+    WORKER_UNAUTHORIZED(4103, "媒体 Worker 认证失败"),
+    STORAGE_ERROR(4201, "文件存储操作失败");
 
     private final int code;
     private final String message;

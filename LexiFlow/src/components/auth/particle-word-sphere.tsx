@@ -530,7 +530,7 @@ export function ParticleWordSphere({
 
       ctx.clearRect(0, 0, width, height)
 
-      // 🌟 EVEN LARGER SPHERE RADIUS
+      // EVEN LARGER SPHERE RADIUS
       const baseRadius = Math.min(width, height) * (width < 768 ? 0.50 : 0.47) * radiusScale
 
       // Ambient glow behind sphere
@@ -579,7 +579,7 @@ export function ParticleWordSphere({
         ctx.textAlign = "center"
         ctx.textBaseline = "middle"
 
-        // 🌟 SOLID OPACITY, NO FADING AT BOUNDARY:
+        // SOLID OPACITY, NO FADING AT BOUNDARY:
         if (cosAngle > 0.15) {
           if (isFixedHero || data.tier === "hero") {
             ctx.fillStyle = "#ffffff"
