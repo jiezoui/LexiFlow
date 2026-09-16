@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import {
   PlayIcon,
-  SparklesIcon,
   BookOpenIcon,
   ArrowRightLeftIcon,
   SlidersHorizontalIcon,
@@ -14,7 +13,6 @@ import {
 import { wordbookApi, type Wordbook, type WordbookStatusCounts } from "@/lib/api-client"
 
 export function HeroMissionCard({ minimal = false }: { minimal?: boolean }) {
-  const [started, setStarted] = useState(false)
   const [activeBook, setActiveBook] = useState<Wordbook | null>(null)
   const [counts, setCounts] = useState<WordbookStatusCounts | null>(null)
   const [dailyTarget, setDailyTarget] = useState<number>(20)
@@ -65,18 +63,6 @@ export function HeroMissionCard({ minimal = false }: { minimal?: boolean }) {
     }
   }, [fetchActiveWordbookData])
 
-  // Listen to Space bar to trigger start session
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "Space" && document.activeElement === document.body) {
-        e.preventDefault()
-        setStarted(true)
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [])
-
   // 保存每日新词研习目标
   const handleSaveTarget = (targetNum: number) => {
     if (targetNum <= 0) return
@@ -115,17 +101,8 @@ export function HeroMissionCard({ minimal = false }: { minimal?: boolean }) {
 
   return (
     <article className="relative overflow-hidden rounded-3xl border border-zinc-200 dark:border-zinc-800 bg-zinc-950 text-zinc-50 p-6 sm:p-8 md:p-9 shadow-sm flex flex-col justify-between transition-all">
-      {/* ── 1. Top Header Row: FSRS Meta + Active Wordbook Pill ── */}
-      <div className="relative z-10 flex flex-wrap items-center justify-between gap-3 text-zinc-400 font-mono text-[11px] tracking-wider uppercase pb-5 border-b border-zinc-800/80">
-        <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1.5 font-bold text-zinc-200">
-            <SparklesIcon className="size-3.5 text-zinc-300" /> TODAY&apos;S MISSION · FSRS
-          </span>
-          <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-2.5 py-0.5 text-[10px] font-mono font-medium text-zinc-300">
-            {started ? "SESSION · 进行中" : "已自动排期"}
-          </span>
-        </div>
-
+      {/* ── 1. Top Header Row: Active Wordbook Pill ── */}
+      <div className="relative z-10 flex flex-wrap items-center justify-end gap-3 text-zinc-400 font-mono text-[11px] tracking-wider uppercase pb-5 border-b border-zinc-800/80">
         {/* Unified Active Wordbook Tag (动态展示当前主词书与真实标熟进度) */}
         <div className="flex items-center gap-2">
           <Link

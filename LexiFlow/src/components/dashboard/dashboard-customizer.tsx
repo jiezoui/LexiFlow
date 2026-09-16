@@ -185,10 +185,7 @@ export function DashboardCustomizer() {
       {/* Top Header Bar with Dual Mode Switch */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border">
         <div>
-          <div className="text-[11px] font-mono tracking-wider text-muted-foreground font-semibold uppercase">
-            Workspace · 语脉研习工作台
-          </div>
-          <h1 className="mt-0.5 text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
             今日学习概览
           </h1>
         </div>

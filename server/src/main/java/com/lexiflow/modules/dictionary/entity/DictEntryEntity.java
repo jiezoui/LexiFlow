@@ -83,5 +83,30 @@ public class DictEntryEntity {
      */
     private String sampleTranslation;
 
+    /**
+     * WordNet 近义词列表 (JSON 数组)
+     */
+    private String synonyms;
+
+    /**
+     * WordNet 反义词列表 (JSON 数组)
+     */
+    private String antonyms;
+
+    /**
+     * 词根形态与派生词 (JSON 数组)
+     */
+    private String derivatives;
+
+    /**
+     * Tatoeba 筛选的真实口语例句列表 (JSON 数组 [{line, meaning}])
+     */
+    private String spokenExamples;
+
+    /**
+     * 雅思写作/口语场景使用提示 (JSON 对象 {label, scene})
+     */
+    private String ieltsUsage;
+
     private LocalDateTime createdAt;
 }

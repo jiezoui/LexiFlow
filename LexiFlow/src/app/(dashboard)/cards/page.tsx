@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
@@ -10,7 +10,6 @@ import {
   XCircleIcon,
   ArrowRightIcon,
   ArrowLeftIcon,
-  BrainIcon,
   ClockIcon,
   PartyPopperIcon,
   RefreshCwIcon,
@@ -31,6 +30,8 @@ import {
   type ReviewQueueCard,
   type NewWordQuiz,
   type TodayReviewSummary,
+  parseJsonArray,
+  parseIeltsUsage,
 } from "@/lib/api-client"
 import { KeystrokeCardPanel } from "@/components/practice/keystroke-card-panel"
 
@@ -915,16 +916,10 @@ export default function CardsPage() {
     <div className="flex flex-1 flex-col gap-2.5 sm:gap-3 p-2.5 md:p-3.5 pt-1 max-w-5xl mx-auto w-full">
       {/* ── 顶部顶栏：标题 + 双模切换器 (Segmented Control) + 指标浮标 ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
-        <div>
-          <div className="text-[10px] font-mono tracking-wider text-primary font-semibold uppercase flex items-center gap-1.5">
-            <BrainIcon className="size-3" /> FSRS-4.5 Cognitive Learning & Review Desk
-          </div>
-          <h1 className="mt-0.5 text-lg sm:text-xl font-extrabold tracking-tight text-foreground">
-            语脉 · 记忆研习工作台
+        <div className="flex-1 text-center">
+          <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-foreground">
+            语脉 · 记忆训练场
           </h1>
-          <p className="mt-0.5 text-[11px] text-muted-foreground leading-tight">
-            复习加固旧词与认知识记新词二合一，释义翻面声学同步，支持键盘极速盲打盲背。
-          </p>
         </div>
 
         {/* 统计指标浮标 */}
@@ -1364,6 +1359,56 @@ export default function CardsPage() {
                         )}
                       </div>
                     )}
+
+                    {(() => {
+                      const syns = parseJsonArray(currentReviewCard.synonyms)
+                      const ants = parseJsonArray(currentReviewCard.antonyms)
+                      const dervs = parseJsonArray(currentReviewCard.derivatives)
+                      const ielts = parseIeltsUsage(currentReviewCard.ieltsUsage)
+                      const hasRel = syns.length > 0 || ants.length > 0 || dervs.length > 0 || !!ielts
+
+                      if (!hasRel) return null
+
+                      return (
+                        <div className="mt-2 text-left flex flex-wrap items-center gap-1.5 text-[11px]">
+                          {ielts && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium text-[10px]" title={ielts.scene}>
+                              {ielts.label}
+                            </span>
+                          )}
+                          {dervs.length > 0 && (
+                            <span className="inline-flex items-center gap-1 text-muted-foreground">
+                              <b className="font-semibold text-[10px] text-primary/80">派生:</b>
+                              {dervs.slice(0, 3).map((d) => (
+                                <span key={d} className="px-1.5 py-0.5 rounded bg-primary/5 text-primary/90 font-mono text-[10px] border border-primary/20">
+                                  {d}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                          {syns.length > 0 && (
+                            <span className="inline-flex items-center gap-1 text-muted-foreground">
+                              <b className="font-semibold text-[10px] text-emerald-600 dark:text-emerald-400">近:</b>
+                              {syns.slice(0, 3).map((s) => (
+                                <span key={s} className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-sans text-[10px]">
+                                  {s}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                          {ants.length > 0 && (
+                            <span className="inline-flex items-center gap-1 text-muted-foreground">
+                              <b className="font-semibold text-[10px] text-rose-500 dark:text-rose-400">反:</b>
+                              {ants.slice(0, 2).map((a) => (
+                                <span key={a} className="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-500 dark:text-rose-400 font-sans text-[10px]">
+                                  {a}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </div>
                 ) : (
                   currentReviewCard.contextSentence && (
@@ -1801,6 +1846,56 @@ export default function CardsPage() {
                       )}
                     </div>
                   )}
+
+                  {(() => {
+                    const syns = parseJsonArray(displayingLearnCard.synonyms)
+                    const ants = parseJsonArray(displayingLearnCard.antonyms)
+                    const dervs = parseJsonArray(displayingLearnCard.derivatives)
+                    const ielts = parseIeltsUsage(displayingLearnCard.ieltsUsage)
+                    const hasRel = syns.length > 0 || ants.length > 0 || dervs.length > 0 || !!ielts
+
+                    if (!hasRel) return null
+
+                    return (
+                      <div className="mt-1.5 text-left flex flex-wrap items-center gap-1.5 text-[11px]">
+                        {ielts && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium text-[10px]" title={ielts.scene}>
+                            {ielts.label}
+                          </span>
+                        )}
+                        {dervs.length > 0 && (
+                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                            <b className="font-semibold text-[10px] text-primary/80">派生:</b>
+                            {dervs.slice(0, 3).map((d) => (
+                              <span key={d} className="px-1.5 py-0.5 rounded bg-primary/5 text-primary/90 font-mono text-[10px] border border-primary/20">
+                                {d}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                        {syns.length > 0 && (
+                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                            <b className="font-semibold text-[10px] text-emerald-600 dark:text-emerald-400">近:</b>
+                            {syns.slice(0, 3).map((s) => (
+                              <span key={s} className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-sans text-[10px]">
+                                {s}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                        {ants.length > 0 && (
+                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                            <b className="font-semibold text-[10px] text-rose-500 dark:text-rose-400">反:</b>
+                            {ants.slice(0, 2).map((a) => (
+                              <span key={a} className="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-500 dark:text-rose-400 font-sans text-[10px]">
+                                {a}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               ) : null}
 

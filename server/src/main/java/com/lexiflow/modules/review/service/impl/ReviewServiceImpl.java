@@ -107,6 +107,11 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewLogMapper, ReviewLogEnt
                     .source(card.getSource())
                     .contextSentence(StringUtils.hasText(card.getContextSentence()) ? card.getContextSentence() : (entry != null ? entry.getSampleSentence() : ""))
                     .contextTranslation(StringUtils.hasText(card.getContextTranslation()) ? card.getContextTranslation() : (entry != null ? entry.getSampleTranslation() : ""))
+                    .synonyms(entry != null ? entry.getSynonyms() : null)
+                    .antonyms(entry != null ? entry.getAntonyms() : null)
+                    .derivatives(entry != null ? entry.getDerivatives() : null)
+                    .spokenExamples(entry != null ? entry.getSpokenExamples() : null)
+                    .ieltsUsage(entry != null ? entry.getIeltsUsage() : null)
                     .state(card.getState())
                     .stability(card.getStability())
                     .difficulty(card.getDifficulty())
@@ -341,6 +346,11 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewLogMapper, ReviewLogEnt
                     .tags(entry.getTags())
                     .sampleSentence(StringUtils.hasText(card.getContextSentence()) ? card.getContextSentence() : (entry != null ? entry.getSampleSentence() : ""))
                     .sampleTranslation(StringUtils.hasText(card.getContextTranslation()) ? card.getContextTranslation() : (entry != null ? entry.getSampleTranslation() : ""))
+                    .synonyms(entry != null ? entry.getSynonyms() : null)
+                    .antonyms(entry != null ? entry.getAntonyms() : null)
+                    .derivatives(entry != null ? entry.getDerivatives() : null)
+                    .spokenExamples(entry != null ? entry.getSpokenExamples() : null)
+                    .ieltsUsage(entry != null ? entry.getIeltsUsage() : null)
                     .options(optionList)
                     .build());
         }

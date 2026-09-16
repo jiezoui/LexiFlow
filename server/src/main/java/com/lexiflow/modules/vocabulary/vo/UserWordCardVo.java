@@ -54,6 +54,21 @@ public class UserWordCardVo {
     @Schema(description = "语境例句翻译快照")
     private String contextTranslation;
 
+    @Schema(description = "WordNet 近义词列表 (JSON 数组)")
+    private String synonyms;
+
+    @Schema(description = "WordNet 反义词列表 (JSON 数组)")
+    private String antonyms;
+
+    @Schema(description = "形态与同根派生词 (JSON 数组)")
+    private String derivatives;
+
+    @Schema(description = "Tatoeba 筛选口语例句列表 (JSON 数组)")
+    private String spokenExamples;
+
+    @Schema(description = "雅思写作/口语场景提示 (JSON 对象)")
+    private String ieltsUsage;
+
     @Schema(description = "卡片状态: 0=New, 1=Learning, 2=Review, 3=Relearning", example = "2")
     private Integer state;
 
@@ -66,7 +81,7 @@ public class UserWordCardVo {
     @Schema(description = "当前认知难度 D (1.0~10.0)", example = "4.52")
     private Double difficulty;
 
-    @Schema(description = "当前预测记忆保留度 R (0.0~1.0)", example = "0.91")
+    @Schema(description = "当前预测记忆保留率 R (0.0~1.0)", example = "0.91")
     private Double retrievability;
 
     @Schema(description = "下次计划复习时间")

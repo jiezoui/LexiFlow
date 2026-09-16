@@ -847,6 +847,7 @@ export function WordLookupPopover({
               <div className="flex items-center gap-2 pt-1 shrink-0 border-t border-border/40">
                 <input
                   type="text"
+                  maxLength={240}
                   value={aiQuestion}
                   onChange={(e) => setAiQuestion(e.target.value)}
                   onKeyDown={(e) => {

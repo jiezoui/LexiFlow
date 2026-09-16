@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
@@ -6,7 +6,6 @@ import {
   BookmarkCheckIcon,
   SearchIcon,
   Volume2Icon,
-  SparklesIcon,
   RefreshCwIcon,
   DownloadCloudIcon,
   Trash2Icon,
@@ -22,7 +21,7 @@ import {
   CheckCircle2Icon,
   XIcon,
 } from "lucide-react"
-import { vocabApi, type UserWordCard, type VocabOverview } from "@/lib/api-client"
+import { vocabApi, type UserWordCard, type VocabOverview, parseJsonArray, parseIeltsUsage } from "@/lib/api-client"
 
 type FilterTab = "ALL" | "DUE" | "NEW" | "LEARNING" | "MASTERED"
 
@@ -412,15 +411,9 @@ export default function VocabPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="text-[11px] font-mono tracking-wider text-muted-foreground font-semibold uppercase">
-            Active Vocabulary Vault · 原生语境生词本
-          </div>
-          <h1 className="mt-0.5 text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
             生词本与语境切片
           </h1>
-          <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
-            每一个生词均绑定真实音视频或阅读语境，依托 FSRS-4.5 算法实施科学抗遗忘调度。
-          </p>
         </div>
 
         {/* 顶部操作条 */}
@@ -702,6 +695,56 @@ export default function VocabPage() {
                       {card.contextTranslation}
                     </p>
                   )}
+
+                  {(() => {
+                    const syns = parseJsonArray(card.synonyms)
+                    const ants = parseJsonArray(card.antonyms)
+                    const dervs = parseJsonArray(card.derivatives)
+                    const ielts = parseIeltsUsage(card.ieltsUsage)
+                    const hasRel = syns.length > 0 || ants.length > 0 || dervs.length > 0 || !!ielts
+
+                    if (!hasRel) return null
+
+                    return (
+                      <div className="mt-2.5 pt-2 border-t border-border/30 flex flex-wrap items-center gap-1.5 text-[11px]">
+                        {ielts && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium text-[10px]" title={ielts.scene}>
+                            {ielts.label}
+                          </span>
+                        )}
+                        {dervs.length > 0 && (
+                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                            <b className="font-semibold text-[10px] text-primary/80">派生:</b>
+                            {dervs.slice(0, 3).map((d) => (
+                              <span key={d} className="px-1.5 py-0.5 rounded bg-primary/5 text-primary/90 font-mono text-[10px] border border-primary/20">
+                                {d}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                        {syns.length > 0 && (
+                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                            <b className="font-semibold text-[10px] text-emerald-600 dark:text-emerald-400">近:</b>
+                            {syns.slice(0, 3).map((s) => (
+                              <span key={s} className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-sans text-[10px]">
+                                {s}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                        {ants.length > 0 && (
+                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                            <b className="font-semibold text-[10px] text-rose-500 dark:text-rose-400">反:</b>
+                            {ants.slice(0, 2).map((a) => (
+                              <span key={a} className="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-500 dark:text-rose-400 font-sans text-[10px]">
+                                {a}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })()}
 
                   <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px] text-muted-foreground font-mono">
                     <div className="flex items-center gap-2">

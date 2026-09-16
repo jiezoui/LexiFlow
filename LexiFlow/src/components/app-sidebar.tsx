@@ -22,7 +22,6 @@ import {
   BookMarkedIcon,
   SettingsIcon,
   LifeBuoyIcon,
-  FlameIcon,
   SparklesIcon,
   BrainIcon,
   MicIcon,
@@ -85,29 +84,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavMain items={data.navCore} label="研习主线" />
         <NavMain items={data.navPractice} label="AI 算法工坊" />
         <NavMain items={data.navContext} label="真实语境" />
-
-        {/* Minimalist Monochrome Streak Widget */}
-        <div className="mx-3 my-3 p-3.5 rounded-2xl border border-border bg-card shadow-xs">
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span className="flex items-center gap-1.5 font-medium text-foreground">
-              <FlameIcon className="size-3.5" /> 研习连续
-            </span>
-            <span className="font-mono text-[10px] text-muted-foreground">保持专注</span>
-          </div>
-          <div className="mt-2 flex items-baseline justify-between">
-            <div className="font-mono text-2xl font-bold tracking-tight text-foreground">
-              12 <span className="font-sans text-[11px] font-normal text-muted-foreground">天</span>
-            </div>
-            <div className="text-right">
-              <span className="font-mono text-[11px] font-bold text-foreground">69%</span>
-              <span className="block text-[9px] text-muted-foreground">今日进度</span>
-            </div>
-          </div>
-          {/* Mini progress bar */}
-          <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-            <div className="h-full rounded-full bg-foreground transition-all" style={{ width: "69%" }} />
-          </div>
-        </div>
       </SidebarContent>
 
       <SidebarFooter className="border-t border-border pt-2 pb-3">

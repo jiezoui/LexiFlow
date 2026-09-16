@@ -79,6 +79,8 @@ public class EcdictAdapter {
             sampleTranslation = generateContextTranslation(lemma, pos, definitionCn);
         }
 
+        String derivatives = extractDerivatives(raw.getExchange());
+
         return DictEntryEntity.builder()
                 .lemma(lemma)
                 .phoneticUs(formattedPhonetic)
@@ -92,8 +94,34 @@ public class EcdictAdapter {
                 .frequencyRank(frequencyRank)
                 .sampleSentence(sampleSentence)
                 .sampleTranslation(sampleTranslation)
+                .derivatives(derivatives)
                 .createdAt(LocalDateTime.now())
                 .build();
+    }
+
+    private String extractDerivatives(String exchange) {
+        if (!StringUtils.hasText(exchange)) {
+            return null;
+        }
+        Set<String> words = new LinkedHashSet<>();
+        String[] parts = exchange.split("/");
+        for (String part : parts) {
+            int colon = part.indexOf(':');
+            if (colon >= 0 && colon < part.length() - 1) {
+                String val = part.substring(colon + 1).trim().toLowerCase();
+                if (val.matches("^[a-z]+(-[a-z]+)?$")) {
+                    words.add(val);
+                }
+            }
+        }
+        if (words.isEmpty()) {
+            return null;
+        }
+        try {
+            return OBJECT_MAPPER.writeValueAsString(new ArrayList<>(words));
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**

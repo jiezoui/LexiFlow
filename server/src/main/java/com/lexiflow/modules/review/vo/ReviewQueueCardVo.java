@@ -54,6 +54,21 @@ public class ReviewQueueCardVo {
     @Schema(description = "语境例句中文翻译快照")
     private String contextTranslation;
 
+    @Schema(description = "WordNet 近义词列表 (JSON 数组)")
+    private String synonyms;
+
+    @Schema(description = "WordNet 反义词列表 (JSON 数组)")
+    private String antonyms;
+
+    @Schema(description = "形态与同根派生词 (JSON 数组)")
+    private String derivatives;
+
+    @Schema(description = "Tatoeba 筛选口语例句列表 (JSON 数组)")
+    private String spokenExamples;
+
+    @Schema(description = "雅思写作/口语场景提示 (JSON 对象)")
+    private String ieltsUsage;
+
     @Schema(description = "卡片当前状态: 0=New, 1=Learning, 2=Review, 3=Relearning", example = "0")
     private Integer state;
 

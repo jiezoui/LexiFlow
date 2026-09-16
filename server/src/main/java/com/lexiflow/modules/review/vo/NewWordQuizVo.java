@@ -54,6 +54,21 @@ public class NewWordQuizVo {
     @Schema(description = "例句中文翻译", example = "感觉记忆是转瞬即逝的，除非被转存至长时记忆系统。")
     private String sampleTranslation;
 
+    @Schema(description = "WordNet 近义词列表 (JSON 数组)")
+    private String synonyms;
+
+    @Schema(description = "WordNet 反义词列表 (JSON 数组)")
+    private String antonyms;
+
+    @Schema(description = "形态与同根派生词 (JSON 数组)")
+    private String derivatives;
+
+    @Schema(description = "Tatoeba 筛选口语例句列表 (JSON 数组)")
+    private String spokenExamples;
+
+    @Schema(description = "雅思写作/口语场景提示 (JSON 对象)")
+    private String ieltsUsage;
+
     @Schema(description = "四选一释义选项集合 (打乱顺序，含 1 个正确项与 3 个随机混淆项)")
     private List<QuizOptionVo> options;
 }

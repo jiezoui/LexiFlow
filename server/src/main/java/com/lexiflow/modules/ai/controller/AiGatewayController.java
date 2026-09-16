@@ -9,6 +9,7 @@ import com.lexiflow.modules.ai.vo.AiExplainVo;
 import com.lexiflow.modules.ai.vo.AiTestConnectionVo;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -41,7 +42,7 @@ public class AiGatewayController {
 
     @Operation(summary = "外刊阅读单词 AI 语境解析", description = "根据文章当前句子的语境，由 AI 进行时态语态、核心搭配、考点要点和词根记忆分析")
     @PostMapping("/explain")
-    public Result<AiExplainVo> explainWord(@RequestBody AiExplainRequest request) {
+    public Result<AiExplainVo> explainWord(@Valid @RequestBody AiExplainRequest request) {
         AiExplainVo vo = aiGatewayService.explainWord(request);
         return Result.success(vo);
     }

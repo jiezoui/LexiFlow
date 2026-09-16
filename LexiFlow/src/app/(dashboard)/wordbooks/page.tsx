@@ -319,15 +319,9 @@ function WordbooksPageContent() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="text-[11px] font-mono tracking-wider text-primary font-semibold uppercase flex items-center gap-1.5">
-            <SparklesIcon className="size-3.5" /> Curated Repositories · 权威考纲与自建词库
-          </div>
-          <h1 className="mt-0.5 text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
             词书研习库
           </h1>
-          <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
-            内置考纲标准词库与自定义词书导入。当前主学习词书自动置顶，其他词书根据最近点击历史智能排序。
-          </p>
         </div>
 
         {/* Actions: Search + Upload Button */}

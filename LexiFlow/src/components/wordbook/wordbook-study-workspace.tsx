@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import Link from "next/link"
@@ -29,6 +29,8 @@ import {
   type WordbookStudyItem,
   type WordbookStatusCounts,
   type Wordbook,
+  parseJsonArray,
+  parseIeltsUsage,
 } from "@/lib/api-client"
 
 type StudyStatusKey = "ALL" | "UNLEARNED" | "REVIEWING" | "COMPLETED" | "MASTERED"
@@ -878,19 +880,75 @@ export function WordbookStudyWorkspace({
                   </div>
 
                   {word.sampleSentence && (
-                    <div className="rounded-xl bg-muted/40 p-2 border border-border/40 text-xs text-muted-foreground flex items-start justify-between gap-2">
-                      <p className="italic font-serif leading-relaxed flex-1">{word.sampleSentence}</p>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          playSentenceAudio(word.sampleSentence!)
-                        }}
-                        className={`p-1 text-muted-foreground hover:text-primary ${playingSentence === word.sampleSentence ? "text-primary animate-pulse" : ""}`}
-                      >
-                        <Volume2Icon className="size-3" />
-                      </button>
+                    <div className="rounded-xl bg-muted/40 p-2.5 border border-border/40 text-xs text-muted-foreground flex flex-col gap-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="italic font-serif leading-relaxed flex-1 text-foreground/90">“{word.sampleSentence}”</p>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            playSentenceAudio(word.sampleSentence!)
+                          }}
+                          className={`p-1 text-muted-foreground hover:text-primary shrink-0 ${playingSentence === word.sampleSentence ? "text-primary animate-pulse" : ""}`}
+                          title="朗读例句"
+                        >
+                          <Volume2Icon className="size-3.5" />
+                        </button>
+                      </div>
+                      {word.sampleTranslation && (
+                        <p className="text-[11px] text-muted-foreground font-sans">{word.sampleTranslation}</p>
+                      )}
                     </div>
                   )}
+
+                  {(() => {
+                    const syns = parseJsonArray(word.synonyms)
+                    const ants = parseJsonArray(word.antonyms)
+                    const dervs = parseJsonArray(word.derivatives)
+                    const ielts = parseIeltsUsage(word.ieltsUsage)
+                    const hasRelations = syns.length > 0 || ants.length > 0 || dervs.length > 0 || !!ielts
+
+                    if (!hasRelations) return null
+
+                    return (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[11px]">
+                        {ielts && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium text-[10px]" title={ielts.scene}>
+                            {ielts.label}
+                          </span>
+                        )}
+                        {dervs.length > 0 && (
+                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                            <b className="font-semibold text-[10px] text-primary/80">派生:</b>
+                            {dervs.slice(0, 3).map((d) => (
+                              <span key={d} className="px-1.5 py-0.5 rounded bg-primary/5 text-primary/90 font-mono text-[10px] border border-primary/20">
+                                {d}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                        {syns.length > 0 && (
+                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                            <b className="font-semibold text-[10px] text-emerald-600 dark:text-emerald-400">近:</b>
+                            {syns.slice(0, 3).map((s) => (
+                              <span key={s} className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-sans text-[10px]">
+                                {s}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                        {ants.length > 0 && (
+                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                            <b className="font-semibold text-[10px] text-rose-500 dark:text-rose-400">反:</b>
+                            {ants.slice(0, 2).map((a) => (
+                              <span key={a} className="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-500 dark:text-rose-400 font-sans text-[10px]">
+                                {a}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
             </div>

@@ -183,6 +183,11 @@ public class DictionaryServiceImpl extends ServiceImpl<DictEntryMapper, DictEntr
                 .frequencyRank(entity.getFrequencyRank())
                 .sampleSentence(entity.getSampleSentence())
                 .sampleTranslation(entity.getSampleTranslation())
+                .synonyms(entity.getSynonyms())
+                .antonyms(entity.getAntonyms())
+                .derivatives(entity.getDerivatives())
+                .spokenExamples(entity.getSpokenExamples())
+                .ieltsUsage(entity.getIeltsUsage())
                 .build();
     }
 

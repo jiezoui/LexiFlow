@@ -43,11 +43,26 @@ public class WordbookStudyVo {
     @Schema(description = "真人美音音频链接")
     private String audioUs;
 
-    @Schema(description = "真题语境例句", example = "Change is an inevitable part of human development.")
+    @Schema(description = "真题/原生语境例句", example = "Change is an inevitable part of human development.")
     private String sampleSentence;
 
     @Schema(description = "例句中文翻译", example = "变革是人类发展不可避免的一部分。")
     private String sampleTranslation;
+
+    @Schema(description = "WordNet 近义词列表 (JSON 数组)")
+    private String synonyms;
+
+    @Schema(description = "WordNet 反义词列表 (JSON 数组)")
+    private String antonyms;
+
+    @Schema(description = "形态与同根派生词 (JSON 数组)")
+    private String derivatives;
+
+    @Schema(description = "Tatoeba 筛选口语例句列表 (JSON 数组)")
+    private String spokenExamples;
+
+    @Schema(description = "雅思写作/口语场景提示 (JSON 对象)")
+    private String ieltsUsage;
 
     @Schema(description = "认知记忆状态: UNLEARNED (未学习), REVIEWING (复习中), COMPLETED (复习完成), MASTERED (已标熟)", example = "UNLEARNED")
     private String studyStatus;

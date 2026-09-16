@@ -54,4 +54,19 @@ public class DictEntryVo {
 
     @Schema(description = "例句中文翻译", example = "数字时代的声名往往如白驹过隙，转瞬即逝。")
     private String sampleTranslation;
+
+    @Schema(description = "WordNet 近义词列表 (JSON 数组)")
+    private String synonyms;
+
+    @Schema(description = "WordNet 反义词列表 (JSON 数组)")
+    private String antonyms;
+
+    @Schema(description = "形态与同根派生词 (JSON 数组)")
+    private String derivatives;
+
+    @Schema(description = "Tatoeba 筛选口语例句列表 (JSON 数组)")
+    private String spokenExamples;
+
+    @Schema(description = "雅思写作/口语场景提示 (JSON 对象)")
+    private String ieltsUsage;
 }

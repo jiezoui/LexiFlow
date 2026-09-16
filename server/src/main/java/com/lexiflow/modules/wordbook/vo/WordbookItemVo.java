@@ -55,6 +55,21 @@ public class WordbookItemVo {
     @Schema(description = "例句译文")
     private String sampleTranslation;
 
+    @Schema(description = "WordNet 近义词列表 (JSON 数组)")
+    private String synonyms;
+
+    @Schema(description = "WordNet 反义词列表 (JSON 数组)")
+    private String antonyms;
+
+    @Schema(description = "形态与同根派生词 (JSON 数组)")
+    private String derivatives;
+
+    @Schema(description = "Tatoeba 筛选口语例句列表 (JSON 数组)")
+    private String spokenExamples;
+
+    @Schema(description = "雅思写作/口语场景提示 (JSON 对象)")
+    private String ieltsUsage;
+
     @Schema(description = "当前登录用户是否已添加至生词本", example = "true")
     private Boolean isInUserVocab;
 
