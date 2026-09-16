@@ -38,26 +38,6 @@ import { lemmatize } from "@/lib/lemmatizer"
 type ThemeMode = "paper" | "sepia" | "dark"
 type FontMode = "serif" | "sans"
 
-const MAX_AI_CONTEXT_LENGTH = 800
-
-function extractSentenceContext(text: string, target: string): string {
-  const normalized = text.replace(/\s+/g, " ").trim()
-  if (!normalized) return ""
-
-  const escapedTarget = target.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const targetPattern = escapedTarget
-    ? new RegExp(`(^|[^A-Za-z])${escapedTarget}([^A-Za-z]|$)`, "i")
-    : null
-  const sentences = normalized.match(/[^.!?]+(?:[.!?]+[\"'”’]?|$)/g) || [normalized]
-  const matched = targetPattern
-    ? sentences.find((sentence) => targetPattern.test(sentence))
-    : undefined
-  const context = (matched || normalized).trim()
-
-  if (context.length <= MAX_AI_CONTEXT_LENGTH) return context
-  return `${context.slice(0, MAX_AI_CONTEXT_LENGTH - 1).trimEnd()}…`
-}
-
 export default function ReadingPage() {
   // 核心数据状态
   const [articles, setArticles] = useState<ReadingArticle[]>([])
@@ -176,7 +156,7 @@ export default function ReadingPage() {
     try {
       setDetailLoading(true)
       const res = await readingApi.getDetail(id)
-      let initialHarvestedWords = new Set<string>()
+      setDetail(res)
 
       // 自动提取正文所有词汇与形态学原型，批量查询生词本状态并恢复背景色
       if (res && res.paragraphs && res.paragraphs.length > 0) {
@@ -196,18 +176,15 @@ export default function ReadingPage() {
         }
 
         if (candidateWords.size > 0) {
-          try {
-            const harvestedList = await vocabApi.checkHarvested(Array.from(candidateWords))
-            initialHarvestedWords = new Set(harvestedList.map((word) => word.toLowerCase()))
-          } catch (err) {
+          vocabApi.checkHarvested(Array.from(candidateWords)).then((harvestedList) => {
+            if (harvestedList && harvestedList.length > 0) {
+              setHarvestedWords(new Set(harvestedList.map((w) => w.toLowerCase())))
+            }
+          }).catch((err) => {
             console.warn("批量检查生词状态失败:", err)
-          }
+          })
         }
       }
-
-      // 先恢复已有生词状态，再展示正文，避免初次渲染时高亮闪烁或依赖二次点击。
-      setHarvestedWords(initialHarvestedWords)
-      setDetail(res)
     } catch (e) {
       console.error("加载文章详情失败:", e)
       setNotice({ message: "加载文章失败", type: "info" })
@@ -255,8 +232,26 @@ export default function ReadingPage() {
     const cleanWord = rawWord.trim()
     if (!cleanWord || cleanWord.length < 2) return
 
+    // 如果传入的是整段文章或多句话，精确提炼包含该生词的单条原句，避免大模型因长段落干扰而过度思考
+    let targetSentence = sentence.trim()
+    if (
+      targetSentence.length > 80 &&
+      (targetSentence.includes(".") || targetSentence.includes("!") || targetSentence.includes("?"))
+    ) {
+      const sentences = targetSentence.split(/(?<=[.!?]["'”’]?)\s+/)
+      if (sentences && sentences.length > 1) {
+        const cleanW = cleanWord.toLowerCase().replace(/[^a-z0-9]/gi, "")
+        const regex = new RegExp(`\\b${cleanW}\\b`, "i")
+        const matched =
+          sentences.find((s) => regex.test(s)) || sentences.find((s) => s.toLowerCase().includes(cleanW))
+        if (matched) {
+          targetSentence = matched.trim()
+        }
+      }
+    }
+
     setLookupWord(cleanWord)
-    setLookupContextSentence(extractSentenceContext(sentence, cleanWord))
+    setLookupContextSentence(targetSentence)
     if (rect) {
       setAnchorRect(rect)
     }

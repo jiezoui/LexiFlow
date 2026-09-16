@@ -18,6 +18,9 @@ public class AiExplainVo {
     @Schema(description = "目标单词", example = "casualties")
     private String word;
 
+    @Schema(description = "例句语境的完整中文翻译", example = "据预计，受三重锁定机制影响，新国家养老金每年将增加488英镑。")
+    private String sentenceTranslation;
+
     @Schema(description = "当前语境下的精准中文释义", example = "伤亡人员；人员损失")
     private String contextMeaning;
 
@@ -32,6 +35,9 @@ public class AiExplainVo {
 
     @Schema(description = "词根词缀与联想助记", example = "来自 casual (偶尔的、事故的) + -ty (名词后缀)")
     private String mnemonics;
+
+    @Schema(description = "易混辨析或地道语感小贴士", example = "issue 比 problem 更常用于正式语境中的议题或社会问题。")
+    private String usageNote;
 
     @Schema(description = "追问解答或 AI 深度见解全文")
     private String rawAnswer;

@@ -55,7 +55,7 @@ function WordbooksPageContent() {
       if (savedHistory) {
         setClickHistory(JSON.parse(savedHistory))
       }
-    } catch {}
+    } catch { }
   }, [])
 
   // 记录词书点击事件
@@ -65,7 +65,7 @@ function WordbooksPageContent() {
       const next = { ...prev, [bookId]: now }
       try {
         localStorage.setItem("lexiflow_wordbook_click_history", JSON.stringify(next))
-      } catch {}
+      } catch { }
       return next
     })
   }
@@ -75,7 +75,7 @@ function WordbooksPageContent() {
     setPrimaryId(bookId)
     try {
       localStorage.setItem("lexiflow_primary_wordbook_id", String(bookId))
-    } catch {}
+    } catch { }
     recordWordbookClick(bookId)
     const book = books.find((b) => b.id === bookId)
     setImportSuccessMsg(`⭐ 已将「${book?.title || "所选词书"}」设为当前主研习词书，已置顶排在第 1 位！`)
@@ -96,7 +96,7 @@ function WordbooksPageContent() {
           setPrimaryId(remaining[0].id)
           try {
             localStorage.setItem("lexiflow_primary_wordbook_id", String(remaining[0].id))
-          } catch {}
+          } catch { }
         }
       }
 
@@ -106,7 +106,7 @@ function WordbooksPageContent() {
         delete next[deleteTarget.id]
         try {
           localStorage.setItem("lexiflow_wordbook_click_history", JSON.stringify(next))
-        } catch {}
+        } catch { }
         return next
       })
 
@@ -320,7 +320,7 @@ function WordbooksPageContent() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
-            词书研习库
+            词书库
           </h1>
         </div>
 
@@ -373,21 +373,20 @@ function WordbooksPageContent() {
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all shrink-0 cursor-pointer ${
-                selectedCategory === cat
-                  ? "bg-primary text-primary-foreground font-semibold shadow-sm"
-                  : "bg-card border border-border text-muted-foreground hover:text-foreground"
-              }`}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all shrink-0 cursor-pointer ${selectedCategory === cat
+                ? "bg-primary text-primary-foreground font-semibold shadow-sm"
+                : "bg-card border border-border text-muted-foreground hover:text-foreground"
+                }`}
             >
               {cat === "全部"
                 ? "全部"
                 : cat === "EXAM"
-                ? "考试大纲 (CET/考研)"
-                : cat === "COLLOQUIAL"
-                ? "日常高频口语"
-                : cat === "PROFESSIONAL"
-                ? "行业专业"
-                : "学术科研"}
+                  ? "考试大纲 (CET/考研)"
+                  : cat === "COLLOQUIAL"
+                    ? "日常高频口语"
+                    : cat === "PROFESSIONAL"
+                      ? "行业专业"
+                      : "学术科研"}
             </button>
           ))}
         </div>
@@ -418,9 +417,8 @@ function WordbooksPageContent() {
           return (
             <article
               key={book.id}
-              className={`relative flex flex-col justify-between rounded-3xl border bg-card/90 p-6 backdrop-blur-sm transition-all hover:shadow-lg hover:border-primary/40 group ${
-                isPrimary ? "border-primary ring-2 ring-primary/20 bg-primary/[0.02]" : "border-border"
-              }`}
+              className={`relative flex flex-col justify-between rounded-3xl border bg-card/90 p-6 backdrop-blur-sm transition-all hover:shadow-lg hover:border-primary/40 group ${isPrimary ? "border-primary ring-2 ring-primary/20 bg-primary/[0.02]" : "border-border"
+                }`}
             >
               <div>
                 {/* Top badges */}
@@ -611,11 +609,10 @@ function WordbooksPageContent() {
                       handleFileChange(e.dataTransfer.files[0])
                     }
                   }}
-                  className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-all ${
-                    uploadFile
-                      ? "border-primary bg-primary/5"
-                      : "border-border hover:border-primary/40 hover:bg-muted/40"
-                  }`}
+                  className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-all ${uploadFile
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/40 hover:bg-muted/40"
+                    }`}
                 >
                   <input
                     ref={fileInputRef}

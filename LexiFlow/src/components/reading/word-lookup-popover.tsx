@@ -70,6 +70,70 @@ const DOMAIN_MAP: Record<string, string> = {
   英: "英式",
 }
 
+// 客户端会话级别解析缓存，避免阅读同一篇文章重复查词的重复网络开销，实现 0ms 秒开
+const aiSessionCache = new Map<string, AiExplainResult>()
+
+function isThinkingNoise(text?: string | null): boolean {
+  if (!text) return false
+  const lower = text.toLowerCase()
+  return (
+    lower.includes("examtips <=") ||
+    lower.includes("usagenote <=") ||
+    lower.includes("examtips < =") ||
+    lower.includes("usagenote < =") ||
+    lower.includes("mnemonics <=") ||
+    lower.includes("need sentencetranslation") ||
+    lower.includes("need contextmeaning") ||
+    lower.includes("target sentence likely") ||
+    lower.includes("provided two sentences") ||
+    lower.includes("we need answer json") ||
+    lower.includes("user asks target word") ||
+    lower.includes("let's count") ||
+    lower.includes("need output valid json") ||
+    lower.includes("might be awkward") ||
+    lower.includes("need analyze word") ||
+    lower.includes("<think>") ||
+    lower.includes("</think>") ||
+    lower.includes("【严格执行规则】") ||
+    lower.includes("严格执行规则") ||
+    lower.includes("不超过80字") ||
+    lower.includes("不超过25字") ||
+    lower.includes("不超过40字") ||
+    lower.includes("rawanswer: 若有用户追问") ||
+    lower.includes("good. need accurate")
+  )
+}
+
+function getCleanContextMeaning(
+  aiResult: AiExplainResult | null,
+  entry: DictEntry | null,
+  word: string
+): string {
+  if (!aiResult) return entry?.definitionCn || word
+
+  const rawMeaning = aiResult.contextMeaning?.trim() || ""
+
+  // 严禁展示思考草稿、解析完成占位符、单词自身或prompt泄漏文本
+  if (
+    rawMeaning &&
+    !isThinkingNoise(rawMeaning) &&
+    !rawMeaning.includes("解析完成") &&
+    rawMeaning.toLowerCase() !== word.toLowerCase()
+  ) {
+    const cleaned = rawMeaning.replace(/<[^>]+>/g, "").replace(/^[#*`\s]+|[#*`\s]+$/g, "").trim()
+    if (cleaned && !isThinkingNoise(cleaned)) {
+      return cleaned
+    }
+  }
+
+  // 优先降级至离线词典高质量中文释义
+  if (entry?.definitionCn && !entry.definitionCn.includes("自定义导入")) {
+    return entry.definitionCn
+  }
+
+  return word
+}
+
 export function WordLookupPopover({
   word,
   contextSentence = "",
@@ -80,6 +144,7 @@ export function WordLookupPopover({
 }: WordLookupPopoverProps) {
   const [mounted, setMounted] = useState(false)
   const popoverRef = useRef<HTMLDivElement | null>(null)
+  const aiModalRef = useRef<HTMLDivElement | null>(null)
 
   // 核心数据状态
   const [entry, setEntry] = useState<DictEntry | null>(null)
@@ -99,30 +164,108 @@ export function WordLookupPopover({
   // AI 语境深度解析抽屉/弹窗状态
   const [showAiInsight, setShowAiInsight] = useState(false)
   const [aiQuestion, setAiQuestion] = useState("")
+  const [lastQuestion, setLastQuestion] = useState("")
   const [aiLoading, setAiLoading] = useState(false)
   const [aiResult, setAiResult] = useState<AiExplainResult | null>(null)
   const [aiConfig, setAiConfig] = useState(getActiveAiConfig())
 
+  // 例句翻译状态 (当前文章原句语境翻译)
+  const [contextTrans, setContextTrans] = useState<string>("")
+  const [contextTransLoading, setContextTransLoading] = useState<boolean>(false)
+
   // 形态学词形还原
   const lemmatized = lemmatize(word)
 
-  // 当打开 AI 解析弹窗且配置有效时，自动拉取真实解析
+  // 当打开 AI 解析弹窗且配置有效时，优先命中客户端缓存或拉取解析
   useEffect(() => {
     if (!showAiInsight) return
     const cfg = getActiveAiConfig()
     setAiConfig(cfg)
     if (cfg.isConfigured && !aiResult) {
-      handleRequestAiExplain(cfg)
+      const targetSentence = (contextSentence || entry?.sampleSentence || "").trim()
+      const cacheKey = `${cfg.provider}:${cfg.model}:${word}:${targetSentence}`
+      const cached = aiSessionCache.get(cacheKey)
+      if (cached && cached.contextMeaning && !cached.contextMeaning.includes("解析完成")) {
+        setAiResult(cached)
+        if (cached.sentenceTranslation && !contextTrans) {
+          setContextTrans(cached.sentenceTranslation.trim())
+        }
+      } else {
+        handleRequestAiExplain(cfg)
+      }
     }
   }, [showAiInsight, word])
 
+  // 当打开 AI 解析弹窗时，确保文章例句配备高质量中文翻译
+  useEffect(() => {
+    if (!showAiInsight) return
+    const targetSentence = (contextSentence || entry?.sampleSentence || "").trim()
+    if (!targetSentence) return
+
+    // 1. 若词典条目中已有与例句完全一致的原配中文翻译，直接使用
+    if (entry?.sampleSentence?.trim() === targetSentence && entry?.sampleTranslation) {
+      setContextTrans(entry.sampleTranslation.trim())
+      return
+    }
+
+    // 2. 若用户生词卡片中已有有效翻译，优先使用
+    if (userCard?.contextSentence?.trim() === targetSentence && userCard?.contextTranslation) {
+      setContextTrans(userCard.contextTranslation.trim())
+      return
+    }
+
+    // 3. 否则自动异步调用翻译接口生成精准中文翻译
+    if (!contextTrans) {
+      setContextTransLoading(true)
+      dictApi.translate(targetSentence)
+        .then((res) => {
+          if (res?.translation && !res.translation.includes("繁忙")) {
+            setContextTrans(res.translation.trim())
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          setContextTransLoading(false)
+        })
+    }
+  }, [showAiInsight, contextSentence, entry?.sampleSentence, entry?.sampleTranslation, userCard])
+
+  // 打开 AI 弹窗时锁定底层 body 滚动
+  useEffect(() => {
+    if (!showAiInsight) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = prevOverflow
+    }
+  }, [showAiInsight])
+
   const handleRequestAiExplain = async (cfg = aiConfig, customQuestion?: string) => {
     if (!cfg.isConfigured) return
+    const targetSentence = (contextSentence || entry?.sampleSentence || "").trim()
+    const isDefaultQuery = !customQuestion
+    if (customQuestion !== undefined) {
+      setLastQuestion(customQuestion.trim())
+    }
+    const cacheKey = `${cfg.provider}:${cfg.model}:${word}:${targetSentence}`
+
+    // 仅针对无追问的默认全量解析命中前端缓存
+    if (isDefaultQuery && aiSessionCache.has(cacheKey)) {
+      const cached = aiSessionCache.get(cacheKey)!
+      if (cached.contextMeaning && !cached.contextMeaning.includes("解析完成")) {
+        setAiResult(cached)
+        if (cached.sentenceTranslation && !contextTrans) {
+          setContextTrans(cached.sentenceTranslation.trim())
+        }
+        return
+      }
+    }
+
     setAiLoading(true)
     try {
       const res = await aiApi.explainWord({
         word,
-        contextSentence: contextSentence || entry?.sampleSentence || "",
+        contextSentence: targetSentence,
         question: customQuestion !== undefined ? customQuestion : aiQuestion,
         provider: cfg.provider,
         apiHost: cfg.apiHost,
@@ -130,6 +273,18 @@ export function WordLookupPopover({
         model: cfg.model,
       })
       setAiResult(res)
+      if (
+        isDefaultQuery &&
+        res.contextMeaning &&
+        !res.contextMeaning.includes("解析完成") &&
+        !res.contextMeaning.includes("失败")
+      ) {
+        aiSessionCache.set(cacheKey, res)
+      }
+      // 如果 AI 返回了解析出的整句翻译，同步赋予例句翻译
+      if (res.sentenceTranslation && !contextTrans) {
+        setContextTrans(res.sentenceTranslation.trim())
+      }
     } catch (e: any) {
       setAiResult({
         word,
@@ -152,13 +307,21 @@ export function WordLookupPopover({
   // 点击外部关闭弹窗与 Esc 键退出
   useEffect(() => {
     const handlePointerDown = (e: MouseEvent) => {
+      // 当 AI 深度解析弹窗打开时，所有点击与划词由 AI 弹窗自身处理，绝不误关闭
+      if (showAiInsight) {
+        return
+      }
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         onClose()
       }
     }
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onClose()
+        if (showAiInsight) {
+          setShowAiInsight(false)
+        } else {
+          onClose()
+        }
       }
     }
     const handleScroll = () => {
@@ -687,48 +850,122 @@ export function WordLookupPopover({
       {showAiInsight && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-          onClick={() => setShowAiInsight(false)}
+          onMouseDown={(e) => {
+            // 仅在直接点击最外层暗色遮罩时关闭，防止划选文本松手时误触发关闭
+            if (e.target === e.currentTarget) {
+              setShowAiInsight(false)
+            }
+          }}
         >
           <div
-            className="relative w-full max-w-lg max-h-[85vh] flex flex-col rounded-3xl border border-border bg-card p-5 sm:p-6 shadow-2xl animate-in zoom-in-95 duration-200 space-y-3.5 overflow-hidden"
+            ref={aiModalRef}
+            className="relative w-full max-w-lg max-h-[85vh] flex flex-col rounded-3xl border border-border bg-card p-5 sm:p-6 shadow-2xl animate-in zoom-in-95 duration-200 space-y-3.5 overflow-hidden select-text"
             onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onMouseUp={(e) => e.stopPropagation()}
           >
-            {/* 顶栏 */}
+            {/* 顶栏 (极简现代重构) */}
             <div className="flex items-center justify-between border-b border-border/60 pb-3 shrink-0">
               <div className="flex items-center gap-2.5">
-                <div className="size-8 rounded-xl bg-gradient-to-tr from-violet-500 to-fuchsia-500 text-white flex items-center justify-center shadow-xs">
-                  <BotIcon className="size-4" />
+                {/* 挑选的专业 AI 宝石微芒图标 (Reicon gem-sparkle) */}
+                <div className="size-8 rounded-xl bg-gradient-to-br from-violet-500/15 via-fuchsia-500/10 to-primary/15 text-primary border border-primary/25 flex items-center justify-center shadow-xs">
+                  <svg
+                    className="size-4 text-primary"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                  >
+                    <path
+                      d="M 21.3313 9 C 21.3479 9.3006 21.2613 9.6006 21.0679 9.8573 L 13.0773 20.4653 C 12.54 21.1786 11.4587 21.1786 10.9227 20.4653 L 2.932 9.8573 C 2.5453 9.344 2.5853 8.6333 3.0253 8.164 L 6.2307 4.756 C 6.4853 4.4853 6.8413 4.332 7.2146 4.332 H 13.4933"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M 2.7373 9 H 21.3313"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M 10.5066 4.3333 L 8.076 9 L 11.6866 20.9639"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M 13.4933 4.3333 L 15.924 9 L 12.3133 20.9639"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M 2.3333 4 C 2.8853 4 3.3333 3.5523 3.3333 3 C 3.3333 2.4477 2.8853 2 2.3333 2 C 1.7813 2 1.3333 2.4477 1.3333 3 C 1.3333 3.5523 1.7813 4 2.3333 4 Z"
+                      fill="currentColor"
+                    />
+                    <path
+                      d="M 21.3461 3.0937 L 19.9999 2.6423 L 19.5504 1.2851 C 19.4052 0.8465 18.6837 0.8465 18.5385 1.2851 L 18.0889 2.6423 L 16.7428 3.0937 C 16.525 3.1668 16.377 3.3717 16.377 3.6039 C 16.377 3.836 16.525 4.0409 16.7428 4.114 L 18.0889 4.5655 L 18.5385 5.9227 C 18.6112 6.142 18.8146 6.2896 19.0437 6.2896 C 19.2728 6.2896 19.4777 6.1405 19.5489 5.9227 L 19.9985 4.5655 L 21.3446 4.114 C 21.5623 4.0409 21.7103 3.836 21.7103 3.6039 C 21.7103 3.3717 21.5623 3.1668 21.3446 3.0937 H 21.3461 Z"
+                      fill="currentColor"
+                    />
+                  </svg>
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h4 className="text-sm font-bold text-foreground">AI 语境深度解析与辨析</h4>
-                    {aiConfig.isConfigured && (
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-primary/10 text-primary font-medium">
-                        {aiConfig.model}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[10px] font-mono text-muted-foreground block">
-                    Contextual AI Insights · 语法与考点深挖
-                  </span>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-semibold tracking-tight text-foreground">
+                    AI 语境解析
+                  </h4>
+                  {aiConfig.isConfigured && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-muted/80 text-muted-foreground border border-border/60 font-medium">
+                      {aiConfig.model}
+                    </span>
+                  )}
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setShowAiInsight(false)}
-                className="size-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 flex items-center justify-center transition-colors cursor-pointer"
+                className="size-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/70 flex items-center justify-center transition-colors cursor-pointer"
+                title="关闭"
               >
                 <XIcon className="size-4" />
               </button>
             </div>
 
-            {/* 原文语境呈现 */}
-            <div className="bg-muted/40 p-3 rounded-2xl border border-border/50 text-xs space-y-1 shrink-0">
-              <span className="text-[10px] font-mono text-muted-foreground uppercase block font-semibold">
-                当前文章例句语境 (Context Sentence)
-              </span>
-              <p className="text-foreground italic leading-relaxed line-clamp-3">
-                "{contextSentence || entry?.sampleSentence || "No casualties were reported after the strike at Yahodyn, which hit the train..."}"
+            {/* 原文语境呈现及中文翻译 */}
+            <div className="bg-muted/40 p-3.5 rounded-2xl border border-border/50 text-xs space-y-2 shrink-0 select-text">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                  <span>文章原句语境</span>
+                  <span className="text-muted-foreground/40">/</span>
+                  <span className="text-[9px] text-muted-foreground/70 font-normal">Context Sentence</span>
+                </span>
+                {contextTransLoading && (
+                  <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                    <Loader2Icon className="size-3 animate-spin text-primary" />
+                    <span>翻译中...</span>
+                  </span>
+                )}
+              </div>
+
+              {/* 英文原句例句 */}
+              <p className="text-foreground italic leading-relaxed font-serif text-[13px] select-text">
+                “{(contextSentence || entry?.sampleSentence || "No casualties were reported after the strike at Yahodyn, which hit the train...").trim().replace(/^["“”'‘]+|["“”'’]+$/g, "").trim()}”
               </p>
+
+              {/* 中文翻译呈现 */}
+              {(contextTrans || aiResult?.sentenceTranslation) && (
+                <div className="pt-2 border-t border-border/40 text-xs select-text flex items-start gap-1.5">
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary shrink-0 mt-0.5 font-mono">
+                    译
+                  </span>
+                  <span className="text-foreground/85 leading-relaxed">
+                    {contextTrans || aiResult?.sentenceTranslation}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* 核心内容展示区 (滚动容器) */}
@@ -758,83 +995,142 @@ export function WordLookupPopover({
                   </Link>
                 </div>
               ) : aiLoading ? (
-                /* 加载动效 */
-                <div className="p-8 rounded-2xl bg-gradient-to-b from-primary/5 to-transparent border border-primary/20 flex flex-col items-center justify-center gap-3 text-center">
-                  <Loader2Icon className="size-6 animate-spin text-primary" />
-                  <div className="space-y-0.5">
-                    <span className="text-xs font-medium text-foreground">
-                      正在调用 [{aiConfig.model}] 进行语境深度解析...
+                /* 优雅的骨架屏流式占位动效 (Skeleton Loading) */
+                <div className="p-4 rounded-2xl bg-muted/20 border border-border/40 space-y-3.5 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Loader2Icon className="size-3.5 animate-spin text-primary" />
+                      <span className="text-xs font-medium text-foreground">
+                        正在调用 [{aiConfig.model}] 进行语境深度精析...
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                      AI 生成中
                     </span>
-                    <span className="text-[10px] font-mono text-muted-foreground block">
-                      剖析句法功能、被动语态、核心搭配与考纲要点
-                    </span>
+                  </div>
+
+                  {/* 核心释义骨架 */}
+                  <div className="space-y-2 pt-1">
+                    <div className="h-3 bg-muted-foreground/15 rounded-md w-1/4 animate-pulse" />
+                    <div className="h-4 bg-muted-foreground/20 rounded-md w-4/5 animate-pulse" />
+                    <div className="h-4 bg-muted-foreground/15 rounded-md w-2/3 animate-pulse" />
+                  </div>
+
+                  {/* 句法分析骨架 */}
+                  <div className="p-2.5 rounded-xl bg-muted/40 border border-border/30 space-y-1.5">
+                    <div className="h-3 bg-muted-foreground/20 rounded w-1/3 animate-pulse" />
+                  </div>
+
+                  {/* 搭配骨架 */}
+                  <div className="space-y-1.5">
+                    <div className="h-3 bg-muted-foreground/15 rounded w-1/5 animate-pulse" />
+                    <div className="flex flex-wrap gap-2">
+                      <div className="h-6 w-24 bg-muted-foreground/15 rounded-lg animate-pulse" />
+                      <div className="h-6 w-28 bg-muted-foreground/15 rounded-lg animate-pulse" />
+                      <div className="h-6 w-20 bg-muted-foreground/15 rounded-lg animate-pulse" />
+                    </div>
                   </div>
                 </div>
               ) : aiResult ? (
-                /* 真实 AI 解析呈现 */
-                <div className="space-y-2.5">
-                  <div className="p-3.5 rounded-2xl bg-gradient-to-b from-primary/5 to-transparent border border-primary/20 text-xs space-y-2.5 leading-relaxed">
-                    <div className="font-bold text-primary flex items-center justify-between">
+                /* 真实 AI 解析呈现 (紧凑、结构化、清晰) */
+                <div className="space-y-2.5 animate-in fade-in duration-200">
+                  <div className="p-4 rounded-2xl bg-card border border-border/70 shadow-xs space-y-3 text-xs leading-relaxed">
+                    {/* 标题栏与重新解析 */}
+                    <div className="flex items-center justify-between pb-2 border-b border-border/40">
                       <div className="flex items-center gap-1.5">
-                        <SparklesIcon className="size-3.5" />
-                        <span>核心用法语义解析：[{word}]</span>
+                        <SparklesIcon className="size-3.5 text-primary" />
+                        <span className="font-bold text-foreground">核心语境语义：</span>
+                        <span className="font-mono text-primary font-bold">[{word}]</span>
                       </div>
                       <button
                         type="button"
-                        onClick={() => handleRequestAiExplain(aiConfig)}
+                        onClick={() => {
+                          const targetSentence = (contextSentence || entry?.sampleSentence || "").trim()
+                          const cacheKey = `${aiConfig.provider}:${aiConfig.model}:${word}:${targetSentence}`
+                          aiSessionCache.delete(cacheKey)
+                          handleRequestAiExplain(aiConfig)
+                        }}
                         className="text-[10px] font-mono text-muted-foreground hover:text-primary transition-colors cursor-pointer"
-                        title="重新生成"
+                        title="清除缓存并重新生成"
                       >
                         重新解析
                       </button>
                     </div>
 
-                    <p className="text-foreground/90 font-medium">
-                      {aiResult.contextMeaning}
+                    {/* 1. 核心用法语义 */}
+                    <p className="text-foreground text-[13px] font-medium leading-normal select-text">
+                      {getCleanContextMeaning(aiResult, entry, word)}
                     </p>
 
-                    {aiResult.grammarRole && (
-                      <div className="text-[11px] text-muted-foreground bg-muted/30 p-2 rounded-xl border border-border/40">
-                        <span className="font-semibold text-foreground mr-1">句法成分:</span>
-                        {aiResult.grammarRole}
+                    {/* 2. 句法成分 */}
+                    {aiResult.grammarRole && !isThinkingNoise(aiResult.grammarRole) && (
+                      <div className="text-xs text-muted-foreground bg-muted/40 p-2.5 rounded-xl border border-border/40 flex items-start gap-1.5 select-text">
+                        <span className="font-semibold text-foreground shrink-0">句法成分:</span>
+                        <span className="text-foreground/85 leading-relaxed">{aiResult.grammarRole.replace(/<[^>]+>/g, "").trim()}</span>
                       </div>
                     )}
 
-                    {aiResult.collocations && aiResult.collocations.length > 0 && (
-                      <div className="space-y-1">
-                        <span className="text-[10px] font-mono uppercase text-muted-foreground font-semibold">
-                          推荐高频搭配:
+                    {/* 3. 语感辨析 / 深度用法提示 (usageNote) */}
+                    {aiResult.usageNote && !isThinkingNoise(aiResult.usageNote) && (
+                      <div className="text-xs bg-amber-500/10 border border-amber-500/25 text-amber-900 dark:text-amber-200 p-2.5 rounded-xl flex items-start gap-2 leading-relaxed select-text">
+                        <span className="font-bold shrink-0 text-[10px] bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-800 dark:text-amber-300 font-mono">
+                          语感辨析
+                        </span>
+                        <span className="font-medium">{aiResult.usageNote.replace(/<[^>]+>/g, "").trim()}</span>
+                      </div>
+                    )}
+
+                    {/* 4. 推荐高频搭配 (Collocations) */}
+                    {aiResult.collocations && aiResult.collocations.filter((c) => !isThinkingNoise(c)).length > 0 && (
+                      <div className="space-y-1.5 pt-1">
+                        <span className="text-[10px] font-mono uppercase text-muted-foreground font-semibold flex items-center gap-1.5">
+                          <span>高频搭配</span>
+                          <span className="text-muted-foreground/40">/</span>
+                          <span className="text-[9px] text-muted-foreground/60 font-normal">Collocations</span>
                         </span>
                         <div className="flex flex-wrap gap-1.5">
-                          {aiResult.collocations.map((c, i) => (
+                          {aiResult.collocations.filter((c) => !isThinkingNoise(c)).map((c, i) => (
                             <span
                               key={i}
-                              className="px-2 py-0.5 rounded-md bg-muted text-foreground text-[11px] font-medium border border-border/50"
+                              className="inline-flex items-center px-2.5 py-1 rounded-lg bg-muted/60 hover:bg-muted text-foreground text-xs font-medium border border-border/50 select-text transition-colors"
                             >
-                              {c}
+                              {c.replace(/<[^>]+>/g, "").trim()}
                             </span>
                           ))}
                         </div>
                       </div>
                     )}
 
-                    {aiResult.examTips && (
-                      <div className="text-[11px] text-muted-foreground">
-                        <span className="font-semibold text-foreground mr-1">考点考纲:</span>
-                        {aiResult.examTips}
+                    {/* 5. 考点考纲 & 助记建议 */}
+                    {((aiResult.examTips && !isThinkingNoise(aiResult.examTips)) || (aiResult.mnemonics && !isThinkingNoise(aiResult.mnemonics))) && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                        {aiResult.examTips && !isThinkingNoise(aiResult.examTips) && (
+                          <div className="p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/15 text-[11px] text-muted-foreground space-y-1 select-text">
+                            <span className="font-bold text-blue-600 dark:text-blue-400 block text-[10px] tracking-wide">
+                              🎯 考点要点
+                            </span>
+                            <p className="text-foreground/85 leading-relaxed">{aiResult.examTips.replace(/<[^>]+>/g, "").trim()}</p>
+                          </div>
+                        )}
+                        {aiResult.mnemonics && !isThinkingNoise(aiResult.mnemonics) && (
+                          <div className="p-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/15 text-[11px] text-muted-foreground space-y-1 select-text">
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400 block text-[10px] tracking-wide">
+                              💡 助记策略
+                            </span>
+                            <p className="text-foreground/85 leading-relaxed">{aiResult.mnemonics.replace(/<[^>]+>/g, "").trim()}</p>
+                          </div>
+                        )}
                       </div>
                     )}
 
-                    {aiResult.mnemonics && (
-                      <div className="text-[11px] text-muted-foreground">
-                        <span className="font-semibold text-foreground mr-1">助记建议:</span>
-                        {aiResult.mnemonics}
-                      </div>
-                    )}
-
-                    {aiResult.rawAnswer && (
-                      <div className="pt-2 border-t border-border/40 text-[11px] text-foreground leading-relaxed whitespace-pre-line">
-                        {aiResult.rawAnswer}
+                    {/* 6. 追问回复 - 仅在用户实际提交了追问时展示 */}
+                    {lastQuestion && aiResult.rawAnswer && !isThinkingNoise(aiResult.rawAnswer) && (
+                      <div className="pt-2 border-t border-border/40 text-xs text-foreground leading-relaxed whitespace-pre-line bg-muted/20 p-2.5 rounded-xl select-text">
+                        <div className="font-semibold text-primary text-[11px] mb-1 flex items-center gap-1">
+                          <span>问：</span>
+                          <span className="text-foreground">{lastQuestion}</span>
+                        </div>
+                        <div className="text-foreground/90">{aiResult.rawAnswer.replace(/<[^>]+>/g, "").trim()}</div>
                       </div>
                     )}
                   </div>
@@ -847,7 +1143,6 @@ export function WordLookupPopover({
               <div className="flex items-center gap-2 pt-1 shrink-0 border-t border-border/40">
                 <input
                   type="text"
-                  maxLength={240}
                   value={aiQuestion}
                   onChange={(e) => setAiQuestion(e.target.value)}
                   onKeyDown={(e) => {

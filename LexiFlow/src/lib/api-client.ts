@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 语脉 · LexiFlow 统一前端 API 客户端
  * 自动拦截请求头附带 Bearer Token，统一响应处理与错误捕获
  */
@@ -26,49 +26,6 @@ export interface LoginResult {
   user: UserInfo
 }
 
-export interface SpokenExampleItem {
-  line: string
-  meaning: string
-}
-
-export interface IeltsUsageInfo {
-  label: string
-  scene: string
-}
-
-export function parseJsonArray(value?: string | string[] | null): string[] {
-  if (!value) return []
-  if (Array.isArray(value)) return value
-  try {
-    const parsed = JSON.parse(value)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-export function parseSpokenExamples(value?: string | SpokenExampleItem[] | null): SpokenExampleItem[] {
-  if (!value) return []
-  if (Array.isArray(value)) return value
-  try {
-    const parsed = JSON.parse(value)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-export function parseIeltsUsage(value?: string | IeltsUsageInfo | null): IeltsUsageInfo | null {
-  if (!value) return null
-  if (typeof value === "object") return value
-  try {
-    const parsed = JSON.parse(value)
-    return parsed && parsed.label ? parsed : null
-  } catch {
-    return null
-  }
-}
-
 export interface DictEntry {
   id: number
   lemma: string
@@ -83,11 +40,6 @@ export interface DictEntry {
   frequencyRank: number
   sampleSentence: string
   sampleTranslation: string
-  synonyms?: string | string[] | null
-  antonyms?: string | string[] | null
-  derivatives?: string | string[] | null
-  spokenExamples?: string | SpokenExampleItem[] | null
-  ieltsUsage?: string | IeltsUsageInfo | null
 }
 
 export interface Wordbook {
@@ -117,11 +69,6 @@ export interface WordbookItem {
   audioUs: string
   sampleSentence: string
   sampleTranslation: string
-  synonyms?: string | string[] | null
-  antonyms?: string | string[] | null
-  derivatives?: string | string[] | null
-  spokenExamples?: string | SpokenExampleItem[] | null
-  ieltsUsage?: string | IeltsUsageInfo | null
   isInUserVocab: boolean
   cardState: number | null
   isKnown: boolean
@@ -139,11 +86,6 @@ export interface WordbookStudyItem {
   audioUs?: string
   sampleSentence?: string
   sampleTranslation?: string
-  synonyms?: string | string[] | null
-  antonyms?: string | string[] | null
-  derivatives?: string | string[] | null
-  spokenExamples?: string | SpokenExampleItem[] | null
-  ieltsUsage?: string | IeltsUsageInfo | null
   studyStatus: "UNLEARNED" | "REVIEWING" | "COMPLETED" | "MASTERED"
   isKnown: number
   masteredDate?: string | null
@@ -179,11 +121,6 @@ export interface UserWordCard {
   source: string
   contextSentence: string
   contextTranslation: string
-  synonyms?: string | string[] | null
-  antonyms?: string | string[] | null
-  derivatives?: string | string[] | null
-  spokenExamples?: string | SpokenExampleItem[] | null
-  ieltsUsage?: string | IeltsUsageInfo | null
   state: number
   stateDescription: string
   stability: number
@@ -220,11 +157,6 @@ export interface ReviewQueueCard {
   source: string
   contextSentence: string
   contextTranslation: string
-  synonyms?: string | string[] | null
-  antonyms?: string | string[] | null
-  derivatives?: string | string[] | null
-  spokenExamples?: string | SpokenExampleItem[] | null
-  ieltsUsage?: string | IeltsUsageInfo | null
   state: number
   stability: number
   difficulty: number
@@ -251,11 +183,6 @@ export interface NewWordQuiz {
   tags: string
   sampleSentence: string
   sampleTranslation: string
-  synonyms?: string | string[] | null
-  antonyms?: string | string[] | null
-  derivatives?: string | string[] | null
-  spokenExamples?: string | SpokenExampleItem[] | null
-  ieltsUsage?: string | IeltsUsageInfo | null
   options: QuizOption[]
 }
 
@@ -343,8 +270,7 @@ export const clearToken = (): void => {
 
 async function request<T>(
   endpoint: string,
-  options: RequestInit = {},
-  timeoutMs = 8000
+  options: RequestInit = {}
 ): Promise<T> {
   const token = getToken()
   const headers: Record<string, string> = {
@@ -357,7 +283,7 @@ async function request<T>(
   }
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  const timeoutId = setTimeout(() => controller.abort(), 8000)
 
   let response: Response
   try {
@@ -368,7 +294,7 @@ async function request<T>(
     })
   } catch (err: any) {
     if (err.name === "AbortError") {
-      throw new Error(`网络请求超时 (${Math.round(timeoutMs / 1000)}s): ${endpoint}`)
+      throw new Error(`网络请求超时 (8s): ${endpoint}`)
     }
     throw err
   } finally {
@@ -640,11 +566,13 @@ export interface AiTestConnectionResult {
 
 export interface AiExplainResult {
   word: string
+  sentenceTranslation?: string
   contextMeaning: string
   grammarRole: string
   collocations: string[]
   examTips: string
   mnemonics: string
+  usageNote?: string
   rawAnswer: string
 }
 
@@ -668,13 +596,10 @@ export const aiApi = {
     apiKey?: string
     model?: string
   }) =>
-    request<AiExplainResult>(
-      "/api/ai/explain",
-      {
-        method: "POST",
-        body: JSON.stringify(data),
-      },
-      30000
-    ),
+    request<AiExplainResult>("/api/ai/explain", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 }
+
 
