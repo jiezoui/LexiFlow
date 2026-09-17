@@ -1,33 +1,129 @@
-# Product
+# 语脉 · LexiFlow 产品说明
 
-## Register
+## 产品定位
 
-product
+LexiFlow 是一套面向中文英语学习者的语境学习系统。它把两种常见但长期分离的学习方式放进同一条流程：一边按词书建立系统词汇量，一边从视频和文章中收集真实遇到的单词与句子。
 
-## Users
+无论一个词来自 CET6 词书、视频字幕还是阅读材料，最终都进入同一个生词库，并由同一套 FSRS 记忆调度安排复习。系统同时保留这个词出现时的原句、译文、媒体来源和时间点，让复习不再只面对一张脱离上下文的单词卡。
 
-LexiFlow serves Chinese learners who combine exam-oriented vocabulary study with authentic English reading and listening. They need a focused daily workflow that turns wordbooks and words captured from real media into one coherent review queue.
+一句话概括：**用词书保证学习范围，用真实语料保留上下文，再用统一的记忆计划把它们连接起来。**
 
-## Product Purpose
+## 为什么要做 LexiFlow
 
-LexiFlow connects systematic wordbook coverage with context-rich vocabulary captured from articles and video. Both entry points feed one vocabulary record and one FSRS schedule, preserving each word's source sentence and audio context so learners can recognize, retain, and actively use it.
+单独使用词书，学习范围很清楚，但例句往往和学习者没有关系。一个词即使在卡片上反复出现，也不一定能在真实对话里被听出来。
 
-## Brand Personality
+只从视频或文章中摘词，语境足够真实，却容易变成不断收藏、很少复习。词汇增长取决于偶然遇见，也很难判断自己是否覆盖了考试或工作需要的词汇。
 
-Restrained, credible, and immersive. The product should feel like a calm editorial study workspace: rigorous enough to trust, quiet enough for long sessions, and responsive enough to preserve learning flow.
+LexiFlow 保留两个入口，但不维护两套互不相干的进度：
 
-## Anti-references
+| 学习入口 | 解决的问题 | 进入系统后 |
+| --- | --- | --- |
+| 词书学习 | 确定学习范围、每日数量和完成时间 | 进入统一生词库与复习队列 |
+| 语境采词 | 记录视频、文章中真正没听懂或不会用的词 | 连同原句、来源和时间点一起入库 |
 
-Avoid noisy gamification, ornamental status labels, generic finance-dashboard residue, purple AI gradients, heavy neon effects, childish skeuomorphism, and duplicated progress systems that separate wordbook study from contextual vocabulary review.
+当词书中的单词再次出现在用户看过的视频里，系统可以把那一段真实语境作为例句；在视频中遇到正在学习的词时，也可以直接标出。两种学习方式由此互相补充。
 
-## Design Principles
+## 核心学习闭环
 
-1. Two entry points, one memory engine: every study mode must reinforce the shared FSRS schedule.
-2. Preserve context: words stay connected to their source sentence, audio moment, and learning origin.
-3. Language is the interface: typography and content hierarchy take priority over decoration.
-4. Protect flow: interactions should be fast, keyboard-friendly, and free of redundant labels.
-5. Show objective progress: derive feedback from real study behavior and understandable metrics.
+```text
+词书计划 ──┐
+           ├─> 统一生词库 ─> FSRS 排期 ─> 复习与输出练习 ─> 更新记忆状态
+视频与文章 ─┘       │                              │
+                    └─ 保留原句、译文、来源和原声片段 ─┘
+```
 
-## Accessibility & Inclusion
+这条闭环遵循四个原则：
 
-Maintain clear focus states and keyboard access for core actions, preserve sufficient contrast, never communicate state through color alone, respect reduced-motion preferences, and keep Chinese and English learning content readable across supported viewport sizes.
+1. 同一个词只维护一份学习记录，不因来源不同重复排期。
+2. 采词时尽量保留上下文，而不是只保存一个单词字符串。
+3. 闪卡、默写、听写和跟读产生的学习结果都写回同一套记忆模型。
+4. 本地词典承担高频查询，AI 只处理需要上下文推理的任务，并且可以降级。
+
+## 主要功能
+
+### 词汇学习
+
+- 从内置词书或自定义词表建立每日学习计划。
+- 通过认词筛选跳过已经掌握的词，减少无效学习。
+- 使用 ECDICT 提供音标、词性、释义和基础例句。
+- 对单词进行词形还原，使 `run`、`runs`、`running` 等形式归入同一词条。
+- 用 FSRS 安排到期复习，并根据答题结果调整下一次复习时间。
+- 支持闪卡、打字默写、听音拼写等不同练习方式。
+
+### 视频精听
+
+- 导入本地视频并进行分片上传、合并与媒体信息探测。
+- 通过 FFmpeg 按需转码，提供支持 HTTP Range 的在线播放。
+- 优先使用用户字幕或内嵌字幕；没有字幕时可由 Whisper 生成英文字幕。
+- 提供逐句跳转、播放速度、字幕显隐和逐词跟读高亮。
+- 右侧字幕栏独立滚动，当前句保持在阅读焦点附近。
+- 从字幕中采词时，记录视频、句子和时间点，便于复习时返回原声语境。
+
+### 阅读与语境采词
+
+- 导入文章并在阅读过程中划词查询。
+- 保存原句与来源，避免生词和文章上下文分离。
+- 根据用户的已知词与生词数据估算材料难度。
+- 将阅读采词与视频采词放入同一复习队列。
+
+### AI 辅助
+
+AI 是补充能力，不是基础查词与复习流程的前置条件。适合由 AI 处理的任务包括当前句语境释义、长难句分析、助记提示和学习材料解释。所有生成内容都应明确标注来源，接口不可用时不影响词典查询和复习。
+
+## 视频处理流程
+
+本地视频导入后的处理链路如下：
+
+```text
+上传文件
+  -> 探测音视频信息
+  -> 按需转码
+  -> 查找用户字幕或内嵌字幕
+  -> Whisper 语音识别
+  -> 生成句级字幕与逐词时间戳
+  -> 保存字幕
+  -> 进入视频精听页
+```
+
+媒体处理由独立 Worker 执行。后端负责任务领取、心跳、进度和失败重试；Worker 负责 FFmpeg 与 Whisper 推理。模型缓存在 Docker 卷中，重建 Worker 时不会重复下载。
+
+## 当前实现状态
+
+以下能力已经接入实际前后端链路：
+
+- 词典、生词本、词书学习、复习队列和基础学习统计。
+- 本地视频上传、媒体任务调度、FFmpeg 探测与按需转码。
+- 用户字幕、内嵌字幕和 Whisper 英文语音识别。
+- 英文字幕与逐词时间戳回传、视频播放和字幕跟随。
+- 视频库、视频详情和精听工作台。
+
+以下能力仍在开发中：
+
+- 字幕翻译引擎以及中文译文的自动生成。当前没有中文译文的数据只显示英文字幕。
+- YouTube 和 Bilibili 地址导入的完整生产链路。
+- 视频字幕点词、语境快照和复习原声回放的完整闭环。
+- 文章导入、难度估算和跨材料推荐。
+
+产品文档中的目标能力不等同于当前版本已经交付的功能。本节以仓库当前代码和可运行服务为准。
+
+## 目标用户
+
+LexiFlow 主要服务三类学习者：
+
+- 有明确考试范围，希望按计划完成 CET、考研、雅思或托福词汇学习的人。
+- 能读英文资料，但在播客、课程和访谈中经常听不出已经见过的词的人。
+- 希望把日常阅读和观看积累转化为长期记忆，而不是把生词散落在多个工具里的人。
+
+## 产品边界
+
+LexiFlow 现阶段专注于响应式 Web，不把社交动态、排行榜、直播课堂和内容社区作为开发重点。系统不会用多个独立积分或进度条替代真实学习记录，也不会让 AI 生成内容覆盖词典和原始语料。
+
+对于第三方视频、字幕和文章，系统只处理用户有权使用的内容。远程平台导入需要遵守来源站点规则；无法合法保存的媒体不进入公共语料库。
+
+## 体验原则
+
+- 学习内容优先于装饰，页面保持安静，适合长时间阅读和听力训练。
+- 查词、切句和播放操作需要快速响应，避免打断当前语境。
+- 学习状态不能只靠颜色表达，核心操作应支持键盘与清晰的焦点提示。
+- 动画用于说明播放、滚动和状态变化，并尊重系统的减少动态效果设置。
+- 进度来自真实学习行为，不用无关徽章或重复计数制造完成感。
