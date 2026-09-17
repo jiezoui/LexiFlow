@@ -99,6 +99,17 @@ lexiflow:
     upload-cleanup-interval-ms: 3600000
     deleted-retention-hours: 24
     deleted-cleanup-interval-ms: 3600000
+  translation:
+    enabled: ${LEXIFLOW_TRANSLATION_ENABLED:true}
+    target-language: ${LEXIFLOW_TRANSLATION_TARGET:zh-CN}
+    batch-size: ${LEXIFLOW_TRANSLATION_BATCH_SIZE:30}
+    max-batch-chars: ${LEXIFLOW_TRANSLATION_MAX_BATCH_CHARS:3000}
+    libre:
+      enabled: ${LEXIFLOW_LIBRETRANSLATE_ENABLED:true}
+      base-url: ${LEXIFLOW_LIBRETRANSLATE_URL:http://localhost:5000}
+      api-key: ${LEXIFLOW_LIBRETRANSLATE_API_KEY:}
+      timeout-seconds: ${LEXIFLOW_LIBRETRANSLATE_TIMEOUT_SECONDS:30}
+      priority: 100
 
 management:
   endpoints:

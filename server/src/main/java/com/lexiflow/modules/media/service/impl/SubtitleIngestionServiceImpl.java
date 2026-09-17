@@ -10,6 +10,7 @@ import com.lexiflow.modules.media.MediaProperties;
 import com.lexiflow.modules.media.entity.SubtitleCueEntity;
 import com.lexiflow.modules.media.entity.SubtitleTrackEntity;
 import com.lexiflow.modules.media.mapper.SubtitleCueMapper;
+import com.lexiflow.modules.media.mapper.MediaItemMapper;
 import com.lexiflow.modules.media.mapper.SubtitleTrackMapper;
 import com.lexiflow.modules.media.model.SubtitleSource;
 import com.lexiflow.modules.media.model.SubtitleStatus;
@@ -19,8 +20,10 @@ import com.lexiflow.modules.media.util.ParsedSubtitle;
 import com.lexiflow.modules.media.util.ParsedSubtitleCue;
 import com.lexiflow.modules.media.util.SubtitleParser;
 import com.lexiflow.modules.media.vo.SubtitleUploadVo;
+import com.lexiflow.modules.translation.event.SubtitleTrackReadyEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -35,7 +38,9 @@ public class SubtitleIngestionServiceImpl implements SubtitleIngestionService {
     private final MediaProperties properties;
     private final SubtitleTrackMapper trackMapper;
     private final SubtitleCueMapper cueMapper;
+    private final MediaItemMapper mediaMapper;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -86,6 +91,11 @@ public class SubtitleIngestionServiceImpl implements SubtitleIngestionService {
                     .updatedAt(now)
                     .build());
         }
+        var media = mediaMapper.selectById(mediaItemId);
+        if (media == null) {
+            throw new BusinessException(ResultCode.MEDIA_NOT_FOUND);
+        }
+        eventPublisher.publishEvent(new SubtitleTrackReadyEvent(track.getId(), media.getUserId()));
         return new SubtitleUploadVo(track.getId(), normalizedLanguage, source.name(),
                 parsed.format(), parsed.cues().size());
     }
