@@ -1,0 +1,17 @@
+package com.lexiflow.infra.asyncjob.model;
+
+public enum AsyncJobStage {
+    VALIDATING,
+    FETCHING_METADATA,
+    UPLOADING,
+    PROBING,
+    TRANSCODING,
+    ACQUIRING_SUBTITLE,
+    DOWNLOADING_MODEL,
+    TRANSCRIBING,
+    NORMALIZING,
+    TRANSLATING,
+    TOKENIZING,
+    FINALIZING,
+    READY
+}
