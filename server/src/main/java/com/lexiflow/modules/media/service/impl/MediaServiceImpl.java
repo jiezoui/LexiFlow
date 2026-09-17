@@ -25,10 +25,12 @@ import com.lexiflow.modules.media.model.MediaStatus;
 import com.lexiflow.modules.media.service.MediaService;
 import com.lexiflow.modules.media.service.SubtitleIngestionService;
 import com.lexiflow.modules.media.vo.MediaCueVo;
+import com.lexiflow.modules.media.vo.MediaCueTranslationVo;
 import com.lexiflow.modules.media.vo.MediaDetailVo;
 import com.lexiflow.modules.media.vo.MediaPlaybackVo;
 import com.lexiflow.modules.media.vo.SubtitleUploadVo;
 import com.lexiflow.modules.media.util.PublicIdGenerator;
+import com.lexiflow.modules.translation.service.TranslationTaskService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -51,20 +53,21 @@ public class MediaServiceImpl implements MediaService {
     private final AsyncJobService asyncJobService;
     private final ObjectMapper objectMapper;
     private final SubtitleIngestionService subtitleIngestionService;
+    private final TranslationTaskService translationTaskService;
 
     @Override
     public List<MediaDetailVo> list(Long userId) {
         return mediaMapper.selectList(new LambdaQueryWrapper<MediaItemEntity>()
                         .eq(MediaItemEntity::getUserId, userId)
                         .orderByDesc(MediaItemEntity::getUpdatedAt))
-                .stream().map(media -> MediaDetailVo.from(media, subtitleStatus(media.getId())))
+                .stream().map(media -> MediaDetailVo.from(media, latestReadyTrack(media.getId())))
                 .toList();
     }
 
     @Override
     public MediaDetailVo detail(String publicId, Long userId) {
         MediaItemEntity media = requireOwned(publicId, userId);
-        return MediaDetailVo.from(media, subtitleStatus(media.getId()));
+        return MediaDetailVo.from(media, latestReadyTrack(media.getId()));
     }
 
     @Override
@@ -83,6 +86,23 @@ public class MediaServiceImpl implements MediaService {
                         .eq(SubtitleCueEntity::getTrackId, track.getId())
                         .orderByAsc(SubtitleCueEntity::getSequenceNo))
                 .stream().map(MediaCueVo::from).toList();
+    }
+
+    @Override
+    public List<MediaCueTranslationVo> cueTranslations(String publicId, Long userId) {
+        MediaItemEntity media = requireOwned(publicId, userId);
+        SubtitleTrackEntity track = latestReadyTrack(media.getId());
+        if (track == null) {
+            return List.of();
+        }
+        return cueMapper.selectList(new LambdaQueryWrapper<SubtitleCueEntity>()
+                        .eq(SubtitleCueEntity::getTrackId, track.getId())
+                        .isNotNull(SubtitleCueEntity::getTranslation)
+                        .orderByAsc(SubtitleCueEntity::getSequenceNo))
+                .stream()
+                .filter(cue -> cue.getTranslation() != null && !cue.getTranslation().isBlank())
+                .map(MediaCueTranslationVo::from)
+                .toList();
     }
 
     @Override
@@ -158,6 +178,16 @@ public class MediaServiceImpl implements MediaService {
     }
 
     @Override
+    public AsyncJobVo translate(String publicId, Long userId) {
+        MediaItemEntity media = requireOwned(publicId, userId);
+        SubtitleTrackEntity track = latestReadyTrack(media.getId());
+        if (track == null) {
+            throw new BusinessException(ResultCode.SUBTITLE_INVALID.getCode(), "当前视频没有可翻译的英文字幕");
+        }
+        return translationTaskService.request(track, userId);
+    }
+
+    @Override
     public MediaItemEntity requireOwned(String publicId, Long userId) {
         MediaItemEntity media = mediaMapper.selectOne(new LambdaQueryWrapper<MediaItemEntity>()
                 .eq(MediaItemEntity::getPublicId, publicId)
@@ -173,11 +203,6 @@ public class MediaServiceImpl implements MediaService {
     public void softDelete(String publicId, Long userId) {
         MediaItemEntity media = requireOwned(publicId, userId);
         mediaMapper.deleteById(media);
-    }
-
-    private String subtitleStatus(Long mediaId) {
-        SubtitleTrackEntity track = latestReadyTrack(mediaId);
-        return track == null ? SubtitleStatus.PENDING.name() : track.getStatus();
     }
 
     private SubtitleTrackEntity latestReadyTrack(Long mediaId) {

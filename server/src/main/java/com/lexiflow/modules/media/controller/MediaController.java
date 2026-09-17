@@ -11,6 +11,7 @@ import com.lexiflow.modules.media.model.SubtitleSource;
 import com.lexiflow.modules.media.service.MediaService;
 import com.lexiflow.modules.media.util.ByteRange;
 import com.lexiflow.modules.media.vo.MediaCueVo;
+import com.lexiflow.modules.media.vo.MediaCueTranslationVo;
 import com.lexiflow.modules.media.vo.MediaDetailVo;
 import com.lexiflow.modules.media.vo.MediaPlaybackVo;
 import com.lexiflow.modules.media.vo.SubtitleUploadVo;
@@ -69,6 +70,12 @@ public class MediaController {
         return Result.success(mediaService.cues(mediaId, UserContext.requireCurrentUserId()));
     }
 
+    @Operation(summary = "查询已经生成的字幕译文")
+    @GetMapping("/{mediaId}/cue-translations")
+    public Result<List<MediaCueTranslationVo>> cueTranslations(@PathVariable String mediaId) {
+        return Result.success(mediaService.cueTranslations(mediaId, UserContext.requireCurrentUserId()));
+    }
+
     @Operation(summary = "查询视频处理任务")
     @GetMapping("/{mediaId}/jobs")
     public Result<List<AsyncJobVo>> jobs(@PathVariable String mediaId) {
@@ -91,6 +98,12 @@ public class MediaController {
     @PostMapping("/{mediaId}/reprocess")
     public Result<AsyncJobVo> reprocess(@PathVariable String mediaId) {
         return Result.success(mediaService.reprocess(mediaId, UserContext.requireCurrentUserId()));
+    }
+
+    @Operation(summary = "开始或重试当前字幕轨道的中文翻译")
+    @PostMapping("/{mediaId}/translation")
+    public Result<AsyncJobVo> translate(@PathVariable String mediaId) {
+        return Result.success(mediaService.translate(mediaId, UserContext.requireCurrentUserId()));
     }
 
     @Operation(summary = "支持 HTTP 单区间 Range 的视频流")

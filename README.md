@@ -19,10 +19,12 @@ LexiFlow 是一个面向英语学习者的多模态学习系统，将词书、�
 - FFmpeg 探测与按需 H.264/AAC 转码
 - 用户字幕、内嵌字幕和 Whisper ASR 分级处理
 - faster-whisper `small + int8` CPU 推理
-- 字幕回传、视频库与双语字幕精听页面
+- 逐词时间戳回传、视频库与双语字幕精听页面
+- 独立字幕翻译任务、分批写回、断点重试和 LibreTranslate Provider
 - Whisper 模型持久化缓存及断点续传
 
-YouTube、Bilibili 地址导入和翻译引擎的完整生产链路仍属于后续阶段。
+YouTube、Bilibili 地址导入仍属于后续阶段。当前双语字幕默认通过本地
+LibreTranslate 生成；翻译服务不可用时视频仍可使用英文字幕播放。
 
 ## 项目结构
 
@@ -40,6 +42,7 @@ YouTube、Bilibili 地址导入和翻译引擎的完整生产链路仍属于后�
 - 后端：Java 17、Spring Boot 3.2.3、MyBatis-Plus、Flyway
 - 数据：MySQL 8、Redis、本地文件存储或 MinIO
 - 媒体处理：Python 3.11、FFmpeg、faster-whisper
+- 字幕翻译：Java 异步任务、LibreTranslate，可扩展其他 Provider
 - 默认模型：`Systran/faster-whisper-small`，CPU 使用 `int8`
 
 ## 本地运行
@@ -56,7 +59,41 @@ CREATE DATABASE IF NOT EXISTS lexiflow_db
 
 Flyway 会在后端启动时执行 `server/src/main/resources/db/migration/` 中的版本化迁移。示例数据仍可按需导入 `server/src/main/resources/db/seed.sql`。
 
-### 2. 启动后端
+### 2. 启动本地翻译服务
+
+字幕翻译默认连接 `http://localhost:5000`。第一次启动 LibreTranslate 时需要准备英中语言模型，
+所需时间取决于网络和电脑性能。
+
+```powershell
+docker volume create lexiflow-translate-data
+docker run -d --name lexiflow-libretranslate --restart unless-stopped `
+  -p 5000:5000 `
+  -e LT_LOAD_ONLY=en,zh `
+  -v lexiflow-translate-data:/home/libretranslate/.local `
+  libretranslate/libretranslate:latest
+```
+
+检查服务是否就绪：
+
+```powershell
+Invoke-RestMethod http://localhost:5000/languages
+```
+
+如果容器已经存在，后续只需执行：
+
+```powershell
+docker start lexiflow-libretranslate
+```
+
+可用环境变量：
+
+- `LEXIFLOW_TRANSLATION_ENABLED`：是否自动创建字幕翻译任务，默认 `true`。
+- `LEXIFLOW_TRANSLATION_TARGET`：目标语言，默认 `zh-CN`。
+- `LEXIFLOW_LIBRETRANSLATE_URL`：LibreTranslate 地址，默认 `http://localhost:5000`。
+- `LEXIFLOW_LIBRETRANSLATE_API_KEY`：自建服务通常留空，托管服务按需填写。
+- `LEXIFLOW_TRANSLATION_BATCH_SIZE`：每批字幕数量，默认 `30`。
+
+### 3. 启动后端
 
 ```powershell
 cd server
@@ -66,7 +103,7 @@ mvn spring-boot:run
 - API：`http://localhost:8080`
 - Swagger UI：`http://localhost:8080/swagger-ui.html`
 
-### 3. 启动前端
+### 4. 启动前端
 
 ```powershell
 cd LexiFlow
@@ -76,7 +113,7 @@ npm run dev
 
 访问 `http://localhost:3000`。前端的 `/api/*` 请求会代理到 `http://127.0.0.1:8080/api/*`。
 
-### 4. 启动媒体 Worker
+### 5. 启动媒体 Worker
 
 ```powershell
 docker build -t lexiflow-media-worker:local ./media-worker
@@ -105,7 +142,12 @@ UPLOADING
   -> TRANSCRIBING
   -> NORMALIZING
   -> FINALIZING
-  -> READY
+  -> READY（英文字幕已可播放）
+
+SUBTITLE_TRANSLATE
+  -> PENDING
+  -> TRANSLATING（分批写回中文）
+  -> READY / PARTIAL / FAILED
 ```
 
 Whisper `small` 模型首次下载约 484 MB，缓存保存在 Docker 卷 `lexiflow-whisper-cache` 中。连接中断时可以续传，重建 Worker 容器不会清空模型。
@@ -114,7 +156,8 @@ Whisper `small` 模型首次下载约 484 MB，缓存保存在 Docker 卷 `lexif
 
 - 媒体：`READY`
 - 字幕：`READY`
-- 任务：`SUCCEEDED`
+- 媒体任务：`SUCCEEDED`
+- 翻译：`READY`；翻译失败不影响英文字幕播放
 - 进度：`100`
 
 ## 文档
