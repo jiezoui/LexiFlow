@@ -25,6 +25,12 @@ public class SubtitleTrackEntity {
     private String format;
     private Boolean isOriginal;
     private String status;
+    private String translationStatus;
+    private Integer translationProgress;
+    private String translationTarget;
+    private String translationProvider;
+    private String translationError;
+    private LocalDateTime translatedAt;
     private String checksum;
     private Integer version;
     private LocalDateTime createdAt;

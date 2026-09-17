@@ -78,6 +78,10 @@ export interface MediaItem {
   status: "UPLOADING" | "PROCESSING" | "WAITING_SUBTITLE" | "READY" | "FAILED" | string
   processingStage: string | null
   subtitleStatus: string
+  translationStatus: "DISABLED" | "PENDING" | "TRANSLATING" | "READY" | "PARTIAL" | "FAILED" | string
+  translationProgress: number
+  translationTarget: string | null
+  translationError: string | null
   errorMessage: string | null
   playback: MediaPlayback
   createdAt: string
@@ -92,6 +96,22 @@ export interface MediaCue {
   translation: string | null
   translationLang: string | null
   tokens: string | null
+}
+
+export interface MediaCueTranslation {
+  cueId: number
+  translation: string
+  translationLang: string | null
+  translationProvider: string | null
+}
+
+export interface MediaAsyncJob {
+  id: number
+  jobType: string
+  status: string
+  stage: string
+  progress: number
+  lastError: string | null
 }
 
 export interface DictEntry {
@@ -754,6 +774,12 @@ export const mediaApi = {
     request<MediaItem>(`/api/media/${encodeURIComponent(mediaId)}`),
   cues: (mediaId: string) =>
     request<MediaCue[]>(`/api/media/${encodeURIComponent(mediaId)}/cues`),
+  cueTranslations: (mediaId: string) =>
+    request<MediaCueTranslation[]>(`/api/media/${encodeURIComponent(mediaId)}/cue-translations`),
+  translate: (mediaId: string) =>
+    request<MediaAsyncJob>(`/api/media/${encodeURIComponent(mediaId)}/translation`, {
+      method: "POST",
+    }),
   delete: (mediaId: string) =>
     request<void>(`/api/media/${encodeURIComponent(mediaId)}`, { method: "DELETE" }),
   createUpload: (file: File, signal?: AbortSignal) =>

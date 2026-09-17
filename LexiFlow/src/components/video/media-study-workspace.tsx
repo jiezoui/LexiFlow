@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { ArrowLeftIcon, VideoIcon } from "lucide-react"
-import { mediaApi, type MediaCue, type MediaItem } from "@/lib/api-client"
+import { ArrowLeftIcon, LanguagesIcon, LoaderCircleIcon, RefreshCwIcon, VideoIcon } from "lucide-react"
+import { mediaApi, type MediaCue, type MediaCueTranslation, type MediaItem } from "@/lib/api-client"
 import { MediaPlayer, type MediaPlayerHandle } from "@/components/video/media-player"
 import { TranscriptRail } from "@/components/video/transcript-rail"
 
@@ -13,6 +13,15 @@ const statusLabels: Record<string, string> = {
   WAITING_SUBTITLE: "等待字幕",
   READY: "处理完成",
   FAILED: "处理失败",
+}
+
+const translationStatusLabels: Record<string, string> = {
+  DISABLED: "仅英文字幕",
+  PENDING: "等待翻译",
+  TRANSLATING: "正在生成中文",
+  READY: "双语字幕已就绪",
+  PARTIAL: "部分译文生成失败",
+  FAILED: "中文翻译失败",
 }
 
 function formatTime(seconds: number) {
@@ -40,6 +49,19 @@ function findActiveCueIndex(cues: MediaCue[], currentMs: number) {
   return -1
 }
 
+function mergeTranslations(cues: MediaCue[], translations: MediaCueTranslation[]) {
+  if (!translations.length) return cues
+  const byCueId = new Map(translations.map((translation) => [translation.cueId, translation]))
+  return cues.map((cue) => {
+    const update = byCueId.get(cue.id)
+    return update ? {
+      ...cue,
+      translation: update.translation,
+      translationLang: update.translationLang,
+    } : cue
+  })
+}
+
 export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
   const [media, setMedia] = useState<MediaItem | null>(null)
   const [cues, setCues] = useState<MediaCue[]>([])
@@ -47,6 +69,8 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
   const [playerError, setPlayerError] = useState("")
+  const [isRetryingTranslation, setIsRetryingTranslation] = useState(false)
+  const [refreshNonce, setRefreshNonce] = useState(0)
 
   const playerRef = useRef<MediaPlayerHandle>(null)
   const cuesRef = useRef<MediaCue[]>([])
@@ -69,21 +93,26 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
     const load = async (initial: boolean) => {
       if (initial) setIsLoading(true)
       try {
-        const [detail, transcript] = await Promise.all([
-          mediaApi.detail(mediaId),
-          mediaApi.cues(mediaId),
+        const detail = await mediaApi.detail(mediaId)
+        const refreshFullTranscript = initial || ["UPLOADING", "PROCESSING"].includes(detail.status)
+        const shouldFetchTranslations = ["PENDING", "TRANSLATING", "READY", "PARTIAL"].includes(detail.translationStatus)
+        const [transcript, translations] = await Promise.all([
+          refreshFullTranscript ? mediaApi.cues(mediaId) : Promise.resolve(cuesRef.current),
+          shouldFetchTranslations ? mediaApi.cueTranslations(mediaId) : Promise.resolve([]),
         ])
         if (!active) return
 
-        cuesRef.current = transcript
+        const nextCues = mergeTranslations(transcript, translations)
+        cuesRef.current = nextCues
         setMedia(detail)
-        setCues(transcript)
+        setCues(nextCues)
         setLoadError("")
-        const nextIndex = findActiveCueIndex(transcript, currentTimeRef.current * 1000)
+        const nextIndex = findActiveCueIndex(nextCues, currentTimeRef.current * 1000)
         activeIndexRef.current = nextIndex
         setActiveIndex(nextIndex)
 
-        if (["UPLOADING", "PROCESSING"].includes(detail.status)) {
+        if (["UPLOADING", "PROCESSING"].includes(detail.status)
+          || ["PENDING", "TRANSLATING"].includes(detail.translationStatus)) {
           pollTimerRef.current = window.setTimeout(() => void load(false), 3000)
         }
       } catch (error) {
@@ -99,7 +128,19 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
       active = false
       if (pollTimerRef.current !== null) window.clearTimeout(pollTimerRef.current)
     }
-  }, [mediaId])
+  }, [mediaId, refreshNonce])
+
+  const retryTranslation = async () => {
+    setIsRetryingTranslation(true)
+    try {
+      await mediaApi.translate(mediaId)
+      setRefreshNonce((value) => value + 1)
+    } catch (error) {
+      setPlayerError(error instanceof Error ? error.message : "无法重新开始字幕翻译。")
+    } finally {
+      setIsRetryingTranslation(false)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -136,6 +177,30 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
               本地视频 · {media.durationSeconds === null ? "时长检测中" : formatTime(media.durationSeconds)} · {statusLabels[media.status] || media.status}
             </p>
           </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
+          {media.translationStatus === "TRANSLATING" || media.translationStatus === "PENDING" ? (
+            <>
+              <LoaderCircleIcon className="size-3.5 animate-spin" aria-hidden="true" />
+              <span>{translationStatusLabels[media.translationStatus]} · {media.translationProgress}%</span>
+            </>
+          ) : media.translationStatus === "FAILED" || media.translationStatus === "PARTIAL" ? (
+            <button
+              type="button"
+              onClick={() => void retryTranslation()}
+              disabled={isRetryingTranslation}
+              className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 font-semibold text-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+              title={media.translationError || undefined}
+            >
+              <RefreshCwIcon className={`size-3.5 ${isRetryingTranslation ? "animate-spin" : ""}`} />
+              重新翻译
+            </button>
+          ) : (
+            <>
+              <LanguagesIcon className="size-3.5" aria-hidden="true" />
+              <span>{translationStatusLabels[media.translationStatus] || media.translationStatus}</span>
+            </>
+          )}
         </div>
       </header>
 
