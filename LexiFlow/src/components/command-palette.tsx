@@ -33,6 +33,7 @@ const NAV_PAGES = [
   { label: "今日概览 (Today's Mission)", icon: LayoutDashboardIcon, href: "/dashboard" },
   { label: "词书库 (Wordbooks)", icon: BookOpenIcon, href: "/wordbooks" },
   { label: "生词本 (Vocabulary)", icon: BookmarkCheckIcon, href: "/vocab" },
+  { label: "语境文章 (Context Stories)", icon: SparklesIcon, href: "/reading/story" },
   { label: "视频精听 (Video Shadowing)", icon: VideoIcon, href: "/videos" },
   { label: "阅读库 (Context Reading)", icon: BookMarkedIcon, href: "/reading" },
   { label: "偏好设置 (Settings)", icon: SettingsIcon, href: "/settings" },

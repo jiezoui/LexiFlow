@@ -356,7 +356,19 @@ public class AiGatewayServiceImpl implements AiGatewayService {
                 .build();
     }
 
-    private AiExplainVo parseAiExplainContent(String word, String rawContent) {
+    public static final int MAX_QUESTION_LENGTH = 160;
+
+    AiExplainVo parseAiExplainContent(String word, String question, String rawContent) {
+        AiExplainVo vo = parseAiExplainContent(word, rawContent);
+        if (!StringUtils.hasText(question)) {
+            vo.setRawAnswer("");
+        } else if (vo.getRawAnswer() != null && vo.getRawAnswer().length() > MAX_QUESTION_LENGTH) {
+            vo.setRawAnswer(vo.getRawAnswer().substring(0, MAX_QUESTION_LENGTH - 1) + "…");
+        }
+        return vo;
+    }
+
+    AiExplainVo parseAiExplainContent(String word, String rawContent) {
         String clean = rawContent != null ? rawContent.trim() : "";
         // 1. 彻底清除所有形式的思考标签及其内容 (兼容未闭合的 <think> 及各类推理标签)
         clean = clean.replaceAll("(?s)<think>.*?</think>", "")
@@ -457,7 +469,7 @@ public class AiGatewayServiceImpl implements AiGatewayService {
             // 严禁将思考草稿/自言自语/提示词约束放入 rawAnswer，避免前端泄露
             return AiExplainVo.builder()
                     .word(word)
-                    .contextMeaning(word)
+                    .contextMeaning("模型返回格式不符合要求")
                     .rawAnswer("")
                     .collocations(Collections.emptyList())
                     .build();
@@ -512,7 +524,8 @@ public class AiGatewayServiceImpl implements AiGatewayService {
 
     private List<String> extractCollocations(JsonNode node) {
         if (node == null || !node.isObject()) return Collections.emptyList();
-        List<String> list = new ArrayList<>();
+        List<String> list = new java.util.ArrayList<>();
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
         JsonNode colNode = null;
         for (String key : new String[]{"collocations", "collocation", "phrases", "common_collocations", "常用搭配", "高频搭配", "搭配"}) {
             if (node.has(key)) {
@@ -524,18 +537,26 @@ public class AiGatewayServiceImpl implements AiGatewayService {
         if (colNode != null) {
             if (colNode.isArray()) {
                 for (JsonNode c : colNode) {
+                    String val = "";
                     if (c.isTextual() && StringUtils.hasText(c.asText())) {
-                        list.add(c.asText().trim());
+                        val = c.asText().trim();
                     } else if (c.isObject() && c.has("phrase")) {
                         String phrase = c.path("phrase").asText("");
                         String meaning = c.path("meaning").asText("");
-                        list.add(StringUtils.hasText(meaning) ? phrase + ": " + meaning : phrase);
+                        val = StringUtils.hasText(meaning) ? phrase + ": " + meaning : phrase;
                     }
+                    if (StringUtils.hasText(val) && seen.add(val.toLowerCase(java.util.Locale.ROOT))) {
+                        list.add(val);
+                    }
+                    if (list.size() >= 3) break;
                 }
             } else if (colNode.isTextual() && StringUtils.hasText(colNode.asText())) {
                 String[] parts = colNode.asText().split("[;；\\n]+");
                 for (String p : parts) {
-                    if (StringUtils.hasText(p.trim())) list.add(p.trim());
+                    if (StringUtils.hasText(p.trim()) && seen.add(p.trim().toLowerCase(java.util.Locale.ROOT))) {
+                        list.add(p.trim());
+                    }
+                    if (list.size() >= 3) break;
                 }
             }
         }
@@ -612,5 +633,70 @@ public class AiGatewayServiceImpl implements AiGatewayService {
             return body.length() > 200 ? body.substring(0, 200) + "..." : body;
         }
         return "请求未成功";
+    }
+
+    @Override
+    public String generateText(String systemPrompt, String userPrompt, String providerInput, String modelInput, String apiKeyInput, String apiHostInput) {
+        String provider = StringUtils.hasText(providerInput) ? providerInput.toLowerCase().trim() : "deepseek";
+        String host = normalizeApiHost(apiHostInput, provider);
+        String apiKey = apiKeyInput != null ? apiKeyInput.trim() : "";
+        String model = StringUtils.hasText(modelInput) ? modelInput.trim() : getDefaultModelForProvider(provider);
+
+        log.info("AI GenerateText 请求发起 -> provider: [{}], model: [{}]", provider, model);
+
+        try {
+            String endpoint = buildEndpoint(host, "/chat/completions");
+
+            ObjectNode root = objectMapper.createObjectNode();
+            root.put("model", model);
+            root.put("temperature", 0.3);
+            root.put("max_tokens", 2500);
+
+            if (provider.contains("deepseek") || model.contains("deepseek") || provider.contains("siliconflow") || model.contains("r1")) {
+                ObjectNode thinkingNode = objectMapper.createObjectNode();
+                thinkingNode.put("type", "disabled");
+                root.set("thinking", thinkingNode);
+                root.put("enable_thinking", false);
+            }
+
+            ArrayNode messages = root.putArray("messages");
+            if (StringUtils.hasText(systemPrompt)) {
+                ObjectNode sysMsg = messages.addObject();
+                sysMsg.put("role", "system");
+                sysMsg.put("content", systemPrompt);
+            }
+
+            ObjectNode userMsg = messages.addObject();
+            userMsg.put("role", "user");
+            userMsg.put("content", userPrompt);
+
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
+                    .uri(URI.create(endpoint))
+                    .timeout(Duration.ofSeconds(45))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(root)));
+
+            if (StringUtils.hasText(apiKey)) {
+                builder.header("Authorization", "Bearer " + apiKey);
+            }
+
+            HttpResponse<String> response = HTTP_CLIENT.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                JsonNode resJson = objectMapper.readTree(response.body());
+                if (resJson.has("choices") && resJson.get("choices").isArray() && resJson.get("choices").size() > 0) {
+                    JsonNode choice = resJson.get("choices").get(0);
+                    if (choice.has("message") && choice.get("message").has("content")) {
+                        return choice.get("message").get("content").asText();
+                    }
+                }
+            } else {
+                log.warn("AI GenerateText 响应状态码异常: {}, body: {}", response.statusCode(), response.body());
+                throw new RuntimeException("AI 服务响应异常: " + parseErrorResponse(response.statusCode(), response.body()));
+            }
+        } catch (Exception e) {
+            log.error("AI GenerateText 请求失败: {}", e.getMessage(), e);
+            throw new RuntimeException("AI 生成失败: " + e.getMessage(), e);
+        }
+        return "";
     }
 }

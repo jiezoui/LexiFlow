@@ -369,6 +369,14 @@ export default function ReadingPage() {
             )}
           </div>
 
+          <Link
+            href="/reading/story"
+            className="h-9 px-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center gap-1.5 text-xs font-semibold transition-all shadow-xs shrink-0"
+          >
+            <SparklesIcon className="size-3.5 text-amber-500" />
+            <span>AI 语境串词生文</span>
+          </Link>
+
           <button
             onClick={handleSyncBbc}
             disabled={syncing}
@@ -481,8 +489,9 @@ export default function ReadingPage() {
                   </span>
                 </div>
 
-                <div className="absolute bottom-3 right-3 px-2 py-0.5 rounded-md text-[10px] font-mono text-white bg-black/60 backdrop-blur-md">
-                  {art.readMinutes} min · {art.wordCount} 词
+                <div className="absolute bottom-3 right-3 px-2 py-0.5 rounded-md text-[10px] font-mono text-white bg-black/60 backdrop-blur-md flex items-center gap-1 shadow-sm">
+                  <ClockIcon className="size-2.5 opacity-80" />
+                  <span>{art.readMinutes} min · {art.wordCount ? art.wordCount.toLocaleString() : "--"} 词</span>
                 </div>
               </div>
 
@@ -731,7 +740,9 @@ export default function ReadingPage() {
                     <span>•</span>
                     <span>发布于: {formatPublishedAgo(detail.publishedAt)}</span>
                     <span>•</span>
-                    <span>预计耗时: {detail.readMinutes} 分钟</span>
+                    <span>篇幅: {detail.wordCount ? detail.wordCount.toLocaleString() : "--"} 词</span>
+                    <span>•</span>
+                    <span>预计耗时: 约 {detail.readMinutes} 分钟</span>
                   </div>
 
                   {/* Featured Cover */}

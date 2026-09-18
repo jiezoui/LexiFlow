@@ -24,4 +24,9 @@ public interface AiGatewayService {
      * 针对外刊研读的单词与上下文进行 AI 语境深度解析
      */
     AiExplainVo explainWord(AiExplainRequest request);
+
+    /**
+     * 通用 LLM 对话生成接口，支持 OpenAI 兼容格式与 Claude 协议
+     */
+    String generateText(String systemPrompt, String userPrompt, String provider, String model, String apiKey, String apiHost);
 }

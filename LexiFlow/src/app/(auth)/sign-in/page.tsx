@@ -71,8 +71,8 @@ export default function SignInPage() {
       <div className="relative hidden w-1/2 flex-col justify-between bg-zinc-950 lg:flex">
         {/* Logo */}
         <Link href="/dashboard" className="relative z-20 flex items-center gap-2.5 p-8">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-white text-black">
-            <SparklesIcon className="size-4" />
+          <div className="relative flex size-8 items-center justify-center rounded-xl overflow-hidden shadow-xs border border-white/20 bg-black/40">
+            <img src="/logo.png" alt="LexiFlow Logo" className="size-full object-cover" />
           </div>
           <span className="text-sm font-bold tracking-tight text-white">
             语脉 · LexiFlow
@@ -113,8 +113,8 @@ export default function SignInPage() {
             className="mb-8 flex flex-col items-center lg:hidden"
             variants={itemVariants}
           >
-            <div className="flex size-10 items-center justify-center rounded-xl bg-foreground text-background">
-              <SparklesIcon className="size-5" />
+            <div className="relative flex size-10 items-center justify-center rounded-xl overflow-hidden shadow-xs border border-border/40 bg-background">
+              <img src="/logo.png" alt="LexiFlow Logo" className="size-full object-cover" />
             </div>
             <span className="mt-2 text-base font-bold text-foreground">
               语脉 · LexiFlow

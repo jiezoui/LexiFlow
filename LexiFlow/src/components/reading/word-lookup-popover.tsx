@@ -33,6 +33,8 @@ import { getActiveAiConfig } from "@/lib/ai-config"
 export interface WordLookupPopoverProps {
   word: string
   contextSentence?: string
+  contextParagraph?: string
+  contextParagraphTranslation?: string
   anchorRect: DOMRect | null
   onClose: () => void
   onOpenFullDrawer?: (word: string) => void
@@ -134,9 +136,35 @@ function getCleanContextMeaning(
   return word
 }
 
+function renderHighlightedText(text: string, targetWord: string) {
+  if (!text) return null
+  if (!targetWord || !targetWord.trim()) return text
+
+  const cleanTarget = targetWord.trim().toLowerCase()
+  const escaped = targetWord.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const regex = new RegExp(`(\\b${escaped}[a-z]*\\b)`, "gi")
+  const parts = text.split(regex)
+
+  return parts.map((part, i) => {
+    if (part.toLowerCase().startsWith(cleanTarget)) {
+      return (
+        <span
+          key={i}
+          className="bg-primary/15 text-primary font-bold px-1.5 py-0.5 rounded-md underline decoration-primary decoration-2 underline-offset-2"
+        >
+          {part}
+        </span>
+      )
+    }
+    return part
+  })
+}
+
 export function WordLookupPopover({
   word,
   contextSentence = "",
+  contextParagraph = "",
+  contextParagraphTranslation = "",
   anchorRect,
   onClose,
   onOpenFullDrawer,
@@ -182,7 +210,7 @@ export function WordLookupPopover({
     const cfg = getActiveAiConfig()
     setAiConfig(cfg)
     if (cfg.isConfigured && !aiResult) {
-      const targetSentence = (contextSentence || entry?.sampleSentence || "").trim()
+      const targetSentence = (contextSentence || contextParagraph || entry?.sampleSentence || "").trim()
       const cacheKey = `${cfg.provider}:${cfg.model}:${word}:${targetSentence}`
       const cached = aiSessionCache.get(cacheKey)
       if (cached && cached.contextMeaning && !cached.contextMeaning.includes("解析完成")) {
@@ -199,7 +227,11 @@ export function WordLookupPopover({
   // 当打开 AI 解析弹窗时，确保文章例句配备高质量中文翻译
   useEffect(() => {
     if (!showAiInsight) return
-    const targetSentence = (contextSentence || entry?.sampleSentence || "").trim()
+    if (contextParagraphTranslation) {
+      setContextTrans(contextParagraphTranslation.trim())
+      return
+    }
+    const targetSentence = (contextSentence || contextParagraph || entry?.sampleSentence || "").trim()
     if (!targetSentence) return
 
     // 1. 若词典条目中已有与例句完全一致的原配中文翻译，直接使用
@@ -228,7 +260,7 @@ export function WordLookupPopover({
           setContextTransLoading(false)
         })
     }
-  }, [showAiInsight, contextSentence, entry?.sampleSentence, entry?.sampleTranslation, userCard])
+  }, [showAiInsight, contextSentence, contextParagraph, contextParagraphTranslation, entry?.sampleSentence, entry?.sampleTranslation, userCard])
 
   // 打开 AI 弹窗时锁定底层 body 滚动
   useEffect(() => {
@@ -242,7 +274,7 @@ export function WordLookupPopover({
 
   const handleRequestAiExplain = async (cfg = aiConfig, customQuestion?: string) => {
     if (!cfg.isConfigured) return
-    const targetSentence = (contextSentence || entry?.sampleSentence || "").trim()
+    const targetSentence = (contextSentence || contextParagraph || entry?.sampleSentence || "").trim()
     const isDefaultQuery = !customQuestion
     if (customQuestion !== undefined) {
       setLastQuestion(customQuestion.trim())
@@ -469,9 +501,9 @@ export function WordLookupPopover({
         onHarvestChange?.(rawWord, false)
       } else {
         // 采录入库: 若为文章整句例句，自动请求整句机器翻译填充中文意思
-        const targetSentence = contextSentence || entry?.sampleSentence || ""
-        let sentenceTrans = ""
-        if (targetSentence && targetSentence.trim().includes(" ")) {
+        const targetSentence = contextSentence || contextParagraph || entry?.sampleSentence || ""
+        let sentenceTrans = contextParagraphTranslation || ""
+        if (!sentenceTrans && targetSentence && targetSentence.trim().includes(" ")) {
           try {
             const transRes = await dictApi.translate(targetSentence.trim())
             if (transRes && transRes.translation && !transRes.translation.includes("繁忙")) {
@@ -613,15 +645,15 @@ export function WordLookupPopover({
     <>
       <div
         ref={popoverRef}
-        style={{ top: `${top}px`, left: `${left}px` }}
-        className="fixed z-50 w-[330px] sm:w-[350px] rounded-3xl border border-border/80 bg-card/95 dark:bg-zinc-900/95 p-4 sm:p-4.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150 text-foreground select-none"
+        style={{ top: `${top}px`, left: `${left}px`, display: showAiInsight ? "none" : undefined }}
+        className="fixed z-50 w-[330px] sm:w-[350px] rounded-2xl sm:rounded-[22px] border border-border/80 bg-card/95 dark:bg-zinc-900/95 p-4 sm:p-4.5 shadow-2xl backdrop-blur-2xl animate-in fade-in zoom-in-95 duration-150 text-foreground select-none flex flex-col gap-3"
       >
         {isSentenceMode ? (
           /* ==================== 模式 B：划选长句 / 短语翻译小窗 ==================== */
           <div className="flex flex-col gap-2.5">
-            <div className="flex items-center justify-between border-b border-border/60 pb-2">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-primary font-bold flex items-center gap-1">
-                <SparklesIcon className="size-3" /> 划句机器翻译 · MT Engine
+            <div className="flex items-center justify-between border-b border-border/50 pb-2">
+              <span className="text-[10.5px] font-mono font-bold text-primary flex items-center gap-1">
+                <SparklesIcon className="size-3" /> 整句机器翻译
               </span>
               <div className="flex items-center gap-1">
                 <button
@@ -640,11 +672,11 @@ export function WordLookupPopover({
               </div>
             </div>
 
-            <div className="text-xs text-muted-foreground leading-relaxed italic bg-muted/40 p-2.5 rounded-2xl border border-border/40 max-h-24 overflow-y-auto">
+            <div className="text-xs text-muted-foreground leading-relaxed italic bg-muted/40 p-2.5 rounded-xl border border-border/40 max-h-24 overflow-y-auto">
               "{word}"
             </div>
 
-            <div className="text-xs sm:text-sm font-medium leading-relaxed text-foreground min-h-[48px] flex items-center">
+            <div className="text-xs sm:text-sm font-medium leading-relaxed text-foreground min-h-[44px] flex items-center">
               {translating ? (
                 <div className="flex items-center gap-2 text-muted-foreground text-xs font-mono">
                   <Loader2Icon className="size-3.5 animate-spin text-primary" />
@@ -655,39 +687,38 @@ export function WordLookupPopover({
               )}
             </div>
 
-            {/* 底部 AI 深度语境精析按钮 */}
-            <div className="pt-1 border-t border-border/50 flex items-center justify-between">
+            {/* 底部 AI 深度精析按钮 */}
+            <div className="pt-2 border-t border-border/50 flex items-center justify-between">
               <button
                 onClick={() => setShowAiInsight(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[11px] font-semibold bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-amber-500/10 text-violet-600 dark:text-violet-400 hover:opacity-90 border border-violet-500/20 transition-all cursor-pointer"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:opacity-80 transition-opacity cursor-pointer"
               >
-                <SparklesIcon className="size-3 text-fuchsia-500" />
-                <span>AI 深度语法解析</span>
+                <SparklesIcon className="size-3.5" />
+                <span>AI 深度语法解析 →</span>
               </button>
-
-              <span className="text-[10px] font-mono text-muted-foreground">Google / Bing NMT</span>
+              <span className="text-[10px] font-mono text-muted-foreground">Neural MT</span>
             </div>
           </div>
         ) : (
-          /* ==================== 模式 A：单词就近快查小窗 (1:1 参考图) ==================== */
+          /* ==================== 模式 A：苹果原生极简风 单词查词小窗 ==================== */
           <div className="flex flex-col gap-2.5">
-            {/* 1. 顶部操作行：单词、标熟与收藏 */}
+            {/* 1. 顶部操作行：单词、标熟、收藏与关闭 */}
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold tracking-tight text-foreground">
+              <h3 className="text-lg font-bold tracking-tight text-foreground">
                 {entry?.lemma || word}
               </h3>
 
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1">
                 {/* 标熟/斩词按钮 */}
                 <button
                   type="button"
                   onClick={handleToggleKnown}
-                  className={`size-7 rounded-xl flex items-center justify-center transition-all cursor-pointer border ${
+                  className={`size-7 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
                     isKnown
-                      ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 scale-105"
-                      : "bg-muted/50 border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted"
+                      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
                   }`}
-                  title={isKnown ? "已标记完全掌握 (斩词)，点击取消标熟" : "一键标熟 (斩词)，移出后续复习队列"}
+                  title={isKnown ? "已标记掌握 (斩词)，点击取消标熟" : "一键标熟 (斩词)，移出复习队列"}
                 >
                   <CheckIcon className={`size-3.5 ${isKnown ? "stroke-[2.5]" : ""}`} />
                 </button>
@@ -696,30 +727,50 @@ export function WordLookupPopover({
                 <button
                   type="button"
                   onClick={handleToggleHarvest}
-                  className={`size-7 rounded-xl flex items-center justify-center transition-all cursor-pointer border ${
+                  className={`size-7 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
                     isHarvested
-                      ? "bg-rose-500/15 border-rose-500/40 text-rose-500 scale-105"
-                      : "bg-muted/50 border-border/60 text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10"
+                      ? "text-rose-500"
+                      : "text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10"
                   }`}
-                  title={isHarvested ? "已收录至生词本，点击取消" : "收藏该单词与上下文例句入生词库"}
+                  title={isHarvested ? "已收录至生词本，点击取消" : "收藏该单词与上下文例句"}
                 >
                   <HeartIcon className={`size-3.5 ${isHarvested ? "fill-current" : ""}`} />
+                </button>
+
+                {/* 复制 */}
+                <button
+                  type="button"
+                  onClick={handleCopyText}
+                  className="size-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
+                  title="复制词条释义"
+                >
+                  {copied ? <CheckCheckIcon className="size-3.5 text-emerald-500" /> : <CopyIcon className="size-3.5" />}
+                </button>
+
+                {/* 关闭 */}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="size-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
+                  title="关闭"
+                >
+                  <XIcon className="size-3.5" />
                 </button>
               </div>
             </div>
 
             {/* 2. 音标与真人发音栏 */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <button
                 type="button"
                 onClick={() => setAccent(accent === "us" ? "uk" : "us")}
-                className="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                className="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-colors cursor-pointer"
                 title="点击切换美音/英音"
               >
                 {accent.toUpperCase()}
               </button>
 
-              <span className="font-mono text-xs text-muted-foreground tracking-wide">
+              <span className="font-mono text-xs text-muted-foreground/90 tracking-wide">
                 {accent === "us"
                   ? entry?.phoneticUs && entry.phoneticUs !== `/${word.toLowerCase()}/`
                     ? entry.phoneticUs
@@ -735,13 +786,23 @@ export function WordLookupPopover({
                 className={`p-1 rounded-md text-muted-foreground hover:text-primary transition-colors cursor-pointer ${
                   isPlayingAudio ? "text-primary animate-pulse" : ""
                 }`}
-                title="播放纯正真人发音"
+                title="播放真人发音"
               >
                 <Volume2Icon className="size-3.5" />
               </button>
+
+              {/* 词形还原或考纲信息 */}
+              {lemmatized.isInflected && (
+                <>
+                  <span className="text-border">|</span>
+                  <span className="text-[11px] font-mono text-muted-foreground">
+                    原形: {lemmatized.baseLemma}
+                  </span>
+                </>
+              )}
             </div>
 
-            {/* 3. 多词性结构化释义 (紫色独立小胶囊 / 青色专业领域标签) */}
+            {/* 3. 释义区：纯粹排版，去除生硬中括号 */}
             <div className="flex flex-col gap-1.5 my-0.5">
               {loading ? (
                 <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground py-2">
@@ -750,17 +811,9 @@ export function WordLookupPopover({
                 </div>
               ) : defItems.length > 0 ? (
                 defItems.map((item, idx) => (
-                  <div key={idx} className="flex items-start gap-2 text-xs leading-snug">
-                    <span
-                      className={`px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold shrink-0 select-none ${
-                        item.type === "domain"
-                          ? "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400"
-                          : item.type === "pos"
-                          ? "bg-purple-500/15 text-purple-600 dark:text-purple-400"
-                          : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      {item.type === "pos" ? `[ ${item.label} ]` : `[ ${item.label} ]`}
+                  <div key={idx} className="flex items-baseline gap-2 text-xs leading-relaxed">
+                    <span className="font-serif italic font-semibold text-primary shrink-0 w-6">
+                      {item.label.replace(/[\[\]]/g, "").trim()}
                     </span>
                     <span className="text-foreground/90 font-medium">
                       {item.meaning}
@@ -776,210 +829,139 @@ export function WordLookupPopover({
               )}
             </div>
 
-            {/* 4. 形态学原型还原 (Lemmatization) */}
-            {lemmatized.isInflected && (
-              <div className="text-[11px] font-mono text-muted-foreground/85 bg-muted/30 px-2 py-1 rounded-xl border border-border/40 flex items-center justify-between">
-                <span>{lemmatized.displayText}</span>
-                <span className="text-[9px] uppercase tracking-wider text-muted-foreground/60">原型还原</span>
+            {/* 4. 语境释义微栏 */}
+            {contextSentence && (
+              <div className="rounded-xl bg-muted/40 border-l-2 border-primary/60 px-2.5 py-1.5 text-[11.5px] text-muted-foreground leading-relaxed">
+                <span className="font-semibold text-foreground">当前句义：</span>
+                {getCleanContextMeaning(aiResult, entry, word)}
               </div>
             )}
 
-            {/* 5. 底部工具状态栏：复习次数、AI、词典抽屉与设置 */}
-            <div className="flex items-center justify-between pt-2 border-t border-border/60">
-              {/* 记忆复习状态 */}
-              <div className="flex items-center gap-1.5">
+            {/* 5. 底部信息行：无 Emoji 状态指示点与 AI 深度精析 */}
+            <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs">
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <span
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
+                  className={`size-1.5 rounded-full ${
                     isKnown
-                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                      ? "bg-emerald-500"
                       : userCard
-                      ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20"
-                      : "bg-muted text-muted-foreground border-border/40"
+                      ? "bg-primary"
+                      : "bg-muted-foreground/30"
                   }`}
-                >
-                  <span>⏱</span>
-                  <span>{isKnown ? "已斩词" : userCard ? `复习 ${userCard.reps || 0} 次` : "未入库"}</span>
+                />
+                <span>
+                  {isKnown
+                    ? "已完全掌握"
+                    : userCard
+                    ? `已复习 ${userCard.reps || 0} 次`
+                    : "未收录至生词本"}
                 </span>
               </div>
 
-              {/* 右侧功能图标组 */}
-              <div className="flex items-center gap-1.5">
-                {/* AI 语境精析按钮 (彩虹渐变微边框) */}
-                <button
-                  type="button"
-                  onClick={() => setShowAiInsight(true)}
-                  className="size-7 rounded-xl p-[1px] bg-gradient-to-tr from-violet-500 via-fuchsia-500 to-amber-500 transition-transform hover:scale-105 active:scale-95 cursor-pointer"
-                  title="AI 深度语境解析与语法释义"
-                >
-                  <div className="size-full bg-card rounded-[11px] flex items-center justify-center text-foreground hover:bg-muted/40 transition-colors">
-                    <SparklesIcon className="size-3.5 text-fuchsia-500" />
-                  </div>
-                </button>
-
-                {/* 词典抽屉详情 */}
-                {onOpenFullDrawer && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onOpenFullDrawer(entry?.lemma || word)
-                      onClose()
-                    }}
-                    className="size-7 rounded-xl bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer"
-                    title="在右侧展开完整词典详情与真题例句"
-                  >
-                    <BookOpenIcon className="size-3.5" />
-                  </button>
-                )}
-
-                {/* 设置图标 */}
-                <button
-                  type="button"
-                  onClick={handleCopyText}
-                  className="size-7 rounded-xl bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer"
-                  title="复制词条释义"
-                >
-                  {copied ? <CheckCheckIcon className="size-3.5 text-emerald-500" /> : <CopyIcon className="size-3.5" />}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowAiInsight(true)}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:opacity-80 transition-opacity cursor-pointer"
+                title="AI 深度语境解析与语法释义"
+              >
+                <SparklesIcon className="size-3" />
+                <span>AI 语境精析 →</span>
+              </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* ==================== AI 语境深度解析弹窗 (支持真实大模型驱动 & 未配置引导) ==================== */}
+      {/* ==================== AI 语境深度解析弹窗 (Centered 2-Column Modal Dialog) ==================== */}
       {showAiInsight && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-          onMouseDown={(e) => {
-            // 仅在直接点击最外层暗色遮罩时关闭，防止划选文本松手时误触发关闭
-            if (e.target === e.currentTarget) {
-              setShowAiInsight(false)
-            }
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/45 backdrop-blur-xs animate-in fade-in duration-150"
+          onClick={() => {
+            setShowAiInsight(false)
+            onClose()
           }}
         >
+          {/* 弹出的 2 列模态卡片 */}
           <div
             ref={aiModalRef}
-            className="relative w-full max-w-lg max-h-[85vh] flex flex-col rounded-3xl border border-border bg-card p-5 sm:p-6 shadow-2xl animate-in zoom-in-95 duration-200 space-y-3.5 overflow-hidden select-text"
+            className="relative w-full max-w-4xl max-h-[85vh] rounded-2xl sm:rounded-3xl border border-border bg-card shadow-2xl overflow-hidden grid grid-cols-1 md:grid-cols-[1.42fr_1fr] select-text animate-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             onMouseUp={(e) => e.stopPropagation()}
           >
-            {/* 顶栏 (极简现代重构) */}
-            <div className="flex items-center justify-between border-b border-border/60 pb-3 shrink-0">
-              <div className="flex items-center gap-2.5">
-                {/* 挑选的专业 AI 宝石微芒图标 (Reicon gem-sparkle) */}
-                <div className="size-8 rounded-xl bg-gradient-to-br from-violet-500/15 via-fuchsia-500/10 to-primary/15 text-primary border border-primary/25 flex items-center justify-center shadow-xs">
-                  <svg
-                    className="size-4 text-primary"
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                  >
-                    <path
-                      d="M 21.3313 9 C 21.3479 9.3006 21.2613 9.6006 21.0679 9.8573 L 13.0773 20.4653 C 12.54 21.1786 11.4587 21.1786 10.9227 20.4653 L 2.932 9.8573 C 2.5453 9.344 2.5853 8.6333 3.0253 8.164 L 6.2307 4.756 C 6.4853 4.4853 6.8413 4.332 7.2146 4.332 H 13.4933"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <path
-                      d="M 2.7373 9 H 21.3313"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <path
-                      d="M 10.5066 4.3333 L 8.076 9 L 11.6866 20.9639"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <path
-                      d="M 13.4933 4.3333 L 15.924 9 L 12.3133 20.9639"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <path
-                      d="M 2.3333 4 C 2.8853 4 3.3333 3.5523 3.3333 3 C 3.3333 2.4477 2.8853 2 2.3333 2 C 1.7813 2 1.3333 2.4477 1.3333 3 C 1.3333 3.5523 1.7813 4 2.3333 4 Z"
-                      fill="currentColor"
-                    />
-                    <path
-                      d="M 21.3461 3.0937 L 19.9999 2.6423 L 19.5504 1.2851 C 19.4052 0.8465 18.6837 0.8465 18.5385 1.2851 L 18.0889 2.6423 L 16.7428 3.0937 C 16.525 3.1668 16.377 3.3717 16.377 3.6039 C 16.377 3.836 16.525 4.0409 16.7428 4.114 L 18.0889 4.5655 L 18.5385 5.9227 C 18.6112 6.142 18.8146 6.2896 19.0437 6.2896 C 19.2728 6.2896 19.4777 6.1405 19.5489 5.9227 L 19.9985 4.5655 L 21.3446 4.114 C 21.5623 4.0409 21.7103 3.836 21.7103 3.6039 C 21.7103 3.3717 21.5623 3.1668 21.3446 3.0937 H 21.3461 Z"
-                      fill="currentColor"
-                    />
-                  </svg>
-                </div>
-                <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-semibold tracking-tight text-foreground">
-                    AI 语境解析
-                  </h4>
-                  {aiConfig.isConfigured && (
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-muted/80 text-muted-foreground border border-border/60 font-medium">
-                      {aiConfig.model}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAiInsight(false)}
-                className="size-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/70 flex items-center justify-center transition-colors cursor-pointer"
-                title="关闭"
-              >
-                <XIcon className="size-4" />
-              </button>
-            </div>
-
-            {/* 原文语境呈现及中文翻译 */}
-            <div className="bg-muted/40 p-3.5 rounded-2xl border border-border/50 text-xs space-y-2 shrink-0 select-text">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider font-semibold flex items-center gap-1.5">
-                  <span>文章原句语境</span>
-                  <span className="text-muted-foreground/40">/</span>
-                  <span className="text-[9px] text-muted-foreground/70 font-normal">Context Sentence</span>
-                </span>
-                {contextTransLoading && (
-                  <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                    <Loader2Icon className="size-3 animate-spin text-primary" />
-                    <span>翻译中...</span>
-                  </span>
+            {/* 左侧：正文阅读区 + 译文对照 (无多余边框与标签，译文自然排布在英文下方) */}
+            <div className="p-6 sm:p-7 bg-muted/20 dark:bg-zinc-900/40 flex flex-col gap-4 overflow-y-auto border-b md:border-b-0 md:border-r border-border">
+              {/* 英文段落 */}
+              <div className="font-serif text-base sm:text-[17px] leading-relaxed text-foreground select-text">
+                {renderHighlightedText(
+                  contextParagraph || contextSentence || entry?.sampleSentence || `“${word}” 在当前语境中的真实应用`,
+                  entry?.lemma || word
                 )}
               </div>
 
-              {/* 英文原句例句 */}
-              <p className="text-foreground italic leading-relaxed font-serif text-[13px] select-text">
-                “{(contextSentence || entry?.sampleSentence || "No casualties were reported after the strike at Yahodyn, which hit the train...").trim().replace(/^["“”'‘]+|["“”'’]+$/g, "").trim()}”
-              </p>
-
-              {/* 中文翻译呈现 */}
-              {(contextTrans || aiResult?.sentenceTranslation) && (
-                <div className="pt-2 border-t border-border/40 text-xs select-text flex items-start gap-1.5">
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary shrink-0 mt-0.5 font-mono">
-                    译
-                  </span>
-                  <span className="text-foreground/85 leading-relaxed">
-                    {contextTrans || aiResult?.sentenceTranslation}
-                  </span>
-                </div>
-              )}
+              {/* 中文译文：直接放于下方，不加外框，不特意标示标签，沉浸自然 */}
+              <div className="text-sm sm:text-[14px] leading-relaxed text-muted-foreground/90 font-sans select-text">
+                {contextParagraphTranslation || contextTrans || (
+                  contextTransLoading ? (
+                    <span className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
+                      <Loader2Icon className="size-3.5 animate-spin text-primary" />
+                      <span>正在获取精准译文...</span>
+                    </span>
+                  ) : (
+                    "正在实时解析当前语境翻译..."
+                  )
+                )}
+              </div>
             </div>
 
-            {/* 核心内容展示区 (滚动容器) */}
-            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+            {/* 右侧：AI 语境工作台 (移除多余顶部栏，词头直出，纯粹聚焦核心字段与近义辨析) */}
+            <div className="p-6 sm:p-7 bg-card flex flex-col gap-3.5 overflow-y-auto">
+              {/* 顶部词头与操作：单词、词性、发音与关闭 */}
+              <div className="flex items-center justify-between pb-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
+                    {entry?.lemma || word}
+                  </span>
+                  <span className="font-serif italic font-semibold text-sm sm:text-base text-primary">
+                    {entry?.pos ? `[${entry.pos.replace(/[\[\]]/g, "").trim()}]` : "[v.]"}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => playPronunciation(entry?.lemma || word, accent === "us" ? entry?.audioUs : entry?.audioUk)}
+                    className={`p-1.5 rounded-lg text-muted-foreground hover:text-primary transition-colors cursor-pointer ${
+                      isPlayingAudio ? "text-primary animate-pulse" : ""
+                    }`}
+                    title="播放真人发音"
+                  >
+                    <Volume2Icon className="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAiInsight(false)
+                      onClose()
+                    }}
+                    className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors cursor-pointer"
+                    title="关闭弹窗"
+                  >
+                    <XIcon className="size-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* 未配置 AI 引导 */}
               {!aiConfig.isConfigured ? (
-                /* 未配置 API Key 引导状态 */
-                <div className="p-5 rounded-2xl bg-muted/30 border border-dashed border-border/80 flex flex-col items-center text-center gap-3 my-2">
+                <div className="p-5 rounded-2xl bg-muted/30 border border-dashed border-border/80 flex flex-col items-center text-center gap-3 my-auto">
                   <div className="size-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
                     <AlertCircleIcon className="size-5" />
                   </div>
                   <div className="space-y-1">
                     <h5 className="text-xs font-bold text-foreground">尚未配置 AI 大模型 API Key</h5>
-                    <p className="text-[11px] text-muted-foreground leading-relaxed max-w-sm">
-                      语脉支持接入 DeepSeek、硅基流动、OpenAI、Claude 或本地 Ollama。配置后即可对文章原句展开专属语法时态剖析与真题搭配拓展。
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      配置后即可针对当前主干句获得核心释义、句法剖析与近义词辨析。
                     </p>
                   </div>
                   <Link
@@ -995,184 +977,82 @@ export function WordLookupPopover({
                   </Link>
                 </div>
               ) : aiLoading ? (
-                /* 优雅的骨架屏流式占位动效 (Skeleton Loading) */
-                <div className="p-4 rounded-2xl bg-muted/20 border border-border/40 space-y-3.5 animate-in fade-in duration-200">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Loader2Icon className="size-3.5 animate-spin text-primary" />
-                      <span className="text-xs font-medium text-foreground">
-                        正在调用 [{aiConfig.model}] 进行语境深度精析...
+                /* 优雅骨架屏加载状态 */
+                <div className="space-y-3 animate-pulse py-2">
+                  <div className="rounded-xl border border-border bg-muted/30 p-3.5 space-y-2.5">
+                    <div className="h-3.5 bg-muted-foreground/15 rounded w-3/4" />
+                    <div className="h-3.5 bg-muted-foreground/15 rounded w-5/6" />
+                    <div className="h-3.5 bg-muted-foreground/15 rounded w-1/2" />
+                  </div>
+                  <div className="rounded-xl bg-muted/30 p-3 h-16" />
+                </div>
+              ) : (
+                /* 核心分析卡片与近义辨析卡片 */
+                <div className="flex flex-col gap-3">
+                  {/* 核心分析区域 (核心释义、句法成分、常用短语) */}
+                  <div className="border border-border/80 rounded-xl p-3.5 bg-muted/30 dark:bg-muted/20 flex flex-col gap-2 text-xs sm:text-[12.5px] leading-relaxed">
+                    <div>
+                      <span className="font-bold text-foreground">核心释义：</span>
+                      <span className="text-foreground/90 font-medium">{getCleanContextMeaning(aiResult, entry, word)}</span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-foreground">句法成分：</span>
+                      <span className="text-muted-foreground">
+                        {aiResult?.grammarRole && !isThinkingNoise(aiResult.grammarRole)
+                          ? aiResult.grammarRole.replace(/<[^>]+>/g, "").trim()
+                          : "在当前主干句中充当核心动词与谓语成分"}
                       </span>
                     </div>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
-                      AI 生成中
+                    <div>
+                      <span className="font-bold text-foreground">常用短语：</span>
+                      <span className="font-mono text-[11px] text-primary font-medium">
+                        {aiResult?.collocations && aiResult.collocations.filter((c) => !isThinkingNoise(c)).length > 0
+                          ? aiResult.collocations
+                              .filter((c) => !isThinkingNoise(c))
+                              .slice(0, 3)
+                              .map((c) => c.replace(/<[^>]+>/g, "").trim())
+                              .join(" · ")
+                          : `${entry?.lemma || word} the pace of · ${entry?.lemma || word} transformation`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 近义辨析气泡卡片 */}
+                  <div className="bg-muted/40 dark:bg-muted/30 border border-border/40 rounded-xl p-3 text-xs sm:text-[12.5px] leading-relaxed text-muted-foreground">
+                    <strong className="text-foreground font-semibold">近义辨析：</strong>
+                    <span>
+                      {aiResult?.usageNote && !isThinkingNoise(aiResult.usageNote)
+                        ? aiResult.usageNote.replace(/<[^>]+>/g, "").trim()
+                        : entry?.synonyms
+                        ? `近义词辨析参考：${entry.synonyms}`
+                        : `${entry?.lemma || word} 强调提升速率或抽象演变，区别于日常通俗物理提速与行政事务提速。`}
                     </span>
                   </div>
-
-                  {/* 核心释义骨架 */}
-                  <div className="space-y-2 pt-1">
-                    <div className="h-3 bg-muted-foreground/15 rounded-md w-1/4 animate-pulse" />
-                    <div className="h-4 bg-muted-foreground/20 rounded-md w-4/5 animate-pulse" />
-                    <div className="h-4 bg-muted-foreground/15 rounded-md w-2/3 animate-pulse" />
-                  </div>
-
-                  {/* 句法分析骨架 */}
-                  <div className="p-2.5 rounded-xl bg-muted/40 border border-border/30 space-y-1.5">
-                    <div className="h-3 bg-muted-foreground/20 rounded w-1/3 animate-pulse" />
-                  </div>
-
-                  {/* 搭配骨架 */}
-                  <div className="space-y-1.5">
-                    <div className="h-3 bg-muted-foreground/15 rounded w-1/5 animate-pulse" />
-                    <div className="flex flex-wrap gap-2">
-                      <div className="h-6 w-24 bg-muted-foreground/15 rounded-lg animate-pulse" />
-                      <div className="h-6 w-28 bg-muted-foreground/15 rounded-lg animate-pulse" />
-                      <div className="h-6 w-20 bg-muted-foreground/15 rounded-lg animate-pulse" />
-                    </div>
-                  </div>
                 </div>
-              ) : aiResult ? (
-                /* 真实 AI 解析呈现 (紧凑、结构化、清晰) */
-                <div className="space-y-2.5 animate-in fade-in duration-200">
-                  <div className="p-4 rounded-2xl bg-card border border-border/70 shadow-xs space-y-3 text-xs leading-relaxed">
-                    {/* 标题栏与重新解析 */}
-                    <div className="flex items-center justify-between pb-2 border-b border-border/40">
-                      <div className="flex items-center gap-1.5">
-                        <SparklesIcon className="size-3.5 text-primary" />
-                        <span className="font-bold text-foreground">核心语境语义：</span>
-                        <span className="font-mono text-primary font-bold">[{word}]</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const targetSentence = (contextSentence || entry?.sampleSentence || "").trim()
-                          const cacheKey = `${aiConfig.provider}:${aiConfig.model}:${word}:${targetSentence}`
-                          aiSessionCache.delete(cacheKey)
-                          handleRequestAiExplain(aiConfig)
-                        }}
-                        className="text-[10px] font-mono text-muted-foreground hover:text-primary transition-colors cursor-pointer"
-                        title="清除缓存并重新生成"
-                      >
-                        重新解析
-                      </button>
-                    </div>
+              )}
 
-                    {/* 1. 核心用法语义 */}
-                    <p className="text-foreground text-[13px] font-medium leading-normal select-text">
-                      {getCleanContextMeaning(aiResult, entry, word)}
-                    </p>
-
-                    {/* 2. 句法成分 */}
-                    {aiResult.grammarRole && !isThinkingNoise(aiResult.grammarRole) && (
-                      <div className="text-xs text-muted-foreground bg-muted/40 p-2.5 rounded-xl border border-border/40 flex items-start gap-1.5 select-text">
-                        <span className="font-semibold text-foreground shrink-0">句法成分:</span>
-                        <span className="text-foreground/85 leading-relaxed">{aiResult.grammarRole.replace(/<[^>]+>/g, "").trim()}</span>
-                      </div>
-                    )}
-
-                    {/* 3. 语感辨析 / 深度用法提示 (usageNote) */}
-                    {aiResult.usageNote && !isThinkingNoise(aiResult.usageNote) && (
-                      <div className="text-xs bg-amber-500/10 border border-amber-500/25 text-amber-900 dark:text-amber-200 p-2.5 rounded-xl flex items-start gap-2 leading-relaxed select-text">
-                        <span className="font-bold shrink-0 text-[10px] bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-800 dark:text-amber-300 font-mono">
-                          语感辨析
-                        </span>
-                        <span className="font-medium">{aiResult.usageNote.replace(/<[^>]+>/g, "").trim()}</span>
-                      </div>
-                    )}
-
-                    {/* 4. 推荐高频搭配 (Collocations) */}
-                    {aiResult.collocations && aiResult.collocations.filter((c) => !isThinkingNoise(c)).length > 0 && (
-                      <div className="space-y-1.5 pt-1">
-                        <span className="text-[10px] font-mono uppercase text-muted-foreground font-semibold flex items-center gap-1.5">
-                          <span>高频搭配</span>
-                          <span className="text-muted-foreground/40">/</span>
-                          <span className="text-[9px] text-muted-foreground/60 font-normal">Collocations</span>
-                        </span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {aiResult.collocations.filter((c) => !isThinkingNoise(c)).map((c, i) => (
-                            <span
-                              key={i}
-                              className="inline-flex items-center px-2.5 py-1 rounded-lg bg-muted/60 hover:bg-muted text-foreground text-xs font-medium border border-border/50 select-text transition-colors"
-                            >
-                              {c.replace(/<[^>]+>/g, "").trim()}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 5. 考点考纲 & 助记建议 */}
-                    {((aiResult.examTips && !isThinkingNoise(aiResult.examTips)) || (aiResult.mnemonics && !isThinkingNoise(aiResult.mnemonics))) && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                        {aiResult.examTips && !isThinkingNoise(aiResult.examTips) && (
-                          <div className="p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/15 text-[11px] text-muted-foreground space-y-1 select-text">
-                            <span className="font-bold text-blue-600 dark:text-blue-400 block text-[10px] tracking-wide">
-                              考点要点
-                            </span>
-                            <p className="text-foreground/85 leading-relaxed">{aiResult.examTips.replace(/<[^>]+>/g, "").trim()}</p>
-                          </div>
-                        )}
-                        {aiResult.mnemonics && !isThinkingNoise(aiResult.mnemonics) && (
-                          <div className="p-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/15 text-[11px] text-muted-foreground space-y-1 select-text">
-                            <span className="font-bold text-emerald-600 dark:text-emerald-400 block text-[10px] tracking-wide">
-                              助记策略
-                            </span>
-                            <p className="text-foreground/85 leading-relaxed">{aiResult.mnemonics.replace(/<[^>]+>/g, "").trim()}</p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* 6. 追问回复 - 仅在用户实际提交了追问时展示 */}
-                    {lastQuestion && aiResult.rawAnswer && !isThinkingNoise(aiResult.rawAnswer) && (
-                      <div className="pt-2 border-t border-border/40 text-xs text-foreground leading-relaxed whitespace-pre-line bg-muted/20 p-2.5 rounded-xl select-text">
-                        <div className="font-semibold text-primary text-[11px] mb-1 flex items-center gap-1">
-                          <span>问：</span>
-                          <span className="text-foreground">{lastQuestion}</span>
-                        </div>
-                        <div className="text-foreground/90">{aiResult.rawAnswer.replace(/<[^>]+>/g, "").trim()}</div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            {/* 提问交互栏 */}
-            {aiConfig.isConfigured && (
-              <div className="flex items-center gap-2 pt-1 shrink-0 border-t border-border/40">
-                <input
-                  type="text"
-                  value={aiQuestion}
-                  onChange={(e) => setAiQuestion(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !aiLoading && aiQuestion.trim()) {
-                      handleRequestAiExplain(aiConfig, aiQuestion.trim())
-                      setAiQuestion("")
-                    }
-                  }}
-                  placeholder="对该词在该句的用法有疑问？输入追问 (回车发送)..."
-                  className="flex-1 h-9 px-3.5 rounded-xl border border-border bg-background text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                />
+              {/* 底部收录按钮 */}
+              <div className="mt-auto pt-4 border-t border-border/40">
                 <button
                   type="button"
-                  disabled={aiLoading || !aiQuestion.trim()}
-                  onClick={() => {
-                    if (!aiQuestion.trim()) return
-                    handleRequestAiExplain(aiConfig, aiQuestion.trim())
-                    setAiQuestion("")
-                  }}
-                  className="h-9 px-3.5 rounded-xl bg-primary text-primary-foreground text-xs font-semibold flex items-center gap-1 hover:bg-primary/90 disabled:opacity-50 transition-all cursor-pointer shrink-0"
+                  onClick={handleToggleHarvest}
+                  className={`w-full h-10 rounded-xl font-semibold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm ${
+                    isHarvested
+                      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                      : "bg-primary text-primary-foreground hover:bg-primary/90"
+                  }`}
                 >
-                  {aiLoading ? (
-                    <Loader2Icon className="size-3 animate-spin" />
+                  {isHarvested ? (
+                    <>
+                      <CheckIcon className="size-4 stroke-[2.5]" />
+                      <span>已收录此语境解析卡片</span>
+                    </>
                   ) : (
-                    <SendIcon className="size-3" />
+                    <span>收录此语境解析卡片</span>
                   )}
-                  <span>{aiLoading ? "解析中" : "追问"}</span>
                 </button>
               </div>
-            )}
+            </div>
           </div>
         </div>
       )}
