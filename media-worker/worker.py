@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import html
 import json
 import logging
 import os
+import re
 import socket
 import subprocess
 import tempfile
@@ -395,6 +397,177 @@ def handle(job: dict[str, Any]) -> None:
             )
         except Exception:
             LOG.exception("could not report failure for job %s", job_id)
+        finally:
+            stop_heartbeat.set()
+            heartbeat.join(timeout=2)
+
+
+TAG_RE = re.compile(r"<[^>]+>")
+
+
+def sanitize_cue_text(text: str) -> str:
+    text = TAG_RE.sub("", text)
+    text = html.unescape(text)
+    return text.replace("\n", " ").strip()
+
+
+def fetch_youtube_transcript(
+    video_id: str, srt_target: Path, token_target: Path
+) -> tuple[str, bool]:
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        transcript = None
+        for lang_code in ["en", "en-US", "en-GB", "en-CA"]:
+            try:
+                transcript = transcript_list.find_transcript([lang_code])
+                break
+            except Exception:
+                pass
+        if transcript is None:
+            try:
+                transcript = transcript_list.find_generated_transcript(["en"])
+            except Exception:
+                pass
+
+        if transcript is None:
+            return "", False
+
+        data = transcript.fetch()
+        if not data:
+            return "", False
+
+        cue_tokens = []
+        sequence = 0
+        with srt_target.open("w", encoding="utf-8", newline="\n") as out:
+            for item in data:
+                text = sanitize_cue_text(item.get("text", ""))
+                if not text:
+                    continue
+                sequence += 1
+                start_sec = float(item.get("start", 0.0))
+                duration_sec = float(item.get("duration", 2.0))
+                end_sec = start_sec + duration_sec
+
+                out.write(f"{sequence}\n")
+                out.write(f"{srt_timestamp(start_sec)} --> {srt_timestamp(end_sec)}\n")
+                out.write(f"{text}\n\n")
+
+                words = text.split()
+                if words:
+                    step = duration_sec / len(words)
+                    tokens = [
+                        {
+                            "text": w,
+                            "startMs": max(0, round((start_sec + idx * step) * 1000)),
+                            "endMs": max(
+                                0, round((start_sec + (idx + 1) * step) * 1000)
+                            ),
+                        }
+                        for idx, w in enumerate(words)
+                    ]
+                    cue_tokens.append({"sequenceNo": sequence, "tokens": tokens})
+
+        if not srt_target.exists() or srt_target.stat().st_size == 0:
+            return "", False
+
+        token_target.write_text(
+            json.dumps(cue_tokens, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        return "en", True
+    except Exception as exc:
+        LOG.info("fetching native YouTube transcript for %s failed: %s", video_id, exc)
+        return "", False
+
+
+def handle_youtube(job: dict[str, Any]) -> None:
+    job_id = int(job["id"])
+    media_id = int(job["aggregateId"])
+    payload = json.loads(job.get("payload") or "{}")
+    video_id = payload.get("videoId") or ""
+    source_url = (
+        payload.get("sourceUrl") or f"https://www.youtube.com/watch?v={video_id}"
+    )
+    stop_heartbeat = threading.Event()
+    heartbeat = threading.Thread(
+        target=heartbeat_loop, args=(job_id, stop_heartbeat), daemon=True
+    )
+    heartbeat.start()
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix=f"lexiflow-yt-job-{job_id}-"
+        ) as task_dir:
+            task = Path(task_dir)
+            srt_target = task / "youtube.srt"
+            token_target = task / "youtube.tokens.json"
+
+            progress(job_id, "ACQUIRING_SUBTITLE", 20)
+            lang, success = fetch_youtube_transcript(video_id, srt_target, token_target)
+
+            if success:
+                LOG.info(
+                    "successfully fetched native YouTube captions for %s", video_id
+                )
+                upload_subtitle(media_id, srt_target, lang, "PLATFORM", token_target)
+            else:
+                LOG.info(
+                    "no native YouTube transcripts for %s, falling back to yt-dlp + faster-whisper",
+                    video_id,
+                )
+                progress(job_id, "DOWNLOADING_AUDIO", 35)
+                audio_out_tmpl = str(task / "audio.%(ext)s")
+                ydl_cmd = [
+                    "yt-dlp",
+                    "-f",
+                    "ba/b",
+                    "-x",
+                    "--audio-format",
+                    "m4a",
+                    "--no-playlist",
+                    "--max-filesize",
+                    "150M",
+                    "-o",
+                    audio_out_tmpl,
+                    source_url,
+                ]
+                run(ydl_cmd)
+
+                audio_files = list(task.glob("audio.*"))
+                if not audio_files:
+                    raise RuntimeError("yt-dlp failed to download audio stream")
+                audio_file = audio_files[0]
+
+                progress(job_id, "DOWNLOADING_MODEL", 60)
+                ensure_whisper_model()
+                progress(job_id, "TRANSCRIBING", 75)
+                asr_srt = task / "asr.srt"
+                asr_tokens = task / "asr.tokens.json"
+                detected_lang = transcribe(audio_file, asr_srt, asr_tokens)
+                upload_subtitle(media_id, asr_srt, detected_lang, "ASR", asr_tokens)
+
+            progress(job_id, "FINALIZING", 98)
+            api(
+                "POST",
+                f"/internal/jobs/{job_id}/complete",
+                json={"workerId": CONFIG.worker_id, "resultRef": f"media:{media_id}"},
+            )
+            LOG.info("completed youtube media job %s for media %s", job_id, media_id)
+    except Exception as exc:
+        LOG.exception("youtube media job %s failed", job_id)
+        try:
+            api(
+                "POST",
+                f"/internal/jobs/{job_id}/fail",
+                json={
+                    "workerId": CONFIG.worker_id,
+                    "retryable": True,
+                    "error": str(exc)[:8000],
+                },
+            )
+        except Exception:
+            LOG.exception("could not report failure for job %s", job_id)
     finally:
         stop_heartbeat.set()
         heartbeat.join(timeout=2)
@@ -411,9 +584,13 @@ def main() -> None:
                 time.sleep(CONFIG.poll_seconds)
                 continue
             for job in jobs:
-                if job.get("jobType") != "LOCAL_MEDIA_PROCESS":
+                job_type = job.get("jobType")
+                if job_type == "LOCAL_MEDIA_PROCESS":
+                    handle(job)
+                elif job_type == "YOUTUBE_MEDIA_PROCESS":
+                    handle_youtube(job)
+                else:
                     job_id = job["id"]
-                    job_type = job.get("jobType")
                     LOG.error("rejecting unsupported media job %s of type %s", job_id, job_type)
                     api(
                         "POST",
@@ -425,7 +602,6 @@ def main() -> None:
                         },
                     )
                     continue
-                handle(job)
         except KeyboardInterrupt:
             LOG.info("media worker stopped")
             return
@@ -436,3 +612,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

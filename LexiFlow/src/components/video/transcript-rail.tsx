@@ -8,6 +8,10 @@ interface TranscriptRailProps {
   cues: MediaCue[]
   activeIndex: number
   onCueSelect: (cue: MediaCue) => void
+  onWordSelect?: (word: string, cue: MediaCue) => void
+  selectedWord?: string
+  emptyTitle?: string
+  emptyDescription?: string
 }
 
 function formatTime(seconds: number) {
@@ -16,14 +20,58 @@ function formatTime(seconds: number) {
   return `${minutes}:${String(remaining).padStart(2, "0")}`
 }
 
-export function TranscriptRail({ cues, activeIndex, onCueSelect }: TranscriptRailProps) {
+function renderClickableWords(
+  text: string,
+  cue: MediaCue,
+  onWordSelect?: (word: string, cue: MediaCue) => void,
+  selectedWord?: string
+) {
+  if (!onWordSelect) return text
+
+  const tokens = text.split(/([a-zA-Z]+(?:'[a-zA-Z]+)?)/g)
+  return tokens.map((token, i) => {
+    const isWord = /^[a-zA-Z]+(?:'[a-zA-Z]+)?$/.test(token)
+    if (!isWord) return <span key={i}>{token}</span>
+
+    const isCurrentSelected =
+      selectedWord && selectedWord.toLowerCase() === token.toLowerCase()
+
+    return (
+      <span
+        key={i}
+        onClick={(e) => {
+          e.stopPropagation()
+          onWordSelect(token, cue)
+        }}
+        className={`cursor-pointer rounded-xs px-0.5 transition-colors ${
+          isCurrentSelected
+            ? "bg-primary/25 text-primary font-bold underline underline-offset-2"
+            : "hover:bg-primary/20 hover:text-primary hover:underline underline-offset-2"
+        }`}
+        title={`点击查词: ${token}`}
+      >
+        {token}
+      </span>
+    )
+  })
+}
+
+export function TranscriptRail({
+  cues,
+  activeIndex,
+  onCueSelect,
+  onWordSelect,
+  selectedWord,
+  emptyTitle = "字幕仍在处理中",
+  emptyDescription = "视频可以先播放；识别完成后，这里会自动出现字幕。",
+}: TranscriptRailProps) {
   const [manualMode, setManualMode] = useState(false)
   const [topFadeVisible, setTopFadeVisible] = useState(false)
   const [bottomFadeVisible, setBottomFadeVisible] = useState(true)
   const [tailSpace, setTailSpace] = useState(180)
 
   const viewportRef = useRef<HTMLDivElement>(null)
-  const cueRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const cueRefs = useRef<Array<HTMLDivElement | null>>([])
   const followStartedRef = useRef(false)
   const manualModeRef = useRef(false)
   const targetScrollRef = useRef(0)
@@ -183,10 +231,11 @@ export function TranscriptRail({ cues, activeIndex, onCueSelect }: TranscriptRai
         {cues.length ? (
           <div className="flex flex-col gap-1.5">
             {cues.map((cue, index) => (
-              <button
+              <div
                 ref={(element) => { cueRefs.current[index] = element }}
                 key={cue.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 data-cue-index={index}
                 onClick={() => {
                   manualModeRef.current = false
@@ -195,22 +244,36 @@ export function TranscriptRail({ cues, activeIndex, onCueSelect }: TranscriptRai
                   onCueSelect(cue)
                   setFollowTarget(index, true)
                 }}
-                className={`w-full rounded-xl px-3 py-2.5 text-left transition-[background-color,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${index === activeIndex ? "bg-muted/80 text-foreground" : "text-muted-foreground hover:bg-muted/45 hover:text-foreground"}`}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    manualModeRef.current = false
+                    setManualMode(false)
+                    followStartedRef.current = true
+                    onCueSelect(cue)
+                    setFollowTarget(index, true)
+                  }
+                }}
+                className={`w-full rounded-xl px-3 py-2.5 text-left transition-[background-color,color] duration-150 ease-out cursor-pointer select-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${index === activeIndex ? "bg-muted/80 text-foreground" : "text-muted-foreground hover:bg-muted/45 hover:text-foreground"}`}
                 aria-current={index === activeIndex ? "true" : undefined}
                 aria-label={`${formatTime(cue.startMs / 1000)}，${cue.sourceText}`}
               >
-                <span className="font-mono text-[10px] tabular-nums text-muted-foreground">{formatTime(cue.startMs / 1000)}</span>
-                <p className={`mt-1 text-sm leading-5 ${index === activeIndex ? "font-semibold" : "font-medium"}`}>{cue.sourceText}</p>
+                <div className="flex items-center justify-between pointer-events-none">
+                  <span className="font-mono text-[10px] tabular-nums text-muted-foreground">{formatTime(cue.startMs / 1000)}</span>
+                </div>
+                <p className={`mt-1 text-sm leading-relaxed ${index === activeIndex ? "font-semibold" : "font-medium"}`}>
+                  {renderClickableWords(cue.sourceText, cue, onWordSelect, selectedWord)}
+                </p>
                 {cue.translation && <p className="mt-1 text-xs leading-5 text-muted-foreground">{cue.translation}</p>}
-              </button>
+              </div>
             ))}
             <div aria-hidden="true" style={{ height: tailSpace }} />
           </div>
         ) : (
           <div className="flex min-h-52 flex-col items-center justify-center px-6 text-center">
             <CaptionsIcon className="size-6 text-muted-foreground" />
-            <p className="mt-3 text-sm font-semibold">字幕仍在处理中</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">视频可以先播放；识别完成后，这里会自动出现字幕。</p>
+            <p className="mt-3 text-sm font-semibold">{emptyTitle}</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{emptyDescription}</p>
           </div>
         )}
       </div>

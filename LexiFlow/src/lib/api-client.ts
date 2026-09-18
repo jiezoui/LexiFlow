@@ -60,6 +60,7 @@ export interface CompletedMediaUpload {
 export interface MediaPlayback {
   type: string | null
   url: string | null
+  externalId: string | null
   mimeType: string | null
   fileSize: number | null
 }
@@ -69,6 +70,7 @@ export interface MediaItem {
   title: string
   creator: string | null
   source: string
+  sourceUrl: string | null
   coverUrl: string | null
   durationSeconds: number | null
   width: number | null
@@ -454,7 +456,9 @@ async function request<T>(
 ): Promise<T> {
   const token = getToken()
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(typeof FormData !== "undefined" && options.body instanceof FormData
+      ? {}
+      : { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string>),
   }
 
@@ -767,7 +771,7 @@ export const readingApi = {
     request<ChannelStat[]>("/api/reading/channels"),
 }
 
-// 09. 本地视频上传与媒体处理 API
+// 09. 视频导入、字幕与媒体处理 API
 export const mediaApi = {
   list: () => request<MediaItem[]>("/api/media"),
   detail: (mediaId: string) =>
@@ -780,8 +784,32 @@ export const mediaApi = {
     request<MediaAsyncJob>(`/api/media/${encodeURIComponent(mediaId)}/translation`, {
       method: "POST",
     }),
+  reprocess: (mediaId: string) =>
+    request<MediaAsyncJob>(`/api/media/${encodeURIComponent(mediaId)}/reprocess`, {
+      method: "POST",
+    }),
   delete: (mediaId: string) =>
     request<void>(`/api/media/${encodeURIComponent(mediaId)}`, { method: "DELETE" }),
+  importYouTube: (url: string) =>
+    request<MediaItem>("/api/media/external", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
+  uploadSubtitle: (mediaId: string, file: File, language = "en") => {
+    const body = new FormData()
+    body.append("file", file)
+    body.append("language", language)
+    return request<{
+      trackId: number
+      cueCount: number
+      language: string
+      format: string
+      status: string
+    }>(`/api/media/${encodeURIComponent(mediaId)}/subtitles`, {
+      method: "POST",
+      body,
+    })
+  },
   createUpload: (file: File, signal?: AbortSignal) =>
     request<MediaUploadSession>("/api/media/uploads", {
       method: "POST",
@@ -927,4 +955,3 @@ export const contextStoryApi = {
       body: JSON.stringify(data),
     }),
 }
-

@@ -1,2 +1,4 @@
 requests==2.32.5
 faster-whisper==1.2.1
+youtube-transcript-api>=0.6.2
+yt-dlp>=2024.8.6

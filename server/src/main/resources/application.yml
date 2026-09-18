@@ -110,6 +110,14 @@ lexiflow:
       api-key: ${LEXIFLOW_LIBRETRANSLATE_API_KEY:}
       timeout-seconds: ${LEXIFLOW_LIBRETRANSLATE_TIMEOUT_SECONDS:30}
       priority: 100
+    openai:
+      enabled: ${LEXIFLOW_OPENAI_TRANSLATION_ENABLED:true}
+      provider: ${LEXIFLOW_OPENAI_TRANSLATION_PROVIDER:deepseek}
+      base-url: ${LEXIFLOW_OPENAI_TRANSLATION_BASE_URL:https://api.deepseek.com/v1}
+      api-key: ${LEXIFLOW_OPENAI_TRANSLATION_API_KEY:}
+      model: ${LEXIFLOW_OPENAI_TRANSLATION_MODEL:deepseek-chat}
+      timeout-seconds: ${LEXIFLOW_OPENAI_TRANSLATION_TIMEOUT_SECONDS:60}
+      priority: 10
 
 management:
   endpoints:

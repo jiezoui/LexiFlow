@@ -32,6 +32,8 @@ interface TimedWord {
 
 export interface MediaPlayerHandle {
   seekTo: (seconds: number, autoplay?: boolean) => void
+  pause?: () => void
+  play?: () => void
 }
 
 const HIDE_CONTROLS_DELAY = 1800
@@ -213,6 +215,18 @@ export const MediaPlayer = forwardRef<MediaPlayerHandle, MediaPlayerProps>(funct
       syncVisualState()
       revealControls()
       if (autoplay) void player.play()
+    },
+    pause: () => {
+      const player = playerRef.current
+      if (player && !player.paused) {
+        player.pause()
+      }
+    },
+    play: () => {
+      const player = playerRef.current
+      if (player && player.paused) {
+        void player.play()
+      }
     },
   }), [revealControls, syncVisualState])
 

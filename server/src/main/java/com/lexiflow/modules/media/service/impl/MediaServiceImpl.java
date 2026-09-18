@@ -13,6 +13,7 @@ import com.lexiflow.infra.asyncjob.service.AsyncJobService;
 import com.lexiflow.infra.asyncjob.vo.AsyncJobVo;
 import com.lexiflow.modules.media.MediaProperties;
 import com.lexiflow.modules.media.entity.MediaItemEntity;
+import com.lexiflow.modules.media.dto.ImportExternalMediaRequest;
 import com.lexiflow.modules.media.entity.SubtitleCueEntity;
 import com.lexiflow.modules.media.entity.SubtitleTrackEntity;
 import com.lexiflow.modules.media.mapper.MediaItemMapper;
@@ -20,27 +21,34 @@ import com.lexiflow.modules.media.mapper.SubtitleCueMapper;
 import com.lexiflow.modules.media.mapper.SubtitleTrackMapper;
 import com.lexiflow.modules.media.model.SubtitleSource;
 import com.lexiflow.modules.media.model.SubtitleStatus;
+import com.lexiflow.modules.media.model.MediaPlatform;
+import com.lexiflow.modules.media.model.MediaPlaybackType;
 import com.lexiflow.modules.media.model.MediaProcessingStage;
 import com.lexiflow.modules.media.model.MediaStatus;
 import com.lexiflow.modules.media.service.MediaService;
 import com.lexiflow.modules.media.service.SubtitleIngestionService;
+import com.lexiflow.modules.media.service.YouTubeMetadataService;
 import com.lexiflow.modules.media.vo.MediaCueVo;
 import com.lexiflow.modules.media.vo.MediaCueTranslationVo;
 import com.lexiflow.modules.media.vo.MediaDetailVo;
 import com.lexiflow.modules.media.vo.MediaPlaybackVo;
 import com.lexiflow.modules.media.vo.SubtitleUploadVo;
 import com.lexiflow.modules.media.util.PublicIdGenerator;
+import com.lexiflow.modules.media.util.YouTubeUrlParser;
 import com.lexiflow.modules.translation.service.TranslationTaskService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MediaServiceImpl implements MediaService {
@@ -54,6 +62,7 @@ public class MediaServiceImpl implements MediaService {
     private final ObjectMapper objectMapper;
     private final SubtitleIngestionService subtitleIngestionService;
     private final TranslationTaskService translationTaskService;
+    private final YouTubeMetadataService youTubeMetadataService;
 
     @Override
     public List<MediaDetailVo> list(Long userId) {
@@ -68,6 +77,50 @@ public class MediaServiceImpl implements MediaService {
     public MediaDetailVo detail(String publicId, Long userId) {
         MediaItemEntity media = requireOwned(publicId, userId);
         return MediaDetailVo.from(media, latestReadyTrack(media.getId()));
+    }
+
+    @Override
+    @Transactional
+    public MediaDetailVo importExternal(ImportExternalMediaRequest request, Long userId) {
+        YouTubeUrlParser.ParsedYouTubeUrl parsed = YouTubeUrlParser.parse(request.url());
+        MediaItemEntity existing = mediaMapper.selectAnyExternal(
+                userId, MediaPlatform.YOUTUBE.name(), parsed.videoId()
+        );
+        if (existing != null) {
+            if (existing.getDeletedAt() != null) {
+                mediaMapper.restore(existing.getId());
+                existing.setDeletedAt(null);
+            }
+            SubtitleTrackEntity track = latestReadyTrack(existing.getId());
+            if (track == null && !MediaStatus.PROCESSING.name().equals(existing.getStatus())) {
+                enqueueYouTubeProcess(existing, parsed);
+            }
+            return MediaDetailVo.from(existing, track);
+        }
+
+        YouTubeMetadataService.YouTubeMetadata metadata = youTubeMetadataService.fetch(
+                parsed.videoId(), parsed.canonicalUrl()
+        );
+        LocalDateTime now = LocalDateTime.now();
+        MediaItemEntity media = MediaItemEntity.builder()
+                .publicId(PublicIdGenerator.next())
+                .userId(userId)
+                .platform(MediaPlatform.YOUTUBE.name())
+                .externalId(parsed.videoId())
+                .sourceUrl(parsed.canonicalUrl())
+                .title(metadata.title())
+                .creator(metadata.creator())
+                .coverUrl(metadata.coverUrl())
+                .playbackType(MediaPlaybackType.YOUTUBE_IFRAME.name())
+                .language("en")
+                .status(MediaStatus.WAITING_SUBTITLE.name())
+                .processingStage(MediaProcessingStage.ACQUIRING_SUBTITLE.name())
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+        mediaMapper.insert(media);
+        enqueueYouTubeProcess(media, parsed);
+        return MediaDetailVo.from(media, null);
     }
 
     @Override
@@ -153,6 +206,15 @@ public class MediaServiceImpl implements MediaService {
         if (active != null) {
             return AsyncJobVo.from(active);
         }
+        if (MediaPlatform.YOUTUBE.name().equals(media.getPlatform())) {
+            media.setStatus(MediaStatus.PROCESSING.name());
+            media.setProcessingStage(MediaProcessingStage.ACQUIRING_SUBTITLE.name());
+            media.setErrorMessage(null);
+            mediaMapper.updateById(media);
+            YouTubeUrlParser.ParsedYouTubeUrl parsed = YouTubeUrlParser.parse(media.getSourceUrl());
+            return enqueueYouTubeProcess(media, parsed);
+        }
+
         media.setStatus(MediaStatus.PROCESSING.name());
         media.setProcessingStage(MediaProcessingStage.PROBING.name());
         media.setErrorMessage(null);
@@ -174,6 +236,33 @@ public class MediaServiceImpl implements MediaService {
                 throw businessException;
             }
             throw new IllegalStateException("无法创建媒体重处理任务", e);
+        }
+    }
+
+    private AsyncJobVo enqueueYouTubeProcess(MediaItemEntity media, YouTubeUrlParser.ParsedYouTubeUrl parsed) {
+        try {
+            String payload = objectMapper.writeValueAsString(Map.of(
+                    "mediaId", media.getId(),
+                    "mediaPublicId", media.getPublicId(),
+                    "videoId", parsed.videoId(),
+                    "sourceUrl", parsed.canonicalUrl(),
+                    "maxDurationSeconds", properties.getMaxDurationSeconds()
+            ));
+            return asyncJobService.enqueue(new AsyncJobCommand(
+                    media.getUserId(),
+                    "YOUTUBE_MEDIA_PROCESS",
+                    JobExecutorType.MEDIA,
+                    "MEDIA",
+                    media.getId(),
+                    AsyncJobStage.ACQUIRING_SUBTITLE,
+                    0,
+                    payload,
+                    3,
+                    "media:" + media.getId() + ":youtube-process:" + PublicIdGenerator.next()
+            ));
+        } catch (Exception e) {
+            log.warn("无法派发 YouTube 媒体处理任务: {}", media.getId(), e);
+            return null;
         }
     }
 

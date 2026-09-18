@@ -11,6 +11,7 @@ public record MediaDetailVo(
         String title,
         String creator,
         String source,
+        String sourceUrl,
         String coverUrl,
         Long durationSeconds,
         Integer width,
@@ -29,12 +30,18 @@ public record MediaDetailVo(
         LocalDateTime createdAt
 ) {
     public static MediaDetailVo from(MediaItemEntity media, SubtitleTrackEntity track) {
-        String url = media.getStorageKey() == null ? null : "/api/media/" + media.getPublicId() + "/stream";
+        String url = switch (media.getPlaybackType()) {
+            case "YOUTUBE_IFRAME" -> media.getExternalId() == null ? null
+                    : "https://www.youtube-nocookie.com/embed/" + media.getExternalId()
+                    + "?enablejsapi=1&playsinline=1&rel=0";
+            default -> media.getStorageKey() == null ? null
+                    : "/api/media/" + media.getPublicId() + "/stream";
+        };
         String subtitleStatus = track == null ? "PENDING" : track.getStatus();
         String translationStatus = track == null || track.getTranslationStatus() == null
-                ? TranslationStatus.PENDING.name() : track.getTranslationStatus();
+                ? TranslationStatus.DISABLED.name() : track.getTranslationStatus();
         return new MediaDetailVo(
-                media.getPublicId(), media.getTitle(), media.getCreator(), media.getPlatform(),
+                media.getPublicId(), media.getTitle(), media.getCreator(), media.getPlatform(), media.getSourceUrl(),
                 media.getCoverUrl(), media.getDurationMs() == null ? null : media.getDurationMs() / 1000,
                 media.getWidth(), media.getHeight(), media.getCefrLevel(), media.getWpm(),
                 media.getStatus(), media.getProcessingStage(), subtitleStatus,
@@ -43,7 +50,8 @@ public record MediaDetailVo(
                 track == null ? null : track.getTranslationTarget(),
                 track == null ? null : track.getTranslationError(),
                 media.getErrorMessage(),
-                new MediaPlaybackVo(media.getPlaybackType(), url, media.getMimeType(), media.getFileSize()),
+                new MediaPlaybackVo(media.getPlaybackType(), url, media.getExternalId(),
+                        media.getMimeType(), media.getFileSize()),
                 media.getCreatedAt()
         );
     }

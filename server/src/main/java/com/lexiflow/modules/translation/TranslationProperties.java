@@ -14,6 +14,7 @@ public class TranslationProperties {
     private int batchSize = 30;
     private int maxBatchChars = 3_000;
     private final Libre libre = new Libre();
+    private final OpenAi openai = new OpenAi();
 
     @Data
     public static class Libre {
@@ -22,5 +23,16 @@ public class TranslationProperties {
         private String apiKey = "";
         private int timeoutSeconds = 30;
         private int priority = 100;
+    }
+
+    @Data
+    public static class OpenAi {
+        private boolean enabled = true;
+        private String provider = "deepseek";
+        private String baseUrl = "https://api.deepseek.com/v1";
+        private String apiKey = "";
+        private String model = "deepseek-chat";
+        private int timeoutSeconds = 60;
+        private int priority = 10;
     }
 }

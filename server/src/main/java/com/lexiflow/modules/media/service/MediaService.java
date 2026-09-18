@@ -2,6 +2,7 @@ package com.lexiflow.modules.media.service;
 
 import com.lexiflow.infra.asyncjob.vo.AsyncJobVo;
 import com.lexiflow.modules.media.entity.MediaItemEntity;
+import com.lexiflow.modules.media.dto.ImportExternalMediaRequest;
 import com.lexiflow.modules.media.model.SubtitleSource;
 import com.lexiflow.modules.media.vo.MediaCueVo;
 import com.lexiflow.modules.media.vo.MediaCueTranslationVo;
@@ -17,6 +18,8 @@ public interface MediaService {
     List<MediaDetailVo> list(Long userId);
 
     MediaDetailVo detail(String publicId, Long userId);
+
+    MediaDetailVo importExternal(ImportExternalMediaRequest request, Long userId);
 
     MediaPlaybackVo playback(String publicId, Long userId);
 

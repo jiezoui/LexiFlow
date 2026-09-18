@@ -14,6 +14,26 @@ import java.util.List;
 public interface MediaItemMapper extends BaseMapper<MediaItemEntity> {
 
     @Select("""
+            SELECT * FROM media_item
+            WHERE user_id = #{userId}
+              AND platform = #{platform}
+              AND external_id = #{externalId}
+            LIMIT 1
+            """)
+    MediaItemEntity selectAnyExternal(
+            @Param("userId") Long userId,
+            @Param("platform") String platform,
+            @Param("externalId") String externalId
+    );
+
+    @Update("""
+            UPDATE media_item
+            SET deleted_at = NULL, updated_at = NOW(3)
+            WHERE id = #{id}
+            """)
+    int restore(@Param("id") Long id);
+
+    @Select("""
             SELECT COALESCE(SUM(
                 COALESCE(source_file_size, file_size, 0)
                 + CASE

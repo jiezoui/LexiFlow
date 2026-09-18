@@ -1,12 +1,13 @@
 "use client"
 
-import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { CheckIcon, PlayIcon, SearchIcon, VideoIcon, XIcon } from "lucide-react"
+import { CheckIcon, Link2Icon, LoaderCircleIcon, PlayIcon, SearchIcon, VideoIcon, XIcon } from "lucide-react"
 import { mediaApi, type MediaItem } from "@/lib/api-client"
 
 type LibraryFilter = "all" | "ready" | "processing"
 type LocalImportState = "idle" | "uploading" | "success" | "error" | "cancelled"
+type YouTubeImportState = "idle" | "importing" | "success" | "error"
 
 const MAX_LOCAL_VIDEO_SIZE = 4 * 1024 * 1024 * 1024
 const SUPPORTED_VIDEO_EXTENSIONS = ["mp4", "m4v", "mov", "mkv", "webm", "avi", "ogv", "ogg", "mpeg", "mpg"]
@@ -35,7 +36,7 @@ function formatDuration(seconds: number | null) {
 function MediaMeta({ media }: { media: MediaItem }) {
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-      <span>{media.source === "LOCAL" ? "本地视频" : media.source}</span>
+      <span>{media.source === "LOCAL" ? "本地视频" : media.source === "YOUTUBE" ? "YouTube" : media.source}</span>
       <span aria-hidden="true">·</span>
       <span>{formatDuration(media.durationSeconds)}</span>
       {media.wpm !== null && (
@@ -52,6 +53,21 @@ function MediaMeta({ media }: { media: MediaItem }) {
 }
 
 function MediaPoster({ media, compact = false }: { media: MediaItem; compact?: boolean }) {
+  if (media.source === "YOUTUBE" && media.coverUrl) {
+    return (
+      <div
+        className="relative size-full bg-zinc-950 bg-cover bg-center"
+        style={{ backgroundImage: `url(${JSON.stringify(media.coverUrl).slice(1, -1)})` }}
+        role="img"
+        aria-label={`${media.title} 封面`}
+      >
+        <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/72 via-transparent to-zinc-950/10" />
+        <div className="absolute left-4 top-4 rounded-md bg-red-600 px-2 py-1 text-[10px] font-bold tracking-wide text-white">YouTube</div>
+        <div className="absolute bottom-4 right-4 rounded-md bg-zinc-950/85 px-2 py-1 font-mono text-[10px] text-white">{statusLabels[media.status] || media.status}</div>
+      </div>
+    )
+  }
+
   return (
     <div className="relative flex size-full overflow-hidden bg-zinc-950 text-zinc-100">
       <div className="absolute inset-0 opacity-40 [background-image:linear-gradient(rgba(255,255,255,.1)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.1)_1px,transparent_1px)] [background-size:42px_42px]" />
@@ -59,7 +75,7 @@ function MediaPoster({ media, compact = false }: { media: MediaItem; compact?: b
       <div className="absolute -bottom-24 -left-12 size-48 rounded-full border-[22px] border-zinc-700/50" />
       <div className={`relative flex w-full flex-col justify-between ${compact ? "p-4" : "p-6"}`}>
         <div className="flex items-center justify-between font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
-          <span>Local media</span>
+          <span>{media.source === "YOUTUBE" ? "YouTube" : "Local media"}</span>
           <span>{statusLabels[media.status] || media.status}</span>
         </div>
         <h3 className={`${compact ? "max-w-[15ch] text-xl" : "max-w-[18ch] text-4xl"} font-extrabold leading-[1.02] tracking-tight`}>
@@ -91,6 +107,10 @@ export function VideoLibraryPage() {
   const [localImportState, setLocalImportState] = useState<LocalImportState>("idle")
   const [localUploadProgress, setLocalUploadProgress] = useState(0)
   const [localImportError, setLocalImportError] = useState("")
+  const [youtubePanelOpen, setYoutubePanelOpen] = useState(false)
+  const [youtubeUrl, setYoutubeUrl] = useState("")
+  const [youtubeImportState, setYoutubeImportState] = useState<YouTubeImportState>("idle")
+  const [youtubeImportError, setYoutubeImportError] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
   const uploadAbortRef = useRef<AbortController | null>(null)
 
@@ -184,6 +204,28 @@ export function VideoLibraryPage() {
     fileInputRef.current?.click()
   }
 
+  const handleYouTubeImport = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const url = youtubeUrl.trim()
+    if (!url) {
+      setYoutubeImportState("error")
+      setYoutubeImportError("请粘贴 YouTube 视频链接。")
+      return
+    }
+
+    setYoutubeImportState("importing")
+    setYoutubeImportError("")
+    try {
+      await mediaApi.importYouTube(url)
+      setYoutubeImportState("success")
+      setYoutubeUrl("")
+      await loadMedia(false)
+    } catch (error) {
+      setYoutubeImportState("error")
+      setYoutubeImportError(error instanceof Error ? error.message : "YouTube 视频导入失败。")
+    }
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-[1480px] flex-1 flex-col gap-7 px-4 pb-10 pt-2 md:px-6">
       <section className="flex flex-col gap-5 border-b border-border pb-6 xl:flex-row xl:items-end xl:justify-between">
@@ -191,11 +233,11 @@ export function VideoLibraryPage() {
           <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Video immersion</p>
           <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">从真实语境开始精听</h1>
           <p className="mt-2 max-w-[65ch] text-sm leading-6 text-muted-foreground">
-            导入本地视频后即可播放。字幕、转码和语音识别会在后台处理，不影响兼容视频直接预览。
+            本地视频会进入识别与翻译流程；YouTube 链接使用官方播放器，可另行导入字幕进行双语精听。
           </p>
         </div>
 
-        <div className="w-full max-w-sm">
+        <div className="w-full max-w-xl">
           <input
             ref={fileInputRef}
             type="file"
@@ -203,17 +245,61 @@ export function VideoLibraryPage() {
             onChange={handleLocalFile}
             className="sr-only"
           />
-          <button
-            type="button"
-            onClick={handleLocalImportClick}
-            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:opacity-85 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:w-auto"
-            aria-label={localImportState === "uploading" ? "取消本地视频上传" : "导入本地视频"}
-          >
-            {localImportState === "uploading" ? <XIcon className="size-4" /> :
-              localImportState === "success" ? <CheckIcon className="size-4" /> : <VideoIcon className="size-4" />}
-            {localImportState === "uploading" ? `取消上传 ${localUploadProgress}%` :
-              localImportState === "success" ? "已导入，继续添加" : "导入本地视频"}
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setYoutubePanelOpen((open) => !open)
+                setYoutubeImportError("")
+              }}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-muted active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-expanded={youtubePanelOpen}
+            >
+              <Link2Icon className="size-4" />
+              导入 YouTube
+            </button>
+            <button
+              type="button"
+              onClick={handleLocalImportClick}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:opacity-85 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              aria-label={localImportState === "uploading" ? "取消本地视频上传" : "导入本地视频"}
+            >
+              {localImportState === "uploading" ? <XIcon className="size-4" /> :
+                localImportState === "success" ? <CheckIcon className="size-4" /> : <VideoIcon className="size-4" />}
+              {localImportState === "uploading" ? `取消上传 ${localUploadProgress}%` :
+                localImportState === "success" ? "已导入，继续添加" : "导入本地视频"}
+            </button>
+          </div>
+          {youtubePanelOpen && (
+            <form onSubmit={handleYouTubeImport} className="mt-3 rounded-xl border border-border bg-muted/35 p-3">
+              <label htmlFor="youtube-video-url" className="text-xs font-semibold text-foreground">YouTube 视频链接</label>
+              <div className="mt-2 flex gap-2">
+                <input
+                  id="youtube-video-url"
+                  type="url"
+                  value={youtubeUrl}
+                  onChange={(event) => {
+                    setYoutubeUrl(event.target.value)
+                    if (youtubeImportState === "error") setYoutubeImportState("idle")
+                  }}
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-sm outline-none transition focus-visible:border-foreground focus-visible:ring-2 focus-visible:ring-ring/20"
+                  disabled={youtubeImportState === "importing"}
+                  autoFocus
+                />
+                <button
+                  type="submit"
+                  disabled={youtubeImportState === "importing"}
+                  className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-foreground px-4 text-sm font-semibold text-background transition hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {youtubeImportState === "importing" && <LoaderCircleIcon className="size-4 animate-spin" />}
+                  导入
+                </button>
+              </div>
+              {youtubeImportState === "error" && <p role="alert" className="mt-2 text-xs font-medium text-destructive">{youtubeImportError}</p>}
+              {youtubeImportState === "success" && <p className="mt-2 text-xs font-medium text-foreground">视频已加入视频库。</p>}
+            </form>
+          )}
           {localImportState === "uploading" && (
             <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted" aria-label={`本地视频已上传 ${localUploadProgress}%`}>
               <div className="h-full origin-left bg-foreground transition-transform duration-300 ease-out" style={{ transform: `scaleX(${localUploadProgress / 100})` }} />

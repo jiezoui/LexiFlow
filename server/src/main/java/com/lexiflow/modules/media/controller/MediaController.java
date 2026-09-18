@@ -7,6 +7,7 @@ import com.lexiflow.infra.asyncjob.vo.AsyncJobVo;
 import com.lexiflow.infra.security.UserContext;
 import com.lexiflow.infra.storage.StorageProvider;
 import com.lexiflow.modules.media.entity.MediaItemEntity;
+import com.lexiflow.modules.media.dto.ImportExternalMediaRequest;
 import com.lexiflow.modules.media.model.SubtitleSource;
 import com.lexiflow.modules.media.service.MediaService;
 import com.lexiflow.modules.media.util.ByteRange;
@@ -19,6 +20,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -29,6 +31,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
@@ -50,6 +53,12 @@ public class MediaController {
     @GetMapping
     public Result<List<MediaDetailVo>> list() {
         return Result.success(mediaService.list(UserContext.requireCurrentUserId()));
+    }
+
+    @Operation(summary = "导入 YouTube 视频链接")
+    @PostMapping("/external")
+    public Result<MediaDetailVo> importExternal(@Valid @RequestBody ImportExternalMediaRequest request) {
+        return Result.success(mediaService.importExternal(request, UserContext.requireCurrentUserId()));
     }
 
     @Operation(summary = "查询视频组合信息")

@@ -1,11 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { ArrowLeftIcon, LanguagesIcon, LoaderCircleIcon, RefreshCwIcon, VideoIcon } from "lucide-react"
+import { ArrowLeftIcon, CaptionsIcon, LanguagesIcon, LoaderCircleIcon, RefreshCwIcon, VideoIcon } from "lucide-react"
 import { mediaApi, type MediaCue, type MediaCueTranslation, type MediaItem } from "@/lib/api-client"
 import { MediaPlayer, type MediaPlayerHandle } from "@/components/video/media-player"
 import { TranscriptRail } from "@/components/video/transcript-rail"
+import { YouTubePlayer } from "@/components/video/youtube-player"
+import { VideoWordDrawer } from "@/components/video/video-word-drawer"
 
 const statusLabels: Record<string, string> = {
   UPLOADING: "上传中",
@@ -70,13 +72,26 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
   const [loadError, setLoadError] = useState("")
   const [playerError, setPlayerError] = useState("")
   const [isRetryingTranslation, setIsRetryingTranslation] = useState(false)
+  const [isReprocessing, setIsReprocessing] = useState(false)
+  const [isUploadingSubtitle, setIsUploadingSubtitle] = useState(false)
   const [refreshNonce, setRefreshNonce] = useState(0)
+  const [selectedWordTarget, setSelectedWordTarget] = useState<{
+    word: string
+    cue: MediaCue
+  } | null>(null)
 
   const playerRef = useRef<MediaPlayerHandle>(null)
   const cuesRef = useRef<MediaCue[]>([])
   const activeIndexRef = useRef(-1)
   const currentTimeRef = useRef(0)
   const pollTimerRef = useRef<number | null>(null)
+  const subtitleInputRef = useRef<HTMLInputElement>(null)
+
+  const handleWordSelect = useCallback((word: string, cue: MediaCue) => {
+    setSelectedWordTarget({ word, cue })
+    // 自动暂停视频播放，便于静心查词与跟读学习
+    playerRef.current?.pause?.()
+  }, [])
 
   const updateActiveCue = useCallback((seconds: number) => {
     currentTimeRef.current = seconds
@@ -142,6 +157,38 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
     }
   }
 
+  const handleReprocess = async () => {
+    setIsReprocessing(true)
+    setPlayerError("")
+    try {
+      await mediaApi.reprocess(mediaId)
+      setRefreshNonce((value) => value + 1)
+    } catch (error) {
+      setPlayerError(error instanceof Error ? error.message : "无法重新获取字幕。")
+    } finally {
+      setIsReprocessing(false)
+    }
+  }
+
+  const handleSubtitleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ""
+    if (!file) return
+
+    setIsUploadingSubtitle(true)
+    setPlayerError("")
+    try {
+      await mediaApi.uploadSubtitle(mediaId, file, "en")
+      setRefreshNonce((value) => value + 1)
+    } catch (error) {
+      setPlayerError(error instanceof Error ? error.message : "字幕导入失败。")
+    } finally {
+      setIsUploadingSubtitle(false)
+    }
+  }
+
+  const handlePlayerReady = useCallback(() => setPlayerError(""), [])
+
   if (isLoading) {
     return (
       <div className="grid min-h-0 flex-1 gap-px bg-border lg:grid-cols-[minmax(0,1fr)_380px]">
@@ -174,46 +221,108 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
           <div className="min-w-0">
             <h1 className="truncate text-sm font-bold text-foreground sm:text-base">{media.title}</h1>
             <p className="truncate text-[11px] text-muted-foreground">
-              本地视频 · {media.durationSeconds === null ? "时长检测中" : formatTime(media.durationSeconds)} · {statusLabels[media.status] || media.status}
+              {media.source === "YOUTUBE" ? "YouTube" : "本地视频"} · {media.durationSeconds === null ? (media.source === "YOUTUBE" ? "在线播放" : "时长检测中") : formatTime(media.durationSeconds)} · {statusLabels[media.status] || media.status}
             </p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
-          {media.translationStatus === "TRANSLATING" || media.translationStatus === "PENDING" ? (
+          {media.status === "PROCESSING" && (
+            <div className="flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-primary">
+              <LoaderCircleIcon className="size-3.5 animate-spin" />
+              <span>正在获取与转写字幕...</span>
+            </div>
+          )}
+
+          {(media.status === "WAITING_SUBTITLE" || media.status === "FAILED") && (
+            <button
+              type="button"
+              onClick={() => void handleReprocess()}
+              disabled={isReprocessing}
+              className="flex h-8 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-2.5 font-semibold text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+              title="自动探测 YouTube 原生字幕或调用 Whisper 转写"
+            >
+              <RefreshCwIcon className={`size-3.5 ${isReprocessing ? "animate-spin" : ""}`} />
+              <span>获取/转写字幕</span>
+            </button>
+          )}
+
+          {media.source === "YOUTUBE" && (
             <>
+              <input
+                ref={subtitleInputRef}
+                type="file"
+                accept=".srt,.vtt,text/vtt,application/x-subrip"
+                onChange={handleSubtitleUpload}
+                className="sr-only"
+              />
+              <button
+                type="button"
+                onClick={() => subtitleInputRef.current?.click()}
+                disabled={isUploadingSubtitle}
+                className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 font-semibold text-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+              >
+                {isUploadingSubtitle ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : <CaptionsIcon className="size-3.5" />}
+                导入本地字幕
+              </button>
+            </>
+          )}
+
+          {media.translationStatus === "TRANSLATING" || media.translationStatus === "PENDING" ? (
+            <div className="flex items-center gap-1.5 text-primary">
               <LoaderCircleIcon className="size-3.5 animate-spin" aria-hidden="true" />
               <span>{translationStatusLabels[media.translationStatus]} · {media.translationProgress}%</span>
-            </>
+            </div>
           ) : media.translationStatus === "FAILED" || media.translationStatus === "PARTIAL" ? (
             <button
               type="button"
               onClick={() => void retryTranslation()}
               disabled={isRetryingTranslation}
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 font-semibold text-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 font-semibold text-rose-600 dark:text-rose-400 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
               title={media.translationError || undefined}
             >
               <RefreshCwIcon className={`size-3.5 ${isRetryingTranslation ? "animate-spin" : ""}`} />
-              重新翻译
+              <span>重试翻译</span>
+            </button>
+          ) : media.translationStatus === "READY" ? (
+            <button
+              type="button"
+              onClick={() => void retryTranslation()}
+              disabled={isRetryingTranslation}
+              className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 font-semibold text-foreground/85 transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+              title="使用当前配置的大模型或本地模型重新生成中文翻译"
+            >
+              <RefreshCwIcon className={`size-3.5 ${isRetryingTranslation ? "animate-spin" : ""}`} />
+              <span>双语就绪 · AI重译</span>
             </button>
           ) : (
-            <>
+            <div className="flex items-center gap-1.5">
               <LanguagesIcon className="size-3.5" aria-hidden="true" />
               <span>{translationStatusLabels[media.translationStatus] || media.translationStatus}</span>
-            </>
+            </div>
           )}
         </div>
       </header>
 
       <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-px bg-border lg:grid-cols-[minmax(0,1fr)_380px] lg:grid-rows-1">
         <main className="relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-background p-3 md:p-5">
-          {media.playback.url ? (
+          {media.playback.type === "YOUTUBE_IFRAME" && media.playback.externalId ? (
+            <YouTubePlayer
+              ref={playerRef}
+              videoId={media.playback.externalId}
+              title={media.title}
+              activeCue={activeCue}
+              onPlaybackTime={updateActiveCue}
+              onReady={handlePlayerReady}
+              onError={setPlayerError}
+            />
+          ) : media.playback.url ? (
             <MediaPlayer
               ref={playerRef}
               src={media.playback.url}
               title={media.title}
               activeCue={activeCue}
               onPlaybackTime={updateActiveCue}
-              onReady={() => setPlayerError("")}
+              onReady={handlePlayerReady}
               onError={setPlayerError}
             />
           ) : (
@@ -225,17 +334,40 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
           )}
 
           {playerError && (
-            <p role="alert" className="absolute bottom-4 left-1/2 max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-lg bg-zinc-900/92 px-3 py-2 text-center text-xs text-zinc-200 shadow-lg">
-              {playerError}
-            </p>
+            <div role="alert" className="absolute bottom-4 left-1/2 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg bg-zinc-900/92 px-3 py-2 text-center text-xs text-zinc-200 shadow-lg">
+              <span>{playerError}</span>
+              {media.source === "YOUTUBE" && media.sourceUrl && (
+                <a href={media.sourceUrl} target="_blank" rel="noreferrer" className="shrink-0 font-semibold text-white underline underline-offset-2">
+                  前往 YouTube
+                </a>
+              )}
+            </div>
           )}
         </main>
 
-        <TranscriptRail
-          cues={cues}
-          activeIndex={activeIndex}
-          onCueSelect={(cue) => playerRef.current?.seekTo(cue.startMs / 1000)}
-        />
+        <div className="relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+          <TranscriptRail
+            cues={cues}
+            activeIndex={activeIndex}
+            onCueSelect={(cue) => playerRef.current?.seekTo(cue.startMs / 1000)}
+            onWordSelect={handleWordSelect}
+            selectedWord={selectedWordTarget?.word}
+            emptyTitle={media.source === "YOUTUBE" ? "尚未导入字幕" : undefined}
+            emptyDescription={media.source === "YOUTUBE" ? "导入 SRT 或 VTT 英文字幕后，会自动生成中文翻译并启用字幕跟随。" : undefined}
+          />
+
+          {/* 右侧单词精析抽屉 */}
+          {selectedWordTarget && (
+            <VideoWordDrawer
+              word={selectedWordTarget.word}
+              cue={selectedWordTarget.cue}
+              onClose={() => setSelectedWordTarget(null)}
+              onReplayCue={(cue) => {
+                playerRef.current?.seekTo(cue.startMs / 1000, true)
+              }}
+            />
+          )}
+        </div>
       </div>
     </div>
   )

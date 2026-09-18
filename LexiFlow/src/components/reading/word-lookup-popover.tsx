@@ -23,6 +23,7 @@ import {
   dictApi,
   vocabApi,
   aiApi,
+  parseJsonArray,
   type DictEntry,
   type UserWordCard,
   type AiExplainResult,
@@ -1023,9 +1024,13 @@ export function WordLookupPopover({
                     <span>
                       {aiResult?.usageNote && !isThinkingNoise(aiResult.usageNote)
                         ? aiResult.usageNote.replace(/<[^>]+>/g, "").trim()
-                        : entry?.synonyms
-                        ? `近义词辨析参考：${entry.synonyms}`
-                        : `${entry?.lemma || word} 强调提升速率或抽象演变，区别于日常通俗物理提速与行政事务提速。`}
+                        : (() => {
+                            const syns = parseJsonArray(entry?.synonyms)
+                            if (syns.length > 0) {
+                              return `同近义词参考：${syns.join(" · ")}`
+                            }
+                            return `${entry?.lemma || word} 强调提升速率或抽象演变，区别于日常通俗物理提速与行政事务提速。`
+                          })()}
                     </span>
                   </div>
                 </div>

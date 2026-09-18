@@ -8,7 +8,7 @@ LexiFlow 是一个面向英语学习者的多模态学习系统，将词书、�
 - ECDICT 本地词典、词形还原与语境查词
 - 分级阅读、语境采词和生词本
 - AI 语境释义、长难句分析与助记
-- 本地视频上传、播放、字幕提取和精听
+- 本地视频与 YouTube 视频播放、字幕翻译和精听
 
 ## 当前视频模块
 
@@ -22,9 +22,12 @@ LexiFlow 是一个面向英语学习者的多模态学习系统，将词书、�
 - 逐词时间戳回传、视频库与双语字幕精听页面
 - 独立字幕翻译任务、分批写回、断点重试和 LibreTranslate Provider
 - Whisper 模型持久化缓存及断点续传
+- YouTube 链接识别、公开视频元数据读取、视频库封面展示和官方 IFrame Player 播放
+- YouTube 播放时间同步、字幕跟随、点击字幕跳转，以及 SRT/WebVTT 字幕导入
 
-YouTube、Bilibili 地址导入仍属于后续阶段。当前双语字幕默认通过本地
-LibreTranslate 生成；翻译服务不可用时视频仍可使用英文字幕播放。
+Bilibili 地址导入仍属于后续阶段。YouTube 模块只使用官方嵌入播放器，不下载或代理
+平台视频；需要双语精听时，在视频详情页导入有权使用的英文 SRT 或 WebVTT 字幕，
+系统会继续使用本地 LibreTranslate 生成中文。翻译服务不可用时仍可播放视频和英文字幕。
 
 ## 项目结构
 
@@ -61,11 +64,51 @@ Flyway 会在后端启动时执行 `server/src/main/resources/db/migration/` 中
 
 ### 2. 启动本地翻译服务
 
-字幕翻译默认连接 `http://localhost:5000`。第一次启动 LibreTranslate 时需要准备英中语言模型，
-所需时间取决于网络和电脑性能。
+字幕翻译默认连接 `http://localhost:5000`。LibreTranslate 第一次直接从官方源准备模型时，
+在国内网络下可能长时间停留在 `Booting...`。推荐先从 ModelScope 下载并校验模型，
+再写入 Docker 持久化卷。已经完成模型安装的机器可以跳过下载和安装步骤。
+
+下载英文与简体中文双向模型：
+
+```powershell
+$enZh = Join-Path $env:TEMP "translate-en_zh-1_9.argosmodel"
+$zhEn = Join-Path $env:TEMP "translate-zh_en-1_9.argosmodel"
+
+curl.exe -fL --retry 20 --retry-all-errors --retry-delay 2 -C - `
+  -o $enZh `
+  "https://modelscope.cn/models/wer277/translate/resolve/master/translate-en_zh-1_9.argosmodel"
+
+curl.exe -fL --retry 20 --retry-all-errors --retry-delay 2 -C - `
+  -o $zhEn `
+  "https://modelscope.cn/models/wer277/translate/resolve/master/translate-zh_en-1_9.argosmodel"
+
+if ((Get-FileHash $enZh -Algorithm SHA256).Hash.ToLower() -ne `
+  "433e7c4f034d87fbe2353161e05f18646d7999452f801a4e1f0378522b9850ab") {
+  throw "英译中模型校验失败"
+}
+if ((Get-FileHash $zhEn -Algorithm SHA256).Hash.ToLower() -ne `
+  "62e7af5a3a48b530e47b7b3e5c78c2de79073ecd815750d2bf3ab35b4a67da2d") {
+  throw "中译英模型校验失败"
+}
+```
+
+创建模型卷并离线安装：
 
 ```powershell
 docker volume create lexiflow-translate-data
+
+docker run --rm `
+  --entrypoint /app/venv/bin/python `
+  --mount "type=volume,source=lexiflow-translate-data,target=/home/libretranslate/.local" `
+  --mount "type=bind,source=$enZh,target=/tmp/en_zh.argosmodel,readonly" `
+  --mount "type=bind,source=$zhEn,target=/tmp/zh_en.argosmodel,readonly" `
+  libretranslate/libretranslate:latest `
+  -c "import argostranslate.package as p; p.install_from_path('/tmp/en_zh.argosmodel'); p.install_from_path('/tmp/zh_en.argosmodel')"
+```
+
+启动翻译服务：
+
+```powershell
 docker run -d --name lexiflow-libretranslate --restart unless-stopped `
   -p 5000:5000 `
   -e LT_LOAD_ONLY=en,zh `
@@ -82,7 +125,7 @@ Invoke-RestMethod http://localhost:5000/languages
 如果容器已经存在，后续只需执行：
 
 ```powershell
-docker start lexiflow-libretranslate
+docker restart lexiflow-libretranslate
 ```
 
 可用环境变量：
