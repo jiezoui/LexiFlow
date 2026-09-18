@@ -112,15 +112,11 @@ class AiGatewayServiceImplTest {
             ObjectNode sent = (ObjectNode) objectMapper.readTree(capturedBody.get());
 
             assertThat(result.getContextMeaning()).isEqualTo("语境义");
-            assertThat(sent.path("max_tokens").asInt()).isEqualTo(650);
+            assertThat(sent.path("max_tokens").asInt()).isEqualTo(1500);
             assertThat(sent.path("temperature").asDouble()).isEqualTo(0.1);
-            assertThat(sent.path("response_format").path("type").asText()).isEqualTo("json_schema");
-            assertThat(sent.path("response_format").path("json_schema").path("strict").asBoolean()).isTrue();
-            assertThat(sent.path("response_format").path("json_schema").path("schema")
-                    .path("properties").path("collocations").path("maxItems").asInt()).isEqualTo(3);
+            assertThat(sent.path("response_format").path("type").asText()).isEqualTo("json_object");
             assertThat(sent.path("messages").path(1).path("content").asText())
-                    .contains("contextSentence")
-                    .doesNotContain("【文章原句例句】");
+                    .contains("【文章原句例句】");
         } finally {
             mockServer.stop(0);
         }

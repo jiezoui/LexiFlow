@@ -72,11 +72,14 @@ export default function SignUpPage() {
       <div className="relative hidden w-1/2 flex-col justify-between bg-zinc-950 lg:flex">
         {/* Logo */}
         <Link href="/dashboard" className="relative z-20 flex items-center gap-2.5 p-8">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-white text-black">
-            <LandmarkIcon className="size-4" />
+          <div className="relative flex size-8 items-center justify-center rounded-xl overflow-hidden shadow-xs border border-white/20 bg-black/40">
+            <img src="/logo.png" alt="LexiFlow Logo" className="size-full object-cover" />
           </div>
-          <span className="text-sm font-semibold text-white">
-            Shadcn Fintech
+          <span className="text-sm font-bold tracking-tight text-white">
+            语脉 · LexiFlow
+          </span>
+          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-mono text-zinc-300">
+            BETA
           </span>
         </Link>
 
@@ -89,11 +92,10 @@ export default function SignUpPage() {
         <div className="relative z-20 mt-auto p-8">
           <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
             <blockquote className="text-sm leading-relaxed text-white/80">
-              &ldquo;Compound interest is the eighth wonder of the world. He who
-              understands it, earns it; he who doesn&apos;t, pays it.&rdquo;
+              &ldquo;Language is not an isolated set of tokens to memorize, but an acoustic and situational landscape to live in.&rdquo;
             </blockquote>
             <p className="mt-3 text-xs text-white/50">
-              &mdash; Albert Einstein
+              &mdash; 语脉 · 多模态二语习得认知假说
             </p>
           </div>
         </div>
@@ -112,9 +114,12 @@ export default function SignUpPage() {
             className="mb-8 flex flex-col items-center lg:hidden"
             variants={itemVariants}
           >
-            <div className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-              <LandmarkIcon className="size-5" />
+            <div className="relative flex size-10 items-center justify-center rounded-xl overflow-hidden shadow-xs border border-border/40 bg-background">
+              <img src="/logo.png" alt="LexiFlow Logo" className="size-full object-cover" />
             </div>
+            <span className="mt-2 text-base font-bold text-foreground">
+              语脉 · LexiFlow
+            </span>
           </motion.div>
 
           {/* Heading */}

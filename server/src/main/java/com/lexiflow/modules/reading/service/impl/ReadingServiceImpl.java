@@ -22,7 +22,13 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 
 /**
  * 沉浸阅读业务服务实现类
@@ -34,6 +40,7 @@ public class ReadingServiceImpl extends ServiceImpl<ReadingArticleMapper, Readin
 
     private final BbcRssFetcher bbcRssFetcher;
     private final ObjectMapper objectMapper;
+    private final ExecutorService enrichmentExecutor = Executors.newFixedThreadPool(6);
 
     private static final Map<String, String> CHANNEL_NAMES = Map.of(
             "ALL", "全部外刊",
@@ -62,6 +69,24 @@ public class ReadingServiceImpl extends ServiceImpl<ReadingArticleMapper, Readin
 
         Page<ReadingArticleEntity> entityPage = this.page(new Page<>(page, size), query);
 
+        // 对当前页尚未抓取正文段落（或历史遗留 50 词）的文章进行快速并发富化，保障词数与耗时完全基于真实正文
+        List<ReadingArticleEntity> needEnrich = entityPage.getRecords().stream()
+                .filter(e -> e.getWordCount() == null || e.getWordCount() <= 50 || parseJsonList(e.getContentClean()).size() <= 1)
+                .collect(Collectors.toList());
+
+        if (!needEnrich.isEmpty()) {
+            List<CompletableFuture<Void>> futures = needEnrich.stream()
+                    .map(e -> CompletableFuture.runAsync(() -> enrichArticle(e), enrichmentExecutor))
+                    .collect(Collectors.toList());
+            try {
+                // 等待最多 1.5 秒，兼顾首屏响应与真实数据呈现
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                        .get(1500, TimeUnit.MILLISECONDS);
+            } catch (Exception ignored) {
+                // 超时后台继续更新，后续访问即显示完整数据
+            }
+        }
+
         List<ReadingArticleVo> voList = entityPage.getRecords().stream()
                 .map(this::toArticleVo)
                 .collect(Collectors.toList());
@@ -79,26 +104,10 @@ public class ReadingServiceImpl extends ServiceImpl<ReadingArticleMapper, Readin
         }
 
         List<String> paragraphs = parseJsonList(entity.getContentClean());
-        // 如果目前仅收录了导读摘要，在用户沉浸研读时尝试懒加载抓取完整正文
+        // 如果目前仅收录了导读摘要，在研读时懒加载抓取完整正文
         if (paragraphs.size() <= 1 && StringUtils.hasText(entity.getLink())) {
-            try {
-                List<String> fullParas = bbcRssFetcher.extractParagraphs(entity.getLink(), entity.getSummary());
-                if (fullParas.size() > 1) {
-                    paragraphs = fullParas;
-                    int wordCount = bbcRssFetcher.countWords(paragraphs);
-                    String cefr = bbcRssFetcher.evaluateCefrLevel(paragraphs);
-                    List<String> targets = bbcRssFetcher.extractTargetWords(paragraphs);
-
-                    entity.setContentClean(objectMapper.writeValueAsString(paragraphs));
-                    entity.setWordCount(wordCount);
-                    entity.setCefrLevel(cefr);
-                    entity.setTargetWords(objectMapper.writeValueAsString(targets));
-                    entity.setUpdatedAt(LocalDateTime.now());
-                    this.updateById(entity);
-                }
-            } catch (Exception e) {
-                log.warn("懒加载 BBC 正文详情异常: {}", e.getMessage());
-            }
+            enrichArticle(entity);
+            paragraphs = parseJsonList(entity.getContentClean());
         }
 
         if (paragraphs.isEmpty() && StringUtils.hasText(entity.getSummary())) {
@@ -106,7 +115,8 @@ public class ReadingServiceImpl extends ServiceImpl<ReadingArticleMapper, Readin
         }
 
         List<String> targetWords = parseJsonList(entity.getTargetWords());
-        int readMinutes = Math.max(1, (int) Math.ceil(entity.getWordCount() / 180.0));
+        int wordCount = entity.getWordCount() != null ? entity.getWordCount() : bbcRssFetcher.countWords(paragraphs);
+        int readMinutes = Math.max(1, (int) Math.ceil(wordCount / 180.0));
 
         return ReadingArticleDetailVo.builder()
                 .id(entity.getId())
@@ -117,12 +127,66 @@ public class ReadingServiceImpl extends ServiceImpl<ReadingArticleMapper, Readin
                 .coverUrl(entity.getCoverUrl())
                 .summary(entity.getSummary())
                 .paragraphs(paragraphs)
-                .wordCount(entity.getWordCount())
+                .wordCount(wordCount)
                 .readMinutes(readMinutes)
                 .cefrLevel(entity.getCefrLevel())
                 .targetWords(targetWords)
                 .publishedAt(entity.getPublishedAt())
                 .build();
+    }
+
+    /**
+     * 抓取网页提取真实正文段落，精准重算词数、阅读时长、CEFR 评级与生词
+     */
+    public boolean enrichArticle(ReadingArticleEntity entity) {
+        if (entity == null || !StringUtils.hasText(entity.getLink())) {
+            return false;
+        }
+        try {
+            List<String> fullParas = bbcRssFetcher.extractParagraphs(entity.getLink(), entity.getSummary());
+            if (fullParas.size() > 1 || (!fullParas.isEmpty() && (entity.getWordCount() == null || entity.getWordCount() <= 50))) {
+                int wordCount = bbcRssFetcher.countWords(fullParas);
+                String cefr = bbcRssFetcher.evaluateCefrLevel(fullParas);
+                List<String> targets = bbcRssFetcher.extractTargetWords(fullParas);
+
+                entity.setContentClean(objectMapper.writeValueAsString(fullParas));
+                entity.setWordCount(wordCount);
+                entity.setCefrLevel(cefr);
+                entity.setTargetWords(objectMapper.writeValueAsString(targets));
+                entity.setUpdatedAt(LocalDateTime.now());
+                this.updateById(entity);
+                return true;
+            }
+        } catch (Exception e) {
+            log.warn("富化 BBC 正文详情异常 [{}]: {}", entity.getId(), e.getMessage());
+        }
+        return false;
+    }
+
+    /**
+     * 服务就绪后低优先级后台逐步补齐历史文章的完整正文与真实词数
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void startBackgroundEnrichment() {
+        CompletableFuture.runAsync(() -> {
+            try {
+                Thread.sleep(4000);
+                List<ReadingArticleEntity> pending = this.list(new LambdaQueryWrapper<ReadingArticleEntity>()
+                        .and(q -> q.le(ReadingArticleEntity::getWordCount, 50).or().isNull(ReadingArticleEntity::getWordCount))
+                        .orderByDesc(ReadingArticleEntity::getId)
+                        .last("LIMIT 150"));
+                if (!pending.isEmpty()) {
+                    log.info("启动后台历史外刊正文与词数增量富化，待处理篇数: {}", pending.size());
+                    for (ReadingArticleEntity e : pending) {
+                        enrichArticle(e);
+                        Thread.sleep(100);
+                    }
+                    log.info("后台历史外刊正文与词数增量富化完成");
+                }
+            } catch (Exception e) {
+                log.warn("后台自动富化历史文章异常: {}", e.getMessage());
+            }
+        }, enrichmentExecutor);
     }
 
     @Override
@@ -145,11 +209,21 @@ public class ReadingServiceImpl extends ServiceImpl<ReadingArticleMapper, Readin
                             .last("LIMIT 1"));
 
                     if (existing != null) {
-                        // 增量更新已收录条目的正文和封面
+                        // 增量更新已收录条目的封面与导读
                         if (StringUtils.hasText(article.getCoverUrl())) {
                             existing.setCoverUrl(article.getCoverUrl());
                         }
-                        if (StringUtils.hasText(article.getContentClean()) && !"[]".equals(article.getContentClean())) {
+                        if (StringUtils.hasText(article.getSummary())) {
+                            existing.setSummary(article.getSummary());
+                        }
+                        // 仅当新抓取到的段落更多、或已有记录尚未富化时更新正文，严防单句导读回冲覆盖完整正文
+                        List<String> incomingParas = parseJsonList(article.getContentClean());
+                        List<String> existingParas = parseJsonList(existing.getContentClean());
+                        boolean shouldUpdateContent = incomingParas.size() > existingParas.size()
+                                || existing.getWordCount() == null
+                                || existing.getWordCount() <= 50;
+
+                        if (shouldUpdateContent && !incomingParas.isEmpty()) {
                             existing.setContentClean(article.getContentClean());
                             existing.setWordCount(article.getWordCount());
                             existing.setCefrLevel(article.getCefrLevel());
@@ -197,7 +271,8 @@ public class ReadingServiceImpl extends ServiceImpl<ReadingArticleMapper, Readin
 
     private ReadingArticleVo toArticleVo(ReadingArticleEntity entity) {
         List<String> targetWords = parseJsonList(entity.getTargetWords());
-        int readMinutes = Math.max(1, (int) Math.ceil(entity.getWordCount() / 180.0));
+        int wordCount = entity.getWordCount() != null ? entity.getWordCount() : 0;
+        int readMinutes = Math.max(1, (int) Math.ceil(wordCount / 180.0));
 
         return ReadingArticleVo.builder()
                 .id(entity.getId())
@@ -207,7 +282,7 @@ public class ReadingServiceImpl extends ServiceImpl<ReadingArticleMapper, Readin
                 .link(entity.getLink())
                 .coverUrl(entity.getCoverUrl())
                 .summary(entity.getSummary())
-                .wordCount(entity.getWordCount())
+                .wordCount(wordCount)
                 .readMinutes(readMinutes)
                 .cefrLevel(entity.getCefrLevel())
                 .targetWords(targetWords)

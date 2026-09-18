@@ -20,6 +20,10 @@ import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -32,6 +36,7 @@ import java.util.stream.Collectors;
 public class BbcRssFetcher {
 
     private final ObjectMapper objectMapper;
+    private final ExecutorService prefetchExecutor = Executors.newFixedThreadPool(8);
 
     private static final Map<String, String> CHANNEL_FEEDS = Map.of(
             "WORLD", "http://feeds.bbci.co.uk/news/world/rss.xml",
@@ -82,6 +87,7 @@ public class BbcRssFetcher {
             Elements items = doc.select("item");
             log.info("频道 [{}] 解析到 {} 条 RSS 资讯条目", channel, items.size());
 
+            List<CompletableFuture<ReadingArticleEntity>> futures = new ArrayList<>();
             for (Element item : items) {
                 try {
                     String title = item.select("title").text();
@@ -107,39 +113,54 @@ public class BbcRssFetcher {
                     }
 
                     LocalDateTime publishedAt = parsePubDate(pubDateStr);
+                    final String itemChannel = channel.toUpperCase();
+                    final String finalCoverUrl = coverUrl;
+                    final String finalGuid = guid;
 
-                    // 初始使用导读前言，保证 RSS 抓取秒级完成
-                    List<String> paragraphs = new ArrayList<>();
-                    if (StringUtils.hasText(description)) {
-                        paragraphs.add(description);
-                    }
-                    int wordCount = countWords(paragraphs);
-                    String cefrLevel = evaluateCefrLevel(paragraphs);
-                    List<String> targetWords = extractTargetWords(paragraphs);
+                    // 并发提取真实正文段落，避免仅存单句导读导致词数与预估时长失真
+                    futures.add(CompletableFuture.supplyAsync(() -> {
+                        List<String> paragraphs = extractParagraphs(link, description);
+                        int wordCount = countWords(paragraphs);
+                        String cefrLevel = evaluateCefrLevel(paragraphs);
+                        List<String> targetWords = extractTargetWords(paragraphs);
 
-                    String contentCleanJson = objectMapper.writeValueAsString(paragraphs);
-                    String targetWordsJson = objectMapper.writeValueAsString(targetWords);
+                        String contentCleanJson = "[]";
+                        String targetWordsJson = "[]";
+                        try {
+                            contentCleanJson = objectMapper.writeValueAsString(paragraphs);
+                            targetWordsJson = objectMapper.writeValueAsString(targetWords);
+                        } catch (Exception ignored) {}
 
-                    ReadingArticleEntity entity = ReadingArticleEntity.builder()
-                            .channel(channel.toUpperCase())
-                            .sourceName("BBC News")
-                            .title(title)
-                            .link(link)
-                            .guid(guid)
-                            .coverUrl(coverUrl)
-                            .summary(description)
-                            .contentClean(contentCleanJson)
-                            .wordCount(wordCount)
-                            .cefrLevel(cefrLevel)
-                            .targetWords(targetWordsJson)
-                            .publishedAt(publishedAt)
-                            .createdAt(LocalDateTime.now())
-                            .updatedAt(LocalDateTime.now())
-                            .build();
-
-                    articles.add(entity);
+                        return ReadingArticleEntity.builder()
+                                .channel(itemChannel)
+                                .sourceName("BBC News")
+                                .title(title)
+                                .link(link)
+                                .guid(finalGuid)
+                                .coverUrl(finalCoverUrl)
+                                .summary(description)
+                                .contentClean(contentCleanJson)
+                                .wordCount(wordCount)
+                                .cefrLevel(cefrLevel)
+                                .targetWords(targetWordsJson)
+                                .publishedAt(publishedAt)
+                                .createdAt(LocalDateTime.now())
+                                .updatedAt(LocalDateTime.now())
+                                .build();
+                    }, prefetchExecutor));
                 } catch (Exception e) {
                     log.warn("解析单条 BBC RSS 条目异常: {}", e.getMessage());
+                }
+            }
+
+            for (CompletableFuture<ReadingArticleEntity> f : futures) {
+                try {
+                    ReadingArticleEntity entity = f.get(4, TimeUnit.SECONDS);
+                    if (entity != null) {
+                        articles.add(entity);
+                    }
+                } catch (Exception e) {
+                    log.warn("并发提取正文等待超时或异常: {}", e.getMessage());
                 }
             }
         } catch (Exception e) {
@@ -228,12 +249,21 @@ public class BbcRssFetcher {
     }
 
     public int countWords(List<String> paragraphs) {
+        if (paragraphs == null || paragraphs.isEmpty()) {
+            return 0;
+        }
         int total = 0;
         for (String p : paragraphs) {
-            String[] tokens = p.split("\\s+");
-            total += tokens.length;
+            if (StringUtils.hasText(p)) {
+                String[] tokens = p.trim().split("\\s+");
+                for (String token : tokens) {
+                    if (token.matches(".*[a-zA-Z0-9].*")) {
+                        total++;
+                    }
+                }
+            }
         }
-        return Math.max(total, 50);
+        return total;
     }
 
     /**

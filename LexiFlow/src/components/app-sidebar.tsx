@@ -43,6 +43,7 @@ const data = {
     { title: "影子跟读", url: "/practice/shadowing", icon: <MicIcon className="size-4" />, badge: "AI评测" },
   ],
   navContext: [
+    { title: "语境文章", url: "/reading/story", icon: <SparklesIcon className="size-4" />, badge: "AI" },
     { title: "视频精听", url: "/videos", icon: <VideoIcon className="size-4" /> },
     { title: "阅读库", url: "/reading", icon: <BookMarkedIcon className="size-4" /> },
   ],
@@ -59,8 +60,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" render={<Link href="/dashboard" />} className="hover:bg-secondary transition-colors">
-              <div className="flex aspect-square size-8 items-center justify-center rounded-xl bg-zinc-950 dark:bg-white text-white dark:text-zinc-950 shadow-sm">
-                <SparklesIcon className="size-4" />
+              <div className="relative flex aspect-square size-8 items-center justify-center rounded-xl overflow-hidden shadow-xs border border-border/40 bg-background">
+                <img src="/logo.png" alt="LexiFlow Logo" className="size-full object-cover" />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <div className="flex items-center gap-1.5">

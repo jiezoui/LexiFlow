@@ -1,6 +1,8 @@
 package com.lexiflow.modules.media.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.AllArgsConstructor;
@@ -29,6 +31,7 @@ public class SubtitleTrackEntity {
     private Integer translationProgress;
     private String translationTarget;
     private String translationProvider;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String translationError;
     private LocalDateTime translatedAt;
     private String checksum;

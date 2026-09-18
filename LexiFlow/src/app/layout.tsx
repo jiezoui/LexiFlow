@@ -19,7 +19,8 @@ export const metadata: Metadata = {
   title: "语脉 · LexiFlow — 多模态语境智能学习平台",
   description: "基于 FSRS 记忆间隔算法、真实多模态语境采词与全键盘心流驱动的高阶语言研习工作台。",
   icons: {
-    icon: "/icon.svg",
+    icon: "/logo.png",
+    apple: "/logo.png",
   },
 };
 

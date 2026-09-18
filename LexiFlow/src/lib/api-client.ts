@@ -851,3 +851,80 @@ export const aiApi = {
       body: JSON.stringify(data),
     }),
 }
+
+// ── 09. 语境文章生成 (Contextual Story) ──────────────────────────────────────
+
+export interface ContextStoryWord {
+  id: number
+  wordId?: number
+  lemma: string
+  phoneticUs?: string
+  definitionCn?: string
+  wordType: "NEW" | "REVIEW"
+  requiredOccurrences: number
+  actualOccurrences: number
+  isTapped: number
+}
+
+export interface ContextStory {
+  publicId: string
+  title: string
+  topic: string
+  targetLevel: string
+  wordCount: number
+  targetWordsCount: number
+  oovRate: number
+  rewriteCount: number
+  status: string
+  createdAt: string
+}
+
+export interface ContextStoryDetail extends ContextStory {
+  contentMarked: string
+  contentClean: string
+  translationCn?: string
+  generationModel?: string
+  targetWords: ContextStoryWord[]
+}
+
+export interface GenerateStoryRequest {
+  topic?: string
+  targetLevel?: string
+  targetCount?: number
+  customLemmas?: string[]
+  provider?: string
+  model?: string
+  apiKey?: string
+  apiHost?: string
+}
+
+export interface StoryFeedbackRequest {
+  tappedLemmas: string[]
+  readingDurationSeconds?: number
+  rating?: number
+}
+
+export const contextStoryApi = {
+  generate: (data: GenerateStoryRequest) =>
+    request<ContextStoryDetail>("/api/contextual/stories/generate", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  list: (params?: { page?: number; size?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.page) query.set("page", String(params.page))
+    if (params?.size) query.set("size", String(params.size))
+    const qs = query.toString() ? `?${query.toString()}` : ""
+    return request<{ records: ContextStory[]; total: number; current: number; size: number }>(
+      `/api/contextual/stories${qs}`
+    )
+  },
+  getDetail: (publicId: string) =>
+    request<ContextStoryDetail>(`/api/contextual/stories/${publicId}`),
+  feedback: (publicId: string, data: StoryFeedbackRequest) =>
+    request<void>(`/api/contextual/stories/${publicId}/feedback`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+}
+
