@@ -15,6 +15,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
         "com.lexiflow.modules.reading.mapper",
         "com.lexiflow.modules.media.mapper",
         "com.lexiflow.modules.contextual.mapper",
+        "com.lexiflow.modules.shadowing.mapper",
         "com.lexiflow.infra.asyncjob.mapper"
 })
 public class LexiFlowApplication {

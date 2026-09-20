@@ -433,6 +433,21 @@ export interface ChannelStat {
 
 const TOKEN_KEY = "lexiflow_jwt_token"
 
+/**
+ * 开发期请求追踪：把每个 API 请求的结果挂到 `window.__LEXIFLOW_API_LOG__`。
+ *
+ * 为什么需要它：前端是纯客户端渲染，接口失败时页面只表现为「一直加载中」，
+ * 从 DOM 上完全看不出是请求没发出、还是响应用例不匹配。把请求轨迹留在全局，
+ * 可以用无头浏览器/CDP 一次性看清整条链路（见 scripts/e2e-shadowing.mjs）。
+ */
+function traceApi(entry: Record<string, unknown>): void {
+  if (typeof window === "undefined") return
+  const w = window as unknown as { __LEXIFLOW_API_LOG__?: unknown[] }
+  if (!Array.isArray(w.__LEXIFLOW_API_LOG__)) w.__LEXIFLOW_API_LOG__ = []
+  w.__LEXIFLOW_API_LOG__.push({ t: Date.now(), ...entry })
+  if (w.__LEXIFLOW_API_LOG__.length > 200) w.__LEXIFLOW_API_LOG__.shift()
+}
+
 export const getToken = (): string | null => {
   if (typeof window === "undefined") return null
   return localStorage.getItem(TOKEN_KEY)
@@ -466,6 +481,8 @@ async function request<T>(
     headers["Authorization"] = `Bearer ${token}`
   }
 
+  traceApi({ endpoint, method: options.method || "GET", hasToken: Boolean(token) })
+
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 8000)
 
@@ -478,8 +495,10 @@ async function request<T>(
     })
   } catch (err: unknown) {
     if (err instanceof Error && err.name === "AbortError") {
+      traceApi({ endpoint, error: "timeout" })
       throw new Error(`网络请求超时 (8s): ${endpoint}`)
     }
+    traceApi({ endpoint, error: err instanceof Error ? err.message : String(err) })
     throw err
   } finally {
     clearTimeout(timeoutId)
@@ -491,10 +510,12 @@ async function request<T>(
       const errJson = await response.json()
       if (errJson.message) errMsg = errJson.message
     } catch {}
+    traceApi({ endpoint, status: response.status, error: errMsg })
     throw new Error(errMsg)
   }
 
   const json: ApiResponse<T> = await response.json()
+  traceApi({ endpoint, status: response.status, code: json.code })
   if (json.code !== 200) {
     throw new Error(json.message || "Request failed")
   }
@@ -954,4 +975,407 @@ export const contextStoryApi = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+}
+
+// ── 10. 影子跟读语音桥接 (Speech Bridge) ─────────────────────────────────────
+//
+// 浏览器 → Next.js `/api/speech/*`（同源代理）→ 本地 Python 服务 :8100。
+// 代理层做的事见 `src/app/api/speech/[...path]/route.ts`。
+
+/** 单个音素的评分明细 */
+export interface SpeechPhoneme {
+  phoneme: string
+  score: number
+  /** CTC 前向后向得到的真实后验概率 */
+  posterior: number
+  /** 帧内排名，1 = 模型最想输出的音素 */
+  rank: number | null
+  startMs: number
+  endMs: number
+  expected: string
+  status: "GOOD" | "FAIR" | "POOR"
+}
+
+/** 单个单词的对齐与评分 */
+export interface SpeechWord {
+  word: string
+  lemma: string
+  /** 该词带重音的 IPA（展示用） */
+  ipa: string
+  phonemes: SpeechPhoneme[]
+  status: "CORRECT" | "SUBSTITUTION" | "OMISSION" | "INSERTION"
+  actual_word: string | null
+  similarity: number
+  score: number
+  start_ms: number | null
+  end_ms: number | null
+  asr_probability: number | null
+  problems: { phoneme: string; score: number; status: string; rank: number | null }[]
+}
+
+export interface SpeechScores {
+  accuracy: number
+  completeness: number
+  fluency: number
+  overall: number
+  prosody: number | null
+}
+
+export interface SpeechSuggestion {
+  type: "PHONEME" | "WORD" | "COMPLETENESS" | "FLUENCY" | "PRAISE"
+  target: string
+  severity: "HIGH" | "MEDIUM" | "LOW"
+  title: string
+  detail: string
+  practiceWords: string[]
+}
+
+export interface SpeechTiming {
+  duration_seconds: number
+  speech_duration_seconds: number
+  words_per_minute: number
+  pause_count: number
+  pause_durations_ms: number[]
+  longest_pause_ms: number
+  leading_silence_ms: number
+  trailing_silence_ms: number
+  trimmed_head_ms: number
+  trimmed_tail_ms: number
+  word_timestamps: { word: string; startMs: number; endMs: number; probability: number }[]
+}
+
+export interface SpeechAcoustic {
+  duration_seconds: number
+  rms_dbfs: number
+  peak_dbfs: number
+  clipping_ratio: number
+  snr_db: number
+  pitch_mean_hz: number | null
+  pitch_range_semitones: number | null
+  voiced_ratio: number
+  activity: {
+    speech_ratio: number
+    leading_silence_ms: number
+    trailing_silence_ms: number
+    internal_pauses: number
+    longest_pause_ms: number
+    pause_ms_total: number
+    voiced_segments: [number, number][]
+  }
+}
+
+export interface ShadowingAssessment {
+  success: boolean
+  reference_text: string
+  transcribed_text: string
+  language: string
+  scores: SpeechScores
+  grade: string
+  grade_label: string
+  words: SpeechWord[]
+  counts: {
+    correct: number
+    substitution: number
+    omission: number
+    insertion: number
+    total_reference: number
+    filler_count: number
+    poor_phonemes: number
+    total_phonemes: number
+  }
+  timing: SpeechTiming
+  acoustic: SpeechAcoustic
+  suggestions: SpeechSuggestion[]
+  engine: {
+    asr: string
+    asr_model: string
+    asr_elapsed_ms: number
+    phoneme_model: string | null
+    phoneme_alignment: boolean
+  }
+  processing_ms: number
+}
+
+export interface SpeechPhonemeWords {
+  success: boolean
+  text: string
+  language: string
+  ipa: string
+  words: { word: string; ipa: string; phonemes: string[]; model_phonemes: string[] }[]
+  espeak: { available: boolean; error: string | null }
+}
+
+export interface SpeechHealth {
+  status: string
+  version: string
+  config: {
+    hf_endpoint: string
+    model_cache_dir: string
+    asr: { engine: string; whisper_model: string; device: string; compute_type: string }
+    phoneme_model: string
+  }
+  engines: {
+    asr_loaded: boolean
+    asr_error: string | null
+    sensevoice_available: boolean
+    phoneme_model_loaded: boolean
+    phoneme_model_error: string | null
+    espeak: { available: boolean; languages: string[]; error: string | null }
+    tts: { engine: string; edge_available: boolean; espeak_available: boolean }
+  }
+}
+
+/** 直接返回原始 Response（用于音频流等二进制响应） */
+async function speechFetch(path: string, init?: RequestInit): Promise<Response> {
+  const response = await fetch(`/api/speech${path}`, { cache: "no-store", ...init })
+  if (!response.ok) {
+    let message = `语音服务错误 ${response.status}`
+    try {
+      const payload = await response.json()
+      if (payload?.error) message = String(payload.error)
+    } catch {
+      /* 非 JSON 错误体 */
+    }
+    throw new Error(message)
+  }
+  return response
+}
+
+async function speechJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await speechFetch(path, init)
+  return (await response.json()) as T
+}
+
+export const speechApi = {
+  /** 服务健康与依赖自检 */
+  health: () => speechJson<SpeechHealth>("/health", { method: "GET" }),
+
+  /** 文本 → IPA 音素标注 */
+  phonemes: (text: string, language = "en") =>
+    speechJson<SpeechPhonemeWords>("/phonemes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, language }),
+    }),
+
+  /** 核心：跟读录音发音评测 */
+  score: (audio: Blob, targetText: string, language = "en") => {
+    const body = new FormData()
+    body.append("audio", audio, "shadowing.wav")
+    body.append("target_text", targetText)
+    body.append("language", language)
+    return speechJson<ShadowingAssessment>("/score_pronunciation", {
+      method: "POST",
+      body,
+    })
+  },
+
+  /** 语音转写（词级时间戳） */
+  transcribe: (audio: Blob, language = "en", initialPrompt?: string) => {
+    const body = new FormData()
+    body.append("audio", audio, "clip.wav")
+    body.append("language", language)
+    if (initialPrompt) body.append("initial_prompt", initialPrompt)
+    return speechJson<{
+      success: boolean
+      transcript: {
+        text: string
+        language: string
+        duration: number
+        segments: { text: string; start: number; end: number }[]
+      }
+      acoustic: SpeechAcoustic
+    }>("/transcribe", { method: "POST", body })
+  },
+
+  /** 声学质量诊断（VAD / 信噪比 / 削波） */
+  inspect: (audio: Blob) => {
+    const body = new FormData()
+    body.append("audio", audio, "clip.wav")
+    return speechJson<{ success: boolean; acoustic: SpeechAcoustic; warnings: string[] }>(
+      "/inspect",
+      { method: "POST", body }
+    )
+  },
+
+  /**
+   * 参考音 URL（直接用作 `<audio src>`）。
+   * 用 URL 而非 fetch 可以让浏览器原生处理缓存、Range 请求与播放控制。
+   */
+  referenceAudioUrl: (text: string, speed = 1.0, voice?: string) => {
+    const params = new URLSearchParams({ text, speed: String(speed) })
+    if (voice) params.set("voice", voice)
+    return `/api/speech/tts?${params.toString()}`
+  },
+
+  /** 参考音（POST 版，返回 WAV Blob，便于本地缓存） */
+  synthesize: async (text: string, speed = 1.0, voice?: string): Promise<Blob> => {
+    const response = await speechFetch("/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, speed, voice }),
+    })
+    return await response.blob()
+  },
+}
+
+// ── 11. 影子跟读训练记录 (Shadowing Practice) ───────────────────────────────
+
+export interface ShadowingSentence {
+  id: number
+  sourceType: "BBC" | "CARD" | "CUSTOM"
+  sourceTitle: string
+  text: string
+  translation: string
+  cefrLevel: string
+  wordCount: number
+  tags: string | null
+  attemptCount: number
+  bestScore: number | null
+  lastScore: number | null
+  lastPracticedAt: string | null
+  masteryStatus: "NEW" | "LEARNING" | "MASTERED"
+}
+
+export interface ShadowingAttemptRecord {
+  id: number
+  sentenceId: number | null
+  sourceType: string
+  sourceTitle: string
+  referenceText: string
+  transcribedText: string | null
+  overallScore: number
+  accuracyScore: number
+  completenessScore: number
+  fluencyScore: number
+  prosodyScore: number | null
+  grade: string
+  correctCount: number
+  substitutionCount: number
+  omissionCount: number
+  insertionCount: number
+  poorPhonemeCount: number
+  totalPhonemeCount: number
+  wordsPerMinute: number
+  audioDurationMs: number
+  analysisMs: number
+  detailJson: unknown
+  suggestionsJson: unknown
+  engineJson: unknown
+  createdAt: string
+}
+
+export interface ShadowingStats {
+  totalAttempts: number
+  practicedSentences: number
+  masteredSentences: number
+  averageScore: number
+  bestScore: number
+  latestScore: number
+  averageAccuracy: number
+  averageCompleteness: number
+  averageFluency: number
+  totalDurationMinutes: number
+  todayAttempts: number
+  todayAverageScore: number
+  streakDays: number
+  weakPhonemes: {
+    phoneme: string
+    averageScore: number
+    occurrences: number
+    hint: string
+  }[]
+  trend: { date: string; averageScore: number; attempts: number }[]
+  sources: { sourceType: string; attempts: number; averageScore: number }[]
+}
+
+function toQuery(params: Record<string, string | number | boolean | undefined>): string {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") query.set(key, String(value))
+  }
+  const qs = query.toString()
+  return qs ? `?${qs}` : ""
+}
+
+export const shadowingApi = {
+  /** 跟读句库（按题源筛选，附带个人掌握度） */
+  listSentences: (params?: { sourceType?: string; limit?: number }) =>
+    request<ShadowingSentence[]>(
+      `/api/shadowing/sentences${toQuery({ sourceType: params?.sourceType, limit: params?.limit })}`
+    ),
+
+  /** 导入自定义跟读句 */
+  createSentence: (data: {
+    text: string
+    translation?: string
+    cefrLevel?: string
+    sourceTitle?: string
+    tags?: string
+  }) =>
+    request<ShadowingSentence>("/api/shadowing/sentences", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  /** 删除自定义跟读句 */
+  deleteSentence: (id: number) =>
+    request<{ id: number; message: string }>(`/api/shadowing/sentences/${id}`, {
+      method: "DELETE",
+    }),
+
+  /** 提交一次评测结果（由后端落库并计入打卡） */
+  submitAttempt: (data: {
+    sentenceId?: number
+    sourceType?: string
+    sourceTitle?: string
+    referenceText: string
+    transcribedText?: string
+    language?: string
+    overallScore: number
+    accuracyScore: number
+    completenessScore: number
+    fluencyScore: number
+    prosodyScore?: number | null
+    grade?: string
+    correctCount?: number
+    substitutionCount?: number
+    omissionCount?: number
+    insertionCount?: number
+    poorPhonemeCount?: number
+    totalPhonemeCount?: number
+    wordsPerMinute?: number
+    audioDurationMs?: number
+    analysisMs?: number
+    detailJson?: string
+    suggestionsJson?: string
+    engineJson?: string
+    practiceSeconds?: number
+  }) =>
+    request<ShadowingAttemptRecord>("/api/shadowing/attempts", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  /** 历史练习记录 */
+  listAttempts: (params?: { sentenceId?: number; page?: number; size?: number }) =>
+    request<{
+      records: ShadowingAttemptRecord[]
+      total: number
+      current: number
+      size: number
+    }>(
+      `/api/shadowing/attempts${toQuery({
+        sentenceId: params?.sentenceId,
+        page: params?.page,
+        size: params?.size,
+      })}`
+    ),
+
+  /** 单条记录明细（含词级/音素级完整数据） */
+  getAttempt: (id: number) =>
+    request<ShadowingAttemptRecord>(`/api/shadowing/attempts/${id}`),
+
+  /** 训练总览统计 */
+  stats: () => request<ShadowingStats>("/api/shadowing/stats"),
 }

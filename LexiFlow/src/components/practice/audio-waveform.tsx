@@ -4,9 +4,16 @@ import { useEffect, useRef } from "react"
 
 interface AudioWaveformProps {
   isRecording: boolean
+  /** 直接订阅 MediaStream 时使用；若已在上层采集 PCM，可传 null 并改用 waveform/level */
   audioStream: MediaStream | null
   className?: string
   barColor?: string
+  /** 实时时域波形（-1~1）。传入后按真实采样绘制，优先于 audioStream。 */
+  waveform?: Float32Array | null
+  /** 实时响度电平 0~1，用于整体亮度调制 */
+  level?: number
+  /** 录音时长毫秒（显示在 REC 胶囊里） */
+  elapsedMs?: number
 }
 
 export function AudioWaveform({
@@ -14,12 +21,26 @@ export function AudioWaveform({
   audioStream,
   className = "h-20 w-full",
   barColor = "#10b981", // Emerald primary
+  waveform = null,
+  level = 0,
+  elapsedMs = 0,
 }: AudioWaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const animFrameRef = useRef<number | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
+  // PCM 模式下由上层推送波形：用 ref 暂存最新一帧，避免每个音频块都触发 React 重渲染
+  const latestRef = useRef<Float32Array | null>(null)
+  const levelRef = useRef(0)
+
+  // PCM 模式下由上层推送波形。这两处「在 effect 里写 ref」是刻意为之：
+  // 音频块以 ~85ms 的频率到达，若直接进 state 会触发高频重渲染；
+  // 这里只把最新值镜像到 ref，由 requestAnimationFrame 循环按需读取。
+  useEffect(() => {
+    latestRef.current = waveform
+    levelRef.current = level
+  }, [waveform, level])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -43,7 +64,7 @@ export function AudioWaveform({
       }
     }
 
-    if (!isRecording || !audioStream) {
+    if (!isRecording) {
       drawIdle()
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
       if (audioContextRef.current) {
@@ -53,9 +74,59 @@ export function AudioWaveform({
       return
     }
 
-    // 录音状态：建立 Web Audio API 音频分析图
+    /** 用上层推来的 PCM 采样绘制实时波形。 */
+    const renderFromPcm = () => {
+      const samples = latestRef.current
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      const centerY = canvas.height / 2
+      const barCount = 56
+      const barWidth = canvas.width / barCount
+      const spacing = 2
+      const lvl = levelRef.current
+
+      if (!samples || samples.length === 0) {
+        drawIdle()
+      } else {
+        const step = Math.max(1, Math.floor(samples.length / barCount))
+        for (let i = 0; i < barCount; i++) {
+          let peak = 0
+          const start = i * step
+          for (let j = start; j < Math.min(start + step, samples.length); j++) {
+            const v = samples[j] < 0 ? -samples[j] : samples[j]
+            if (v > peak) peak = v
+          }
+          const h = Math.max(3, peak * canvas.height * 0.92)
+          const x = i * barWidth + spacing / 2
+          const alpha = Math.max(0.3, Math.min(1, 0.35 + peak * 1.6))
+          ctx.fillStyle = `rgba(16, 185, 129, ${alpha})`
+          ctx.beginPath()
+          if (typeof ctx.roundRect === "function") {
+            ctx.roundRect(x, centerY - h / 2, barWidth - spacing, h, 3)
+            ctx.fill()
+          } else {
+            ctx.fillRect(x, centerY - h / 2, barWidth - spacing, h)
+          }
+        }
+        // 电平指示底线
+        ctx.fillStyle = "rgba(16, 185, 129, 0.25)"
+        ctx.fillRect(0, canvas.height - 2, canvas.width * Math.min(1, lvl), 2)
+      }
+      animFrameRef.current = requestAnimationFrame(renderFromPcm)
+    }
+
+    // 若上层直接给了 PCM，走自绘路径，无需再建 AudioContext
+    if (waveform !== null || level > 0) {
+      renderFromPcm()
+      return () => {
+        if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
+      }
+    }
+
+    // 否则订阅 MediaStream（保留对旧调用方的兼容）
     try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
       const audioCtx = new AudioCtx()
       audioContextRef.current = audioCtx
 
@@ -64,7 +135,7 @@ export function AudioWaveform({
       analyser.smoothingTimeConstant = 0.8
       analyserRef.current = analyser
 
-      const source = audioCtx.createMediaStreamSource(audioStream)
+      const source = audioCtx.createMediaStreamSource(audioStream as MediaStream)
       source.connect(analyser)
       sourceRef.current = source
 
@@ -116,20 +187,23 @@ export function AudioWaveform({
         audioContextRef.current.close().catch(() => {})
       }
     }
-  }, [isRecording, audioStream, barColor])
+  }, [isRecording, audioStream, barColor, waveform, level])
+
+  const seconds = Math.floor(elapsedMs / 1000)
 
   return (
-    <div className={`relative flex items-center justify-center overflow-hidden rounded-2xl bg-muted/30 border border-border/60 ${className}`}>
+    <div className={`relative flex items-center justify-center overflow-hidden rounded-2xl border border-border/60 bg-muted/30 ${className}`}>
       <canvas
         ref={canvasRef}
         width={480}
         height={80}
-        className="w-full h-full object-contain"
+        className="h-full w-full object-contain"
       />
       {isRecording && (
-        <div className="absolute top-2 right-3 flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-bold animate-pulse">
-          <span className="size-1.5 rounded-full bg-emerald-500 animate-ping" />
-          REC 实时采集中
+        <div className="absolute top-2 right-3 flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-600 animate-pulse dark:text-emerald-400">
+          <span className="size-1.5 animate-ping rounded-full bg-emerald-500" />
+          REC {String(Math.floor(seconds / 60)).padStart(2, "0")}:
+          {String(seconds % 60).padStart(2, "0")}
         </div>
       )}
     </div>
