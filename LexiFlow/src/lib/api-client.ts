@@ -79,6 +79,8 @@ export interface MediaItem {
   wpm: number | null
   status: "UPLOADING" | "PROCESSING" | "WAITING_SUBTITLE" | "READY" | "FAILED" | string
   processingStage: string | null
+  processingProgress?: number | null
+  processingDetail?: string | null
   subtitleStatus: string
   translationStatus: "DISABLED" | "PENDING" | "TRANSLATING" | "READY" | "PARTIAL" | "FAILED" | string
   translationProgress: number
@@ -433,21 +435,6 @@ export interface ChannelStat {
 
 const TOKEN_KEY = "lexiflow_jwt_token"
 
-/**
- * 开发期请求追踪：把每个 API 请求的结果挂到 `window.__LEXIFLOW_API_LOG__`。
- *
- * 为什么需要它：前端是纯客户端渲染，接口失败时页面只表现为「一直加载中」，
- * 从 DOM 上完全看不出是请求没发出、还是响应用例不匹配。把请求轨迹留在全局，
- * 可以用无头浏览器/CDP 一次性看清整条链路（见 scripts/e2e-shadowing.mjs）。
- */
-function traceApi(entry: Record<string, unknown>): void {
-  if (typeof window === "undefined") return
-  const w = window as unknown as { __LEXIFLOW_API_LOG__?: unknown[] }
-  if (!Array.isArray(w.__LEXIFLOW_API_LOG__)) w.__LEXIFLOW_API_LOG__ = []
-  w.__LEXIFLOW_API_LOG__.push({ t: Date.now(), ...entry })
-  if (w.__LEXIFLOW_API_LOG__.length > 200) w.__LEXIFLOW_API_LOG__.shift()
-}
-
 export const getToken = (): string | null => {
   if (typeof window === "undefined") return null
   return localStorage.getItem(TOKEN_KEY)
@@ -481,8 +468,6 @@ async function request<T>(
     headers["Authorization"] = `Bearer ${token}`
   }
 
-  traceApi({ endpoint, method: options.method || "GET", hasToken: Boolean(token) })
-
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 8000)
 
@@ -495,10 +480,8 @@ async function request<T>(
     })
   } catch (err: unknown) {
     if (err instanceof Error && err.name === "AbortError") {
-      traceApi({ endpoint, error: "timeout" })
       throw new Error(`网络请求超时 (8s): ${endpoint}`)
     }
-    traceApi({ endpoint, error: err instanceof Error ? err.message : String(err) })
     throw err
   } finally {
     clearTimeout(timeoutId)
@@ -510,12 +493,10 @@ async function request<T>(
       const errJson = await response.json()
       if (errJson.message) errMsg = errJson.message
     } catch {}
-    traceApi({ endpoint, status: response.status, error: errMsg })
     throw new Error(errMsg)
   }
 
   const json: ApiResponse<T> = await response.json()
-  traceApi({ endpoint, status: response.status, code: json.code })
   if (json.code !== 200) {
     throw new Error(json.message || "Request failed")
   }
@@ -1378,4 +1359,93 @@ export const shadowingApi = {
 
   /** 训练总览统计 */
   stats: () => request<ShadowingStats>("/api/shadowing/stats"),
+}
+
+// ---------------------------------------------------------------------------
+// 创作者频道订阅与动态跟踪 (YouTube Channel Subscriptions)
+// ---------------------------------------------------------------------------
+
+export interface ChannelSubscription {
+  publicId: string
+  platform: string
+  channelId: string
+  channelHandle: string | null
+  channelName: string
+  avatarUrl: string | null
+  bannerUrl: string | null
+  description: string | null
+  subscriberCountText: string | null
+  importedCount: number
+  lastFeedFetchedAt: string | null
+  createdAt: string
+}
+
+export interface ChannelFeedItem {
+  videoId: string
+  videoUrl: string
+  title: string
+  publishedAt: string
+  relativeTimeText: string
+  thumbnailUrl: string
+  description: string
+  isImported: boolean
+  mediaPublicId?: string | null
+}
+
+export interface ChannelFeed {
+  channelId: string
+  channelName: string
+  channelHandle: string | null
+  avatarUrl: string | null
+  bannerUrl: string | null
+  description: string | null
+  feedUrl: string
+  items: ChannelFeedItem[]
+}
+
+export const channelApi = {
+  /** 获取当前用户已订阅的频道列表 */
+  listSubscriptions: () =>
+    request<ChannelSubscription[]>("/api/channels/subscriptions"),
+
+  /** 关注/订阅新频道 (支持 @handle 或 YouTube 链接) */
+  subscribe: (input: string) =>
+    request<ChannelSubscription>("/api/channels/subscriptions", {
+      method: "POST",
+      body: JSON.stringify({ input }),
+    }),
+
+  /** 取消关注频道 */
+  unsubscribe: (channelId: string) =>
+    request<void>(`/api/channels/subscriptions/${channelId}`, {
+      method: "DELETE",
+    }),
+
+  /** 拉取频道最新视频流及在库状态 */
+  getFeed: (channelId: string) =>
+    request<ChannelFeed>(`/api/channels/${channelId}/feed`),
+
+  /** 一键将动态视频导入视频精听库 */
+  importFeedVideo: (channelId: string, videoId: string) =>
+    request<MediaItem>(`/api/channels/${channelId}/import-video`, {
+      method: "POST",
+      body: JSON.stringify({ videoId }),
+    }),
+
+  /** 上传 OPML 文件批量导入订阅频道 */
+  importOpml: async (file: File) => {
+    const formData = new FormData()
+    formData.append("file", file)
+    const token = typeof window !== "undefined" ? localStorage.getItem("lexiflow_auth_token") : null
+    const res = await fetch("http://localhost:8080/api/channels/import-opml", {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    })
+    const json = await res.json()
+    if (!res.ok || json.code !== 200) {
+      throw new Error(json.message || "OPML 导入失败")
+    }
+    return json.data as { importedCount: number }
+  },
 }

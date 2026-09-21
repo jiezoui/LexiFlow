@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotBlank;
 public record WorkerProgressRequest(
         @NotBlank String workerId,
         @NotBlank String stage,
-        @Min(0) @Max(100) int progress
+        @Min(0) @Max(100) int progress,
+        String detail
 ) {
 }

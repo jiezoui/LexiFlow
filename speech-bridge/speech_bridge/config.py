@@ -42,15 +42,24 @@ TMP_DIR = Path(os.getenv("LEXIFLOW_SPEECH_TMP_DIR", REPO_ROOT / ".deploy-cache" 
 
 def _huggingface_endpoint() -> str:
     """返回可用的 HF 端点。
-
-    中国大陆网络下 ``huggingface.co`` 常不可达，但 ``hf-mirror.com`` 可达
-    （见 DEPLOY-NOTES.md）。这里默认切到镜像，并同步设置 HF_ENDPOINT，
-    使 ``transformers`` / ``huggingface_hub`` 走同一出口。
+    支持自动探测本地 7897 代理端口，有代理时直连 huggingface.co，无代理时回退 hf-mirror.com。
     """
-    endpoint = os.getenv("HF_ENDPOINT", "https://hf-mirror.com").rstrip("/")
+    if not os.getenv("HTTP_PROXY") and not os.getenv("HTTPS_PROXY"):
+        import socket
+        try:
+            with socket.create_connection(("127.0.0.1", 7897), timeout=0.5):
+                os.environ["HTTP_PROXY"] = "http://127.0.0.1:7897"
+                os.environ["HTTPS_PROXY"] = "http://127.0.0.1:7897"
+                os.environ["NO_PROXY"] = "localhost,127.0.0.1,::1"
+        except (OSError, socket.timeout):
+            pass
+
+    has_proxy = bool(os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY"))
+    default_ep = "https://huggingface.co" if has_proxy else "https://hf-mirror.com"
+    endpoint = os.getenv("HF_ENDPOINT", default_ep).rstrip("/")
     os.environ["HF_ENDPOINT"] = endpoint
-    # 关闭 Xet 下载通道：镜像不代理该协议，开启会 404
     os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+    os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     return endpoint
 
 
@@ -78,13 +87,17 @@ PORT = int(os.getenv("LEXIFLOW_SPEECH_PORT", "8100"))
 # ASR 引擎：whisper（faster-whisper）| sensevoice | auto
 ASR_ENGINE = os.getenv("LEXIFLOW_ASR_ENGINE", "auto").strip().lower()
 # tiny | base | small | medium | large-v3
-WHISPER_MODEL = os.getenv("LEXIFLOW_WHISPER_MODEL", "small")
+_local_whisper = MODEL_CACHE_DIR / "whisper" / "small"
+_default_whisper = str(_local_whisper) if _local_whisper.is_dir() else "small"
+WHISPER_MODEL = os.getenv("LEXIFLOW_WHISPER_MODEL", _default_whisper)
 WHISPER_DEVICE = os.getenv("LEXIFLOW_WHISPER_DEVICE", "cpu")
 WHISPER_COMPUTE_TYPE = os.getenv("LEXIFLOW_WHISPER_COMPUTE_TYPE", "int8")
 
 # 发音评测使用的音素 CTC 模型（espeak 音素集，多语言共用）
+_local_phoneme = MODEL_CACHE_DIR / "wav2vec2"
+_default_phoneme = str(_local_phoneme) if _local_phoneme.is_dir() else "facebook/wav2vec2-lv-60-espeak-cv-ft"
 PHONEME_MODEL = os.getenv(
-    "LEXIFLOW_PHONEME_MODEL", "facebook/wav2vec2-lv-60-espeak-cv-ft"
+    "LEXIFLOW_PHONEME_MODEL", _default_phoneme
 )
 
 # 音频目标采样率

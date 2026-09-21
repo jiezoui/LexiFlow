@@ -1,301 +1,369 @@
 "use client"
 
-/**
- * YouTube 内嵌播放器
- *
- * 用途：播放以 `playback.type === "YOUTUBE_IFRAME"` 导入的外部视频。
- * 通过官方 IFrame Player API（`window.YT`）获得与本地 `<video>` 等价的控制能力，
- * 并对外暴露与 `MediaPlayer` 相同的 `MediaPlayerHandle` 接口，
- * 使 `MediaStudyWorkspace` 可以用同一个 ref 驱动字幕跟随与定位。
- *
- * 关键点
- * ------
- * 1. **单例脚本加载**：IFrame API 脚本全页只能加载一次，用模块级 Promise 缓存，
- *    避免每条视频都插一遍 `<script>`。
- * 2. **时间上报**：`requestAnimationFrame` 轮询 `getCurrentTime()`，把秒级播放
- *    进度回调给上层，用于字幕高亮。比 `setInterval` 更贴合刷新节奏。
- * 3. **销毁安全**：卸载时取消 rAF 并 `destroy()` 播放器，防止切换视频后旧实例
- *    继续上报时间造成字幕跳动。
- */
-
-import {
-  forwardRef,
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useState,
-} from "react"
-import { LoaderCircleIcon, VideoIcon } from "lucide-react"
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react"
 import type { MediaCue } from "@/lib/api-client"
 import type { MediaPlayerHandle } from "@/components/video/media-player"
-
-/* ── IFrame API 最小类型声明（只声明用到的部分） ────────────────────────── */
-
-interface YTPlayer {
-  playVideo: () => void
-  pauseVideo: () => void
-  seekTo: (seconds: number, allowSeekAhead: boolean) => void
-  getCurrentTime: () => number
-  getDuration: () => number
-  destroy: () => void
-}
-
-interface YTNamespace {
-  Player: new (
-    element: HTMLElement | string,
-    options: {
-      videoId: string
-      playerVars?: Record<string, string | number>
-      events?: {
-        onReady?: (event: { target: YTPlayer }) => void
-        onError?: (event: { data: number }) => void
-        onStateChange?: (event: { data: number }) => void
-      }
-    }
-  ) => YTPlayer
-}
-
-declare global {
-  interface Window {
-    YT?: YTNamespace
-    onYouTubeIframeAPIReady?: () => void
-  }
-}
-
-let apiPromise: Promise<YTNamespace> | null = null
-
-/** 幂等地加载 YouTube IFrame API。 */
-function loadYouTubeApi(): Promise<YTNamespace> {
-  if (typeof window === "undefined") {
-    return Promise.reject(new Error("YouTube IFrame API 仅可在浏览器中加载"))
-  }
-  if (window.YT?.Player) return Promise.resolve(window.YT)
-  if (apiPromise) return apiPromise
-
-  apiPromise = new Promise<YTNamespace>((resolve, reject) => {
-    const previous = window.onYouTubeIframeAPIReady
-    window.onYouTubeIframeAPIReady = () => {
-      previous?.()
-      if (window.YT?.Player) resolve(window.YT)
-      else reject(new Error("YouTube IFrame API 加载完成但命名空间缺失"))
-    }
-
-    const existing = document.querySelector<HTMLScriptElement>(
-      'script[data-lexiflow-youtube-api="1"]'
-    )
-    if (!existing) {
-      const script = document.createElement("script")
-      script.src = "https://www.youtube.com/iframe_api"
-      script.async = true
-      script.dataset.lexiflowYoutubeApi = "1"
-      script.onerror = () => reject(new Error("YouTube IFrame API 脚本加载失败"))
-      document.head.appendChild(script)
-    }
-
-    // 网络受限时给出明确失败，而不是无限等待
-    window.setTimeout(() => {
-      if (!window.YT?.Player) reject(new Error("YouTube IFrame API 加载超时"))
-    }, 15_000)
-  })
-
-  // 失败后允许下次重试
-  apiPromise.catch(() => {
-    apiPromise = null
-  })
-  return apiPromise
-}
-
-/** 把 YouTube 的错误码转成可读提示。 */
-const YT_ERRORS: Record<number, string> = {
-  2: "视频 ID 无效",
-  5: "HTML5 播放器无法播放该视频",
-  100: "视频不存在、已删除或设为私享",
-  101: "视频所有者不允许内嵌播放",
-  150: "视频所有者不允许内嵌播放",
-}
 
 interface YouTubePlayerProps {
   videoId: string
   title: string
-  activeCue?: MediaCue | null
-  onPlaybackTime?: (seconds: number) => void
-  onReady?: () => void
-  onError?: (message: string) => void
+  activeCue: MediaCue | null
+  onPlaybackTime: (seconds: number) => void
+  onError: (message: string) => void
+  onReady: () => void
 }
 
-export const YouTubePlayer = forwardRef<MediaPlayerHandle, YouTubePlayerProps>(
-  function YouTubePlayer(
-    { videoId, title, activeCue, onPlaybackTime, onReady, onError },
-    ref
-  ) {
-    const hostRef = useRef<HTMLDivElement | null>(null)
-    const playerRef = useRef<YTPlayer | null>(null)
-    const rafRef = useRef<number | null>(null)
-    const readyRef = useRef(false)
+interface YouTubePlayerInstance {
+  destroy: () => void
+  playVideo: () => void
+  pauseVideo?: () => void
+  seekTo: (seconds: number, allowSeekAhead: boolean) => void
+  getCurrentTime: () => number
+}
 
-    // 用 ref 持有回调，避免父组件每次重渲染都重建播放器
-    const callbacksRef = useRef({ onPlaybackTime, onReady, onError })
-    useEffect(() => {
-      callbacksRef.current = { onPlaybackTime, onReady, onError }
-    }, [onPlaybackTime, onReady, onError])
+interface YouTubePlayerEvent {
+  target: YouTubePlayerInstance
+  data: number
+}
 
-    const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
-    const [errorText, setErrorText] = useState<string>("")
-
-    const stopPolling = useCallback(() => {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current)
-        rafRef.current = null
+interface YouTubeNamespace {
+  Player: new (
+    element: HTMLElement,
+    options: {
+      videoId: string
+      host?: string
+      playerVars: Record<string, string | number>
+      events: {
+        onReady: (event: YouTubePlayerEvent) => void
+        onStateChange: (event: YouTubePlayerEvent) => void
+        onError: (event: YouTubePlayerEvent) => void
       }
-    }, [])
+    }
+  ) => YouTubePlayerInstance
+  ready?: (fn: () => void) => void
+}
 
-    // 创建播放器
-    useEffect(() => {
-      let disposed = false
-      const host = hostRef.current
-      if (!host) return
-
-      setStatus("loading")
-      setErrorText("")
-
-      void (async () => {
-        try {
-          const YT = await loadYouTubeApi()
-          if (disposed || !hostRef.current) return
-
-          // 播放器需要一个真实存在的子节点作为挂载点
-          host.innerHTML = ""
-          const mount = document.createElement("div")
-          mount.style.width = "100%"
-          mount.style.height = "100%"
-          host.appendChild(mount)
-
-          const player = new YT.Player(mount, {
-            videoId,
-            playerVars: {
-              rel: 0,
-              modestbranding: 1,
-              playsinline: 1,
-              // 需要 IFrame API 才能用 seekTo 精确定位字幕
-              enablejsapi: 1,
-              origin: window.location.origin,
-            },
-            events: {
-              onReady: (event) => {
-                if (disposed) return
-                playerRef.current = event.target
-                readyRef.current = true
-                setStatus("ready")
-                callbacksRef.current.onReady?.()
-
-                // 轮询播放进度驱动字幕高亮
-                const tick = () => {
-                  if (disposed) return
-                  const target = playerRef.current
-                  if (target) {
-                    try {
-                      callbacksRef.current.onPlaybackTime?.(target.getCurrentTime())
-                    } catch {
-                      /* 播放器销毁瞬间可能抛错，忽略 */
-                    }
-                  }
-                  rafRef.current = requestAnimationFrame(tick)
-                }
-                stopPolling()
-                rafRef.current = requestAnimationFrame(tick)
-              },
-              onError: (event) => {
-                if (disposed) return
-                const message = YT_ERRORS[event.data] || `YouTube 播放错误 (${event.data})`
-                setStatus("error")
-                setErrorText(message)
-                callbacksRef.current.onError?.(message)
-              },
-            },
-          })
-
-          // 在 onReady 之前就持有实例，保证 ref 方法可用
-          playerRef.current = player
-        } catch (err: unknown) {
-          if (disposed) return
-          const message = err instanceof Error ? err.message : "YouTube 播放器初始化失败"
-          setStatus("error")
-          setErrorText(message)
-          callbacksRef.current.onError?.(message)
-        }
-      })()
-
-      return () => {
-        disposed = true
-        readyRef.current = false
-        stopPolling()
-        try {
-          playerRef.current?.destroy()
-        } catch {
-          /* 已销毁 */
-        }
-        playerRef.current = null
-      }
-    }, [videoId, stopPolling])
-
-    // 对外暴露与本地播放器一致的接口
-    useImperativeHandle(
-      ref,
-      (): MediaPlayerHandle => ({
-        seekTo: (seconds: number, autoplay = false) => {
-          const player = playerRef.current
-          if (!player) return
-          try {
-            player.seekTo(seconds, true)
-            if (autoplay) player.playVideo()
-          } catch {
-            /* 播放器尚未就绪 */
-          }
-        },
-        play: () => {
-          try {
-            playerRef.current?.playVideo()
-          } catch {
-            /* 播放器尚未就绪 */
-          }
-        },
-        pause: () => {
-          try {
-            playerRef.current?.pauseVideo()
-          } catch {
-            /* 播放器尚未就绪 */
-          }
-        },
-      }),
-      []
-    )
-
-    return (
-      <div className="relative aspect-video w-full max-w-5xl overflow-hidden rounded-2xl bg-zinc-950">
-        <div ref={hostRef} className="h-full w-full" title={title} />
-
-        {status === "loading" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-zinc-400">
-            <LoaderCircleIcon className="size-7 animate-spin" />
-            <p className="text-xs">正在连接 YouTube 播放器…</p>
-          </div>
-        )}
-
-        {status === "error" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-zinc-300">
-            <VideoIcon className="size-8 text-zinc-500" />
-            <p className="text-sm font-semibold">无法内嵌播放该视频</p>
-            <p className="max-w-md text-xs text-zinc-500">{errorText}</p>
-          </div>
-        )}
-
-        {activeCue && status === "ready" && (
-          <div className="pointer-events-none absolute inset-x-4 bottom-4 rounded-lg bg-black/70 px-3 py-2 text-center text-sm text-white backdrop-blur-sm">
-            {activeCue.sourceText}
-          </div>
-        )}
-      </div>
-    )
+declare global {
+  interface Window {
+    YT?: YouTubeNamespace
+    onYouTubeIframeAPIReady?: () => void
   }
-)
+}
+
+let apiPromise: Promise<YouTubeNamespace> | null = null
+
+function loadYouTubeApi(timeoutMs = 4000): Promise<YouTubeNamespace> {
+  if (typeof window === "undefined") return Promise.reject(new Error("SSR not supported"))
+  if (window.YT?.Player) return Promise.resolve(window.YT)
+  if (apiPromise) return apiPromise
+
+  apiPromise = new Promise<YouTubeNamespace>((resolve, reject) => {
+    let timeoutTimer: number | null = null
+
+    const cleanup = () => {
+      if (timeoutTimer !== null) {
+        window.clearTimeout(timeoutTimer)
+        timeoutTimer = null
+      }
+    }
+
+    const checkReady = () => {
+      if (window.YT?.Player) {
+        cleanup()
+        resolve(window.YT)
+        return true
+      }
+      return false
+    }
+
+    if (checkReady()) return
+
+    if (window.YT?.ready) {
+      window.YT.ready(() => {
+        if (checkReady()) return
+      })
+    }
+
+    const previousReady = window.onYouTubeIframeAPIReady
+    window.onYouTubeIframeAPIReady = () => {
+      previousReady?.()
+      checkReady()
+    }
+
+    const pollTimer = window.setInterval(() => {
+      if (checkReady()) {
+        window.clearInterval(pollTimer)
+      }
+    }, 150)
+
+    timeoutTimer = window.setTimeout(() => {
+      window.clearInterval(pollTimer)
+      cleanup()
+      apiPromise = null
+      reject(new Error("YouTube 播放器脚本加载超时"))
+    }, timeoutMs)
+
+    const existing = document.querySelector<HTMLScriptElement>('script[src*="youtube.com/iframe_api"]')
+    if (existing) {
+      existing.addEventListener("error", () => {
+        window.clearInterval(pollTimer)
+        cleanup()
+        apiPromise = null
+        reject(new Error("YouTube 播放器脚本加载失败"))
+      }, { once: true })
+      return
+    }
+
+    const script = document.createElement("script")
+    script.src = "https://www.youtube.com/iframe_api"
+    script.async = true
+    script.onerror = () => {
+      window.clearInterval(pollTimer)
+      cleanup()
+      apiPromise = null
+      reject(new Error("YouTube 播放器脚本加载失败"))
+    }
+    document.head.appendChild(script)
+  }).catch((err) => {
+    apiPromise = null
+    throw err
+  })
+
+  return apiPromise
+}
+
+function playerErrorMessage(code: number) {
+  if (code === 101 || code === 150) return "视频作者不允许在站外播放，请前往 YouTube 观看。"
+  if (code === 100) return "这个 YouTube 视频不存在或已被设为私密。"
+  if (code === 2) return "YouTube 视频编号无效。"
+  return "YouTube 播放器暂时无法加载，请检查网络后重试。"
+}
+
+export const YouTubePlayer = forwardRef<MediaPlayerHandle, YouTubePlayerProps>(function YouTubePlayer({
+  videoId,
+  title,
+  activeCue,
+  onPlaybackTime,
+  onError,
+  onReady,
+}, forwardedRef) {
+  const mountRef = useRef<HTMLDivElement>(null)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const playerRef = useRef<YouTubePlayerInstance | null>(null)
+  const clockRef = useRef<number | null>(null)
+  const [useFallback, setUseFallback] = useState(false)
+  const [retryNonce, setRetryNonce] = useState(0)
+
+  // Imperative handle: supports both standard YT.Player and fallback iframe via postMessage
+  useImperativeHandle(forwardedRef, () => ({
+    seekTo: (seconds, autoplay = true) => {
+      const targetSeconds = Math.max(0, seconds)
+      if (useFallback) {
+        if (iframeRef.current?.contentWindow) {
+          iframeRef.current.contentWindow.postMessage(
+            JSON.stringify({
+              event: "command",
+              func: "seekTo",
+              args: [targetSeconds, true],
+            }),
+            "*"
+          )
+          if (autoplay) {
+            iframeRef.current.contentWindow.postMessage(
+              JSON.stringify({
+                event: "command",
+                func: "playVideo",
+                args: [],
+              }),
+              "*"
+            )
+          }
+        }
+        onPlaybackTime(targetSeconds)
+        return
+      }
+
+      const player = playerRef.current
+      if (player && typeof player.seekTo === "function") {
+        try {
+          player.seekTo(targetSeconds, true)
+          onPlaybackTime(targetSeconds)
+          if (autoplay && typeof player.playVideo === "function") {
+            player.playVideo()
+          }
+        } catch (err) {
+          console.warn("[YouTubePlayer] seekTo error:", err)
+        }
+      }
+    },
+    pause: () => {
+      if (useFallback) {
+        if (iframeRef.current?.contentWindow) {
+          iframeRef.current.contentWindow.postMessage(
+            JSON.stringify({
+              event: "command",
+              func: "pauseVideo",
+              args: [],
+            }),
+            "*"
+          )
+        }
+        return
+      }
+
+      if (playerRef.current && typeof playerRef.current.pauseVideo === "function") {
+        try {
+          playerRef.current.pauseVideo()
+        } catch (err) {
+          console.warn("[YouTubePlayer] pauseVideo error:", err)
+        }
+      }
+    },
+  }), [useFallback, onPlaybackTime])
+
+  // Fallback iframe message listener (for receiving playback time from iframe enablejsapi)
+  useEffect(() => {
+    if (!useFallback) return
+
+    const handleMessage = (event: MessageEvent) => {
+      try {
+        const data = typeof event.data === "string" ? JSON.parse(event.data) : event.data
+        if (!data) return
+        if (data.event === "infoDelivery" && typeof data.info?.currentTime === "number") {
+          onPlaybackTime(data.info.currentTime)
+        } else if (data.event === "onReady" || data.event === "initialDelivery") {
+          onReady()
+        }
+      } catch {
+        // Not a JSON message from YouTube iframe
+      }
+    }
+
+    window.addEventListener("message", handleMessage)
+    return () => {
+      window.removeEventListener("message", handleMessage)
+    }
+  }, [useFallback, onPlaybackTime, onReady])
+
+  // Main effect: attempt to initialize standard YT.Player, fallback to direct iframe on failure
+  useEffect(() => {
+    let disposed = false
+
+    const stopClock = () => {
+      if (clockRef.current !== null) {
+        window.clearInterval(clockRef.current)
+        clockRef.current = null
+      }
+    }
+    const startClock = () => {
+      stopClock()
+      clockRef.current = window.setInterval(() => {
+        const seconds = playerRef.current?.getCurrentTime()
+        if (typeof seconds === "number" && Number.isFinite(seconds)) {
+          onPlaybackTime(seconds)
+        }
+      }, 100)
+    }
+
+    loadYouTubeApi(3500)
+      .then((YT) => {
+        if (disposed || !mountRef.current) return
+        playerRef.current = new YT.Player(mountRef.current, {
+          videoId,
+          host: "https://www.youtube-nocookie.com",
+          playerVars: {
+            controls: 1,
+            playsinline: 1,
+            rel: 0,
+            origin: window.location.origin,
+          },
+          events: {
+            onReady: (event) => {
+              playerRef.current = event.target
+              onReady()
+              onPlaybackTime(event.target.getCurrentTime())
+            },
+            onStateChange: (event) => {
+              if (event.data === 1) startClock()
+              else stopClock()
+              onPlaybackTime(event.target.getCurrentTime())
+            },
+            onError: (event) => {
+              stopClock()
+              onError(playerErrorMessage(event.data))
+            },
+          },
+        })
+      })
+      .catch((error: unknown) => {
+        if (disposed) return
+        console.warn("[YouTubePlayer] YouTube API failed to load, falling back to direct iframe:", error)
+        // Switch to direct iframe fallback without showing fatal error dialog
+        setUseFallback(true)
+        onReady()
+      })
+
+    return () => {
+      disposed = true
+      stopClock()
+      try {
+        playerRef.current?.destroy()
+      } catch {}
+      playerRef.current = null
+    }
+  }, [onError, onPlaybackTime, onReady, videoId, retryNonce])
+
+  const origin = typeof window !== "undefined" ? window.location.origin : ""
+  const fallbackSrc = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?enablejsapi=1&origin=${encodeURIComponent(origin)}&playsinline=1&rel=0`
+
+  return (
+    <div
+      className="relative aspect-video w-full max-w-5xl overflow-hidden rounded-2xl bg-zinc-950 shadow-xl shadow-zinc-950/20"
+      aria-label={`${title} YouTube 播放器`}
+    >
+      {useFallback ? (
+        <iframe
+          ref={iframeRef}
+          src={fallbackSrc}
+          title={`${title} 播放器`}
+          className="size-full border-0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowFullScreen
+          onLoad={() => {
+            onReady()
+            try {
+              iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ event: "listening" }), "*")
+            } catch {}
+          }}
+        />
+      ) : (
+        <div ref={mountRef} className="size-full" />
+      )}
+
+      {useFallback && (
+        <div className="pointer-events-auto absolute top-2 right-2 flex items-center gap-1.5 rounded-md bg-zinc-900/80 px-2 py-1 text-[11px] text-zinc-400 backdrop-blur-xs transition hover:text-zinc-200">
+          <span>直连播放模式</span>
+          <button
+            type="button"
+            onClick={() => {
+              setUseFallback(false)
+              setRetryNonce((v) => v + 1)
+            }}
+            className="ml-1 text-primary underline underline-offset-2 hover:text-primary/80 cursor-pointer"
+          >
+            重试API
+          </button>
+        </div>
+      )}
+
+      {activeCue && (
+        <div className="pointer-events-none absolute inset-x-8 bottom-16 text-center text-zinc-50 [text-shadow:0_2px_7px_rgba(0,0,0,.98),0_0_2px_rgba(0,0,0,.95)]">
+          <p className="text-sm font-semibold leading-6 sm:text-base">{activeCue.sourceText}</p>
+          {activeCue.translation && (
+            <p className="mt-0.5 text-xs font-medium leading-5 sm:text-sm">{activeCue.translation}</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+})

@@ -20,6 +20,8 @@ public record MediaDetailVo(
         Integer wpm,
         String status,
         String processingStage,
+        Integer processingProgress,
+        String processingDetail,
         String subtitleStatus,
         String translationStatus,
         Integer translationProgress,
@@ -30,6 +32,11 @@ public record MediaDetailVo(
         LocalDateTime createdAt
 ) {
     public static MediaDetailVo from(MediaItemEntity media, SubtitleTrackEntity track) {
+        return from(media, track, null, null);
+    }
+
+    public static MediaDetailVo from(MediaItemEntity media, SubtitleTrackEntity track,
+                                     Integer processingProgress, String processingDetail) {
         String url = switch (media.getPlaybackType()) {
             case "YOUTUBE_IFRAME" -> media.getExternalId() == null ? null
                     : "https://www.youtube-nocookie.com/embed/" + media.getExternalId()
@@ -44,8 +51,8 @@ public record MediaDetailVo(
                 media.getPublicId(), media.getTitle(), media.getCreator(), media.getPlatform(), media.getSourceUrl(),
                 media.getCoverUrl(), media.getDurationMs() == null ? null : media.getDurationMs() / 1000,
                 media.getWidth(), media.getHeight(), media.getCefrLevel(), media.getWpm(),
-                media.getStatus(), media.getProcessingStage(), subtitleStatus,
-                translationStatus,
+                media.getStatus(), media.getProcessingStage(), processingProgress, processingDetail,
+                subtitleStatus, translationStatus,
                 track == null || track.getTranslationProgress() == null ? 0 : track.getTranslationProgress(),
                 track == null ? null : track.getTranslationTarget(),
                 track == null ? null : track.getTranslationError(),

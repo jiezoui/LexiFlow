@@ -1,0 +1,1887 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>语脉 · LexiFlow — 查词小框与 AI 解析弹窗设计方案全景体验</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --bg-card: #ffffff;
+      --bg-card-subtle: #f1f5f9;
+      --bg-glass: rgba(255, 255, 255, 0.88);
+      --border: #e2e8f0;
+      --border-subtle: #edf2f7;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --text-subtle: #94a3b8;
+      --primary: #4f46e5;
+      --primary-hover: #4338ca;
+      --primary-light: rgba(79, 70, 229, 0.08);
+      --accent-violet: #7c3aed;
+      --accent-emerald: #059669;
+      --accent-emerald-light: rgba(5, 150, 105, 0.1);
+      --accent-amber: #d97706;
+      --accent-amber-light: rgba(217, 119, 6, 0.1);
+      --accent-rose: #e11d48;
+      --accent-rose-light: rgba(225, 29, 72, 0.1);
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.03);
+      --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+      --shadow-popover: 0 16px 36px -4px rgba(15, 23, 42, 0.12), 0 4px 12px rgba(15, 23, 42, 0.04);
+    }
+
+    [data-theme="dark"] {
+      --bg: #090d16;
+      --bg-card: #131b2e;
+      --bg-card-subtle: #1a233a;
+      --bg-glass: rgba(19, 27, 46, 0.88);
+      --border: #232f4b;
+      --border-subtle: #1c263e;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-subtle: #64748b;
+      --primary: #6366f1;
+      --primary-hover: #818cf8;
+      --primary-light: rgba(99, 102, 241, 0.15);
+      --accent-emerald: #10b981;
+      --accent-emerald-light: rgba(16, 185, 129, 0.15);
+      --accent-amber: #f59e0b;
+      --accent-amber-light: rgba(245, 158, 11, 0.15);
+      --accent-rose: #f43f5e;
+      --accent-rose-light: rgba(244, 63, 94, 0.15);
+      --shadow-popover: 0 20px 40px -4px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding-bottom: 120px;
+      transition: background-color 0.25s ease, color 0.25s ease;
+    }
+
+    .font-serif {
+      font-family: 'Newsreader', Georgia, serif;
+    }
+
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .container {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 32px 24px;
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 28px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .badge-hub {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--primary-light);
+      color: var(--primary);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin-top: 4px;
+    }
+
+    .subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      max-width: 900px;
+      line-height: 1.6;
+    }
+
+    .theme-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      cursor: pointer;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.15s ease;
+    }
+
+    .theme-switch:hover {
+      border-color: var(--primary);
+    }
+
+    /* Tabs Bar */
+    .tabs-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .tab-btn {
+      padding: 8px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+    }
+
+    .tab-btn:hover {
+      color: var(--text);
+      border-color: var(--text-muted);
+    }
+
+    .tab-btn.active {
+      background: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);
+    }
+
+    /* Schemes 4-column Grid */
+    .schemes-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 20px;
+      align-items: start;
+    }
+
+    @media (max-width: 1200px) {
+      .schemes-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 680px) {
+      .schemes-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .scheme-card {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      background: transparent;
+    }
+
+    .scheme-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+
+    .scheme-title {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .scheme-tag {
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 2px 6px;
+      border-radius: 5px;
+      background: var(--bg-card-subtle);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .scheme-desc {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      line-height: 1.45;
+      min-height: 34px;
+    }
+
+    .btn-test-ai {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 100%;
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-decoration: none;
+      background: var(--bg-card);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-test-ai:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    .icon {
+      width: 14px;
+      height: 14px;
+      display: inline-block;
+      vertical-align: middle;
+      stroke-width: 2;
+      stroke: currentColor;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* =========================================================================
+       SCHEME 1: 苹果原生极简风 (Apple Dictionary / Raycast Island)
+       ========================================================================= */
+    .popover-apple {
+      background: var(--bg-glass);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px 18px;
+      box-shadow: var(--shadow-popover);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .popover-apple .top-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .popover-apple .word-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+
+    .popover-apple .action-group {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .popover-apple .btn-icon {
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.12s ease, color 0.12s ease;
+    }
+
+    .popover-apple .btn-icon:hover {
+      background: var(--bg-card-subtle);
+      color: var(--text);
+    }
+
+    .popover-apple .btn-icon.active-heart {
+      color: var(--accent-rose);
+    }
+    .popover-apple .btn-icon.active-heart svg {
+      fill: var(--accent-rose);
+    }
+
+    .popover-apple .btn-icon.active-check {
+      color: var(--accent-emerald);
+    }
+
+    .popover-apple .phonetic-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+
+    .popover-apple .accent-chip {
+      font-size: 9.5px;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--primary);
+      background: var(--primary-light);
+      padding: 1px 4px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .popover-apple .phonetic-text {
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 0.02em;
+    }
+
+    .popover-apple .speaker-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      padding: 2px;
+      border-radius: 4px;
+    }
+
+    .popover-apple .speaker-btn:hover {
+      color: var(--primary);
+    }
+
+    .popover-apple .defs-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .popover-apple .def-item {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      font-size: 12.5px;
+      line-height: 1.4;
+    }
+
+    .popover-apple .pos-pill {
+      font-size: 10.5px;
+      font-style: italic;
+      font-family: 'Newsreader', serif;
+      font-weight: 600;
+      color: var(--primary);
+      min-width: 22px;
+    }
+
+    .popover-apple .def-text {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .popover-apple .context-box {
+      background: var(--bg-card-subtle);
+      border-left: 2px solid var(--primary);
+      border-radius: 0 6px 6px 0;
+      padding: 6px 8px;
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.35;
+    }
+
+    .popover-apple .context-box strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .popover-apple .footer-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 8px;
+      font-size: 10.5px;
+    }
+
+    .popover-apple .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--text-muted);
+    }
+
+    .popover-apple .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--accent-emerald);
+    }
+
+    .popover-apple .ai-trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      color: var(--primary);
+      font-weight: 600;
+      font-size: 11px;
+      cursor: pointer;
+      background: none;
+      border: none;
+    }
+
+    .popover-apple .ai-trigger:hover {
+      text-decoration: underline;
+    }
+
+    /* =========================================================================
+       SCHEME 2: Linear 现代极客工学风
+       ========================================================================= */
+    .popover-linear {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: var(--shadow-popover);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .popover-linear .header-hud {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+    }
+
+    .popover-linear .word-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .popover-linear .word-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .popover-linear .level-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: var(--primary-light);
+      color: var(--primary);
+      border: 1px solid rgba(99, 102, 241, 0.25);
+    }
+
+    .popover-linear .hud-tools {
+      display: flex;
+      gap: 3px;
+    }
+
+    .popover-linear .btn-hud {
+      height: 22px;
+      padding: 0 6px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      background: var(--bg-card-subtle);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9.5px;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+
+    .popover-linear .btn-hud.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+
+    .popover-linear .phonetic-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      color: var(--text-muted);
+    }
+
+    .popover-linear .defs-card {
+      background: var(--bg-card-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .popover-linear .def-line {
+      display: flex;
+      align-items: baseline;
+      gap: 5px;
+      font-size: 11.5px;
+    }
+
+    .popover-linear .pos-mono {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--primary);
+      background: rgba(99, 102, 241, 0.12);
+      padding: 1px 3px;
+      border-radius: 3px;
+    }
+
+    .popover-linear .def-meaning {
+      color: var(--text);
+      font-size: 11.5px;
+      font-weight: 500;
+    }
+
+    .popover-linear .grid-footer {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .popover-linear .btn-action {
+      height: 28px;
+      border-radius: 7px;
+      font-size: 10.5px;
+      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      cursor: pointer;
+    }
+
+    .popover-linear .btn-action-outline {
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+    }
+
+    .popover-linear .btn-action-primary {
+      border: 1px solid var(--primary);
+      background: var(--primary-light);
+      color: var(--primary);
+    }
+
+    /* =========================================================================
+       SCHEME 3: 纸墨书香·典雅精读风 (Readwise / Oxford)
+       ========================================================================= */
+    .popover-editorial {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: var(--shadow-popover);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .popover-editorial .header-box {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 8px;
+    }
+
+    .popover-editorial .word-title {
+      font-family: 'Newsreader', serif;
+      font-size: 19px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .popover-editorial .phonetic-inline {
+      font-size: 10.5px;
+      color: var(--text-muted);
+      margin-left: 6px;
+    }
+
+    .popover-editorial .btn-harvest-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--bg-card-subtle);
+      font-size: 10.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+
+    .popover-editorial .btn-harvest-pill.saved {
+      background: var(--primary-light);
+      color: var(--primary);
+      border-color: rgba(79, 70, 229, 0.3);
+    }
+
+    .popover-editorial .dict-entries {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .popover-editorial .entry-cn {
+      font-size: 12.5px;
+      color: var(--text);
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .popover-editorial .pos-label {
+      font-family: 'Newsreader', serif;
+      font-style: italic;
+      color: var(--text-muted);
+      margin-right: 4px;
+    }
+
+    .popover-editorial .entry-en {
+      font-family: 'Newsreader', serif;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-style: italic;
+      line-height: 1.3;
+    }
+
+    .popover-editorial .sentence-quote {
+      background: var(--bg-card-subtle);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .popover-editorial .sentence-quote strong {
+      color: var(--primary);
+      font-weight: 600;
+    }
+
+    .popover-editorial .editorial-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: 6px;
+      border-top: 1px solid var(--border-subtle);
+      font-size: 10.5px;
+      color: var(--text-muted);
+    }
+
+    .popover-editorial .link-ai {
+      color: var(--primary);
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* =========================================================================
+       SCHEME 4: 超轻量悬浮胶囊 (DeepL / Kindle Micro Pill)
+       ========================================================================= */
+    .popover-compact {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      box-shadow: var(--shadow-popover);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .popover-compact .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .popover-compact .word-inline {
+      display: flex;
+      align-items: baseline;
+      gap: 5px;
+    }
+
+    .popover-compact .word-title {
+      font-size: 14.5px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .popover-compact .phonetic-dim {
+      font-size: 10.5px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-subtle);
+    }
+
+    .popover-compact .quick-btns {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .popover-compact .mini-btn {
+      width: 22px;
+      height: 22px;
+      border-radius: 5px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .popover-compact .def-body {
+      font-size: 11.5px;
+      color: var(--text);
+      line-height: 1.35;
+      font-weight: 500;
+    }
+
+    .popover-compact .pos-sub {
+      color: var(--primary);
+      font-weight: 600;
+      margin-right: 4px;
+    }
+
+    .popover-compact .bottom-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 6px;
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    .popover-compact .btn-save-inline {
+      color: var(--primary);
+      cursor: pointer;
+      font-weight: 600;
+      border: none;
+      background: none;
+      padding: 0;
+    }
+
+    /* =========================================================================
+       AI 分析弹窗设计展示区 (Modal Showcase)
+       ========================================================================= */
+    .ai-showcase-section {
+      margin-top: 48px;
+      border-top: 1px solid var(--border);
+      padding-top: 36px;
+    }
+
+    .section-headline {
+      margin-bottom: 24px;
+    }
+
+    .section-headline h2 {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+
+    .section-headline p {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .modals-comparison-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 24px;
+    }
+
+    @media (max-width: 900px) {
+      .modals-comparison-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* AI Modal 1: 居中精致流光卡片 (Centered Glass Modal) */
+    .modal-apple-card {
+      background: var(--bg-glass);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: var(--shadow-lg);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 12px;
+    }
+
+    .modal-header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sparkle-avatar {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.2));
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(99, 102, 241, 0.2);
+    }
+
+    .modal-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .model-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: var(--bg-card-subtle);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    .sentence-card {
+      background: var(--bg-card-subtle);
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .sentence-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+
+    .sentence-en {
+      font-family: 'Newsreader', serif;
+      font-size: 13.5px;
+      font-style: italic;
+      color: var(--text);
+      line-height: 1.45;
+    }
+
+    .sentence-en mark {
+      background: var(--primary-light);
+      color: var(--primary);
+      padding: 0 4px;
+      border-radius: 4px;
+      font-style: normal;
+      font-weight: 600;
+    }
+
+    .sentence-zh {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      border-top: 1px dashed var(--border);
+      padding-top: 5px;
+      line-height: 1.4;
+    }
+
+    .meaning-highlight {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.45;
+    }
+
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .pill-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10.5px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: var(--bg-card-subtle);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .pill-chip.accent {
+      background: var(--primary-light);
+      border-color: rgba(99, 102, 241, 0.3);
+      color: var(--primary);
+      font-weight: 600;
+    }
+
+    .usage-tip {
+      background: var(--accent-amber-light);
+      border: 1px solid rgba(217, 119, 6, 0.25);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 11.5px;
+      color: var(--text);
+      line-height: 1.4;
+    }
+
+    .usage-tip strong {
+      color: var(--accent-amber);
+      margin-right: 4px;
+    }
+
+    .ask-box {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 3px 6px;
+    }
+
+    .ask-input {
+      flex: 1;
+      height: 30px;
+      border: none;
+      background: transparent;
+      font-size: 11.5px;
+      color: var(--text);
+      outline: none;
+    }
+
+    .btn-send {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 10.5px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* AI Modal 2: 侧滑工作台 (Slide Sheet Studio) */
+    .sheet-preview-box {
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: var(--bg-card);
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 1.42fr 1fr;
+      box-shadow: var(--shadow-lg);
+      min-height: 440px;
+    }
+
+    @media (max-width: 960px) {
+      .sheet-preview-box {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .sheet-left-text {
+      padding: 24px;
+      background: var(--bg-card-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      border-right: 1px solid var(--border);
+    }
+
+    .sheet-translation-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .sheet-right-panel {
+      padding: 22px 20px;
+      background: var(--bg-card);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* Interactive Reading Sandbox */
+    .sandbox-section {
+      margin-top: 48px;
+      border-top: 1px solid var(--border);
+      padding-top: 36px;
+    }
+
+    .reading-sandbox-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      position: relative;
+    }
+
+    .interactive-word {
+      background: rgba(245, 158, 11, 0.12);
+      color: var(--text);
+      padding: 2px 6px;
+      border-radius: 4px;
+      border-bottom: 1.5px solid rgba(245, 158, 11, 0.4);
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: 600;
+      transition: background 0.12s ease;
+    }
+
+    .interactive-word:hover {
+      background: rgba(245, 158, 11, 0.25);
+    }
+
+    .normal-click-word {
+      cursor: pointer;
+      padding: 0 2px;
+      border-radius: 3px;
+      transition: all 0.12s ease;
+    }
+
+    .normal-click-word:hover {
+      background: var(--primary-light);
+      color: var(--primary);
+    }
+
+    /* Floating preview widget in sandbox */
+    #sandboxFloatingPopover {
+      position: absolute;
+      z-index: 50;
+      display: none;
+      width: 320px;
+    }
+
+    /* Decision voting bar */
+    .decision-footer {
+      position: sticky;
+      bottom: 20px;
+      margin-top: 48px;
+      background: var(--bg-glass);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px 20px;
+      box-shadow: var(--shadow-xl);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 14px;
+      z-index: 40;
+    }
+
+    .decision-info h4 {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .decision-info p {
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+
+    .vote-btns {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn-vote {
+      padding: 7px 12px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text);
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-vote:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    .btn-vote.selected {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+
+    /* Toast notification */
+    .toast-msg {
+      position: fixed;
+      bottom: 84px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--text);
+      color: var(--bg);
+      padding: 9px 18px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 600;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 100;
+      box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+    }
+
+    .toast-msg.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+
+    <!-- Header -->
+    <header>
+      <div class="header-top">
+        <div>
+          <div class="badge-hub">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+            LexiFlow Design Lab
+          </div>
+          <h1>查词小框 & AI 语境解析弹窗 · 4套重构设计方案全景对比</h1>
+          <p class="subtitle">
+            按照您的指示，已将查词小悬浮框（Word Popover）与点击“AI 语境精析”呼出的深度解析弹窗（AI Modal）整合在此页面。全部剔除了粗糙的深色底色、中括号生硬标记与多余 Emoji，支持双音标实时发音与主题切换，供您挑选定稿。
+          </p>
+        </div>
+
+        <button id="themeToggle" class="theme-switch">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+          <span id="themeText">切换深色模式</span>
+        </button>
+      </div>
+
+      <!-- Filter Tabs -->
+      <div class="tabs-bar">
+        <button class="tab-btn active" onclick="filterScheme('all', this)">全部 4 套方案并排横评</button>
+        <button class="tab-btn" onclick="filterScheme('apple', this)">方案 1 · 苹果极简流光风 (推荐)</button>
+        <button class="tab-btn" onclick="filterScheme('linear', this)">方案 2 · Linear 现代极客风</button>
+        <button class="tab-btn" onclick="filterScheme('editorial', this)">方案 3 · 纸墨书香精读风</button>
+        <button class="tab-btn" onclick="filterScheme('compact', this)">方案 4 · 超轻量微气泡胶囊</button>
+      </div>
+    </header>
+
+    <!-- Part 1: Word Lookup Popover Schemes (4 columns) -->
+    <div class="schemes-grid" id="popoverGrid">
+
+      <!-- ============================================================
+           方案 1: 苹果原生极简风
+           ============================================================ -->
+      <div class="scheme-card" data-scheme="apple">
+        <div class="scheme-header">
+          <div class="scheme-title">
+            <span>方案 1 · 苹果原生极简风</span>
+          </div>
+          <span class="scheme-tag">Apple</span>
+        </div>
+        <p class="scheme-desc">
+          纯净毛玻璃微透，去掉所有中括号与 Emoji。右上角轻量集成心形收藏与斩词按钮，底部优雅展示复习状态点。
+        </p>
+
+        <!-- Popover component -->
+        <div class="popover-apple">
+          <div class="top-row">
+            <span class="word-title">accelerate</span>
+            <div class="action-group">
+              <button class="btn-icon" title="一键标熟 (斩词)" onclick="toggleCheck(this)">
+                <svg class="icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </button>
+              <button class="btn-icon" title="收藏至生词本" onclick="toggleHeart(this)">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"></path></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="phonetic-bar">
+            <span class="accent-chip" onclick="toggleAccent(this)">US</span>
+            <span class="phonetic-text" id="phone1">/əkˈseləreɪt/</span>
+            <button class="speaker-btn" title="点击朗读发音" onclick="speak('accelerate')">
+              <svg class="icon" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+            </button>
+            <span style="color: var(--border);">|</span>
+            <span style="font-size: 10px; color: var(--text-subtle);">B2 · 考纲核心</span>
+          </div>
+
+          <div class="defs-list">
+            <div class="def-item">
+              <span class="pos-pill">v.</span>
+              <span class="def-text">使加快，促进；增加速度</span>
+            </div>
+            <div class="def-item">
+              <span class="pos-pill">vi.</span>
+              <span class="def-text">加速；变快；增加</span>
+            </div>
+          </div>
+
+          <div class="context-box">
+            <strong>语境义：</strong>修饰范式转型，作及物动词意为“加速推动”。
+          </div>
+
+          <div class="footer-row">
+            <div class="status-pill">
+              <span class="status-dot"></span>
+              <span>复习 3 次 · 正常</span>
+            </div>
+            <button class="ai-trigger" onclick="openAiDemo('apple')">
+              <svg class="icon" style="width:13px;height:13px;" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3 1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"></path></svg>
+              <span>AI 语境精析 →</span>
+            </button>
+          </div>
+        </div>
+
+        <button class="btn-test-ai" onclick="openAiDemo('apple')">
+          查看配套方案 1 AI 弹窗效果
+        </button>
+      </div>
+
+      <!-- ============================================================
+           方案 2: Linear 现代极客工学风
+           ============================================================ -->
+      <div class="scheme-card" data-scheme="linear">
+        <div class="scheme-header">
+          <div class="scheme-title">
+            <span>方案 2 · Linear 极客风</span>
+          </div>
+          <span class="scheme-tag">Linear</span>
+        </div>
+        <p class="scheme-desc">
+          精密的等宽字符、细致的边框与标签。信息密度最高、逻辑分区鲜明，极具专业工具质感。
+        </p>
+
+        <!-- Popover component -->
+        <div class="popover-linear">
+          <div class="header-hud">
+            <div>
+              <div class="word-wrap">
+                <span class="word-title">accelerate</span>
+                <span class="level-badge">CET-4</span>
+              </div>
+              <div class="phonetic-row" style="margin-top: 3px;">
+                <span>/əkˈseləreɪt/</span>
+                <button style="background:none; border:none; color:var(--text-muted); cursor:pointer;" onclick="speak('accelerate')">
+                  <svg class="icon" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="hud-tools">
+              <button class="btn-hud" onclick="toggleHudCheck(this)">标熟</button>
+              <button class="btn-hud active" onclick="toggleHudSave(this)">已藏</button>
+            </div>
+          </div>
+
+          <div class="defs-card">
+            <div class="def-line">
+              <span class="pos-mono">vt.</span>
+              <span class="def-meaning">使加快，促进；增加速度</span>
+            </div>
+            <div class="def-line">
+              <span class="pos-mono">vi.</span>
+              <span class="def-meaning">加速；增加速度</span>
+            </div>
+          </div>
+
+          <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--text-muted); display:flex; justify-content:space-between;">
+            <span>词频: #2450</span>
+            <span style="color:var(--primary);">语境动词</span>
+          </div>
+
+          <div class="grid-footer">
+            <button class="btn-action btn-action-outline" onclick="showToast('已复制词条')">
+              复制词条
+            </button>
+            <button class="btn-action btn-action-primary" onclick="openAiDemo('linear')">
+              AI 解析
+            </button>
+          </div>
+        </div>
+
+        <button class="btn-test-ai" onclick="openAiDemo('linear')">
+          查看配套方案 2 AI 弹窗效果
+        </button>
+      </div>
+
+      <!-- ============================================================
+           方案 3: 纸墨书香·典雅精读风
+           ============================================================ -->
+      <div class="scheme-card" data-scheme="editorial">
+        <div class="scheme-header">
+          <div class="scheme-title">
+            <span>方案 3 · 纸墨书香精读风</span>
+          </div>
+          <span class="scheme-tag">Oxford</span>
+        </div>
+        <p class="scheme-desc">
+          纯正实体词典气质，温润的衬线标题搭配英英英文双解。配有原句高亮呼应，专为沉浸阅读设计。
+        </p>
+
+        <!-- Popover component -->
+        <div class="popover-editorial">
+          <div class="header-box">
+            <div>
+              <span class="word-title">accelerate</span>
+              <span class="phonetic-inline">/əkˈseləreɪt/</span>
+              <button style="background:none;border:none;color:var(--text-muted);cursor:pointer;margin-left:3px;" onclick="speak('accelerate')">
+                <svg class="icon" style="width:11px;height:11px;" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+              </button>
+            </div>
+            <button class="btn-harvest-pill saved" onclick="toggleEditorialSave(this)">
+              <svg class="icon" style="width:11px;height:11px;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <span>生词本</span>
+            </button>
+          </div>
+
+          <div class="dict-entries">
+            <div class="entry-item">
+              <div class="entry-cn">
+                <span class="pos-label">v.</span>
+                <span>使加速；加快，促进</span>
+              </div>
+              <div class="entry-en">
+                "to happen or make happen faster"
+              </div>
+            </div>
+          </div>
+
+          <div class="sentence-quote">
+            <strong>语境原句：</strong>
+            “...rapidly <strong>accelerate</strong> the transformation...”
+          </div>
+
+          <div class="editorial-footer">
+            <span>复习阶段：FSRS 正常</span>
+            <a class="link-ai" onclick="openAiDemo('editorial')">
+              深入学习 · AI 讲词 →
+            </a>
+          </div>
+        </div>
+
+        <button class="btn-test-ai" onclick="openAiDemo('editorial')">
+          查看配套方案 3 AI 弹窗效果
+        </button>
+      </div>
+
+      <!-- ============================================================
+           方案 4: 超轻量微气泡胶囊
+           ============================================================ -->
+      <div class="scheme-card" data-scheme="compact">
+        <div class="scheme-header">
+          <div class="scheme-title">
+            <span>方案 4 · 超轻量胶囊风</span>
+          </div>
+          <span class="scheme-tag">DeepL</span>
+        </div>
+        <p class="scheme-desc">
+          极小占地面积，单行词头与高纯度释义，绝不遮挡正文上下文后续内容，适合快速流畅扫读。
+        </p>
+
+        <!-- Popover component -->
+        <div class="popover-compact">
+          <div class="top-bar">
+            <div class="word-inline">
+              <span class="word-title">accelerate</span>
+              <span class="phonetic-dim">/əkˈseləreɪt/</span>
+            </div>
+            <div class="quick-btns">
+              <button class="mini-btn" title="朗读" onclick="speak('accelerate')">
+                <svg class="icon" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+              </button>
+              <button class="mini-btn" title="标熟" onclick="toggleMiniCheck(this)">
+                <svg class="icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="def-body">
+            <span class="pos-sub">v.</span>使加快，促进；增加…的速度
+          </div>
+
+          <div class="bottom-bar">
+            <button class="btn-save-inline" onclick="toggleMiniSave(this)">+ 生词本</button>
+            <span style="cursor:pointer;" onclick="openAiDemo('compact')">AI 语境义 →</span>
+          </div>
+        </div>
+
+        <button class="btn-test-ai" onclick="openAiDemo('compact')">
+          查看配套方案 4 AI 弹窗效果
+        </button>
+      </div>
+
+    </div>
+
+    <!-- Part 2: AI Modal Designs Showcase -->
+    <section class="ai-showcase-section">
+      <div class="section-headline">
+        <h2>AI 分析弹出来的框 (AI Context Modal) · 配套重构方案展示</h2>
+        <p>当点击查词框中的“AI 语境精析”时呼出的深度语义面板。彻底清除草稿废话与多余标签，呈现纯正语法剖析与真题搭配拓展。</p>
+      </div>
+
+      <div class="modals-comparison-grid">
+
+        <!-- 方案 A 配套: 居中精致流光卡片 (Centered Glass Modal) -->
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <div style="font-size:13.5px; font-weight:700; color:var(--text); display:flex; align-items:center; gap:6px;">
+              <span>方案 1 配套 AI 弹窗 · 悬浮流光卡片 (推荐)</span>
+              <span class="scheme-tag">Floating Glass</span>
+            </div>
+            <span style="font-size:11px; color:var(--text-muted);">居中聚焦 · 优雅层次</span>
+          </div>
+
+          <div class="modal-apple-card">
+            <div class="modal-header">
+              <div class="modal-header-left">
+                <div class="sparkle-avatar">
+                  <svg class="icon" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"></path></svg>
+                </div>
+                <div>
+                  <div class="modal-title">AI 语境深度解析</div>
+                  <div style="font-size:10.5px; color:var(--text-muted);">针对当前文章上下文实时生成</div>
+                </div>
+              </div>
+              <div style="display:flex; align-items:center; gap:6px;">
+                <span class="model-tag">DeepSeek-V3</span>
+                <button style="border:none;background:none;color:var(--text-muted);cursor:pointer;" onclick="showToast('已关闭演示弹窗')">
+                  <svg class="icon" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- 文章原句呈现 -->
+            <div class="sentence-card">
+              <span class="sentence-label">文章原句语境</span>
+              <p class="sentence-en">
+                “Technological innovations rapidly <mark>accelerate</mark> the transformation of modern research paradigms.”
+              </p>
+              <p class="sentence-zh">
+                <strong>译文：</strong>科技创新正在迅速推动现代科研范式的转型步伐。
+              </p>
+            </div>
+
+            <!-- 核心分析 -->
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              <div class="meaning-highlight">
+                核心释义：在本句中作<strong>及物动词（谓语）</strong>，表示“以催化剂般的速度加快某事物的演进”。
+              </div>
+
+              <!-- 语感辨析 -->
+              <div class="usage-tip">
+                <strong>语感辨析：</strong>与 speed up（侧重物理提速）不同，accelerate 常用于抽象进程、科研演进与社会变革，体现学术与正式文体色彩。
+              </div>
+
+              <!-- 高频搭配 -->
+              <div>
+                <div style="font-size:10.5px; font-weight:700; color:var(--text-muted); margin-bottom:5px; text-transform:uppercase;">
+                  高频搭配与考点
+                </div>
+                <div class="badge-row">
+                  <span class="pill-chip accent">accelerate the pace of</span>
+                  <span class="pill-chip">accelerate economic growth</span>
+                  <span class="pill-chip">accelerate development</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 交互追问 -->
+            <div class="ask-box">
+              <input type="text" class="ask-input" placeholder="对该词用法有疑问？输入追问 (回车发送)..." />
+              <button class="btn-send" onclick="showToast('已向 AI 发起深度语境追问')">追问</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 方案 2 配套 / 用户定制优化: 侧滑工作台 (Side Sheet Studio) -->
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <div style="font-size:14px; font-weight:700; color:var(--text); display:flex; align-items:center; gap:8px;">
+              <span>AI 语境工作台 · 侧滑抽屉工作台 (Side Sheet Studio · 用户定制版)</span>
+              <span class="scheme-tag">Split Screen</span>
+            </div>
+            <span style="font-size:11.5px; color:var(--text-muted);">边读边学 · 原文+译文+AI深度解析全貌</span>
+          </div>
+
+          <div class="sheet-preview-box">
+            <!-- 左侧：正文阅读区 + 译文对照 (无多余边框与标签，译文自然排布在英文下方) -->
+            <div class="sheet-left-text">
+              <!-- 英文段落 -->
+              <p style="font-family:'Newsreader',serif; font-size:15px; line-height:1.75; color:var(--text);">
+                In a small town, a group of academic researchers created a plan to restore the local river. Technological innovations rapidly <span style="background:rgba(99, 102, 241, 0.15); color:var(--primary); font-weight:bold; padding:2px 6px; border-radius:5px; text-decoration:underline; text-decoration-color:var(--primary);">accelerate</span> the transformation of modern research paradigms. The old arrangement had blocked the natural flow, causing severe environmental degradation...
+              </p>
+
+              <!-- 中文译文：直接放于下方，不加外框，不特意标示标签，沉浸自然 -->
+              <p style="font-size:13.5px; line-height:1.7; color:var(--text-muted);">
+                在一个小城镇上，一群学术研究人员制定了一项恢复当地河流的计划。现代科技创新正在迅速加速推动科研范式的深刻转型。原先的人工布局曾阻断了自然水流，导致了严重的环境恶化...
+              </p>
+            </div>
+
+            <!-- 右侧：AI 语境工作台 (移除多余顶部栏，词头直出，纯粹聚焦核心字段与近义辨析) -->
+            <div class="sheet-right-panel">
+              <!-- 词头 -->
+              <div style="display:flex; align-items:baseline; gap:6px;">
+                <span style="font-size:17px; font-weight:800; color:var(--text);">accelerate</span>
+                <span style="font-family:'Newsreader',serif; font-style:italic; font-size:12.5px; color:var(--primary); font-weight:600;">[v.]</span>
+              </div>
+
+              <!-- 核心分析区域 (核心释义、句法成分与常用短语) -->
+              <div style="border:1.5px solid var(--border); border-radius:10px; padding:11px 13px; background:var(--bg-card-subtle); display:flex; flex-direction:column; gap:6px; font-size:11.5px; line-height:1.5;">
+                <div>
+                  <span style="font-weight:700; color:var(--text);">核心释义：</span>
+                  <span style="color:var(--text);">及物动词，加速、推进（抽象演变与推进）</span>
+                </div>
+                <div>
+                  <span style="font-weight:700; color:var(--text);">句法成分：</span>
+                  <span style="color:var(--text-muted);">在当前主干句中充当谓语动词，宾语为 transformation</span>
+                </div>
+                <div>
+                  <span style="font-weight:700; color:var(--text);">常用短语：</span>
+                  <span style="color:var(--primary); font-family:'JetBrains Mono',monospace; font-size:10.5px; font-weight:600;">accelerate the pace of</span>
+                  <span style="color:var(--text-subtle);">·</span>
+                  <span style="color:var(--primary); font-family:'JetBrains Mono',monospace; font-size:10.5px; font-weight:600;">accelerate transformation</span>
+                </div>
+              </div>
+
+              <!-- 近义辨析气泡卡片 -->
+              <div style="background:var(--bg-card-subtle); border-radius:10px; padding:10px 12px; font-size:11.5px; line-height:1.5; color:var(--text-muted);">
+                <strong style="color:var(--text);">近义辨析：</strong>facilitate 强调“使容易”，expedite 强调“提高处理效率”，accelerate 强调“提升速率”。
+              </div>
+
+              <!-- 底部收录按钮 -->
+              <div style="margin-top:auto; padding-top:6px;">
+                <button style="width:100%; height:36px; border-radius:8px; background:#4f46e5; color:#fff; font-size:12px; font-weight:600; border:none; cursor:pointer; transition:opacity 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'" onclick="showToast('已收录此语境解析卡片至生词本')">
+                  收录此语境解析卡片
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Part 3: Interactive Reading Sandbox -->
+    <section class="sandbox-section">
+      <div class="section-headline">
+        <h2>交互沙盒体验 · 在真实段落中点击单词测试</h2>
+        <p>点击下方段落中的单词，即可体验浮层在实际正文行间出现的位置感与视觉体验：</p>
+      </div>
+
+      <div class="reading-sandbox-card">
+        <div style="font-size:12px; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
+          <span>外刊精选段落（试点击带下划线的单词）</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--primary);">当前应用测试方案: 方案 1 (苹果极简风)</span>
+        </div>
+
+        <p style="font-family:'Newsreader',serif; font-size:17px; line-height:2.1; color:var(--text);">
+          In a small town, a group of <span class="interactive-word" onclick="triggerSandbox(this, 'academic')">academic</span> researchers
+          <span class="normal-click-word" onclick="triggerSandbox(this, 'created')">created</span> a plan to restore the local river.
+          Technological innovations rapidly <span class="interactive-word" onclick="triggerSandbox(this, 'accelerate')">accelerate</span>
+          the transformation of environmental restoration. A new <span class="interactive-word" onclick="triggerSandbox(this, 'arrangement')">arrangement</span>
+          for the water's <span class="interactive-word" onclick="triggerSandbox(this, 'flow')">flow</span> was introduced to help fish thrive again.
+        </p>
+
+        <!-- Floating Popover inside Sandbox -->
+        <div id="sandboxFloatingPopover" class="popover-apple">
+          <div class="top-row">
+            <span class="word-title" id="sbWord">accelerate</span>
+            <div class="action-group">
+              <button class="btn-icon" title="标熟" onclick="toggleCheck(this)">
+                <svg class="icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </button>
+              <button class="btn-icon active-heart" title="收藏" onclick="toggleHeart(this)">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"></path></svg>
+              </button>
+              <button class="btn-icon" title="关闭" onclick="closeSandboxPopover()">
+                <svg class="icon" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="phonetic-bar">
+            <span class="accent-chip">US</span>
+            <span class="phonetic-text" id="sbPhone">/əkˈseləreɪt/</span>
+            <button class="speaker-btn" onclick="speak(document.getElementById('sbWord').textContent)">
+              <svg class="icon" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+            </button>
+          </div>
+
+          <div class="defs-list">
+            <div class="def-item">
+              <span class="pos-pill">v.</span>
+              <span class="def-text" id="sbDef">使加快，促进；增加速度</span>
+            </div>
+          </div>
+
+          <div class="footer-row">
+            <div class="status-pill">
+              <span class="status-dot"></span>
+              <span>已收录至生词库</span>
+            </div>
+            <button class="ai-trigger" onclick="openAiDemo('apple')">
+              <span>AI 语境精析 →</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Part 4: Selection Decision Bar -->
+    <div class="decision-footer">
+      <div class="decision-info">
+        <h4>请选择您最心仪的设计风格：</h4>
+        <p>点击选定后，我们将立即按照所选样式，将系统前端正式重构替换为您的定制版本：</p>
+      </div>
+
+      <div class="vote-btns">
+        <button class="btn-vote selected" onclick="selectScheme('1 (苹果极简流光风)', this)">选定方案 1 (苹果极简风)</button>
+        <button class="btn-vote" onclick="selectScheme('2 (Linear 极客风)', this)">选定方案 2 (Linear 极客风)</button>
+        <button class="btn-vote" onclick="selectScheme('3 (纸墨精读风)', this)">选定方案 3 (纸墨精读风)</button>
+        <button class="btn-vote" onclick="selectScheme('4 (超轻量胶囊风)', this)">选定方案 4 (超轻量胶囊风)</button>
+      </div>
+    </div>
+
+  </div>
+
+  <div id="toast" class="toast-msg">已记录您的偏好</div>
+
+  <script>
+    // Theme toggle
+    const themeBtn = document.getElementById('themeToggle');
+    const themeText = document.getElementById('themeText');
+    let isDark = false;
+
+    themeBtn.addEventListener('click', () => {
+      isDark = !isDark;
+      document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+      themeText.textContent = isDark ? '切换浅色模式' : '切换深色模式';
+      showToast(isDark ? '已切换至深色模式体验' : '已切换至浅色模式体验');
+    });
+
+    // Speak word
+    function speak(word) {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(word);
+        u.lang = 'en-US';
+        u.rate = 0.95;
+        window.speechSynthesis.speak(u);
+        showToast('🔊 正在播放真人纯正发音');
+      } else {
+        showToast('浏览器暂不支持语音合成');
+      }
+    }
+
+    // Toggle US/UK
+    let currentAccent = 'US';
+    function toggleAccent(el) {
+      currentAccent = currentAccent === 'US' ? 'UK' : 'US';
+      el.textContent = currentAccent;
+      const phone = document.getElementById('phone1');
+      if (phone) {
+        phone.textContent = currentAccent === 'US' ? '/əkˈseləreɪt/' : '/əkˈseləreɪt/';
+      }
+      showToast('已切换为 ' + currentAccent + ' 音标');
+    }
+
+    // Interactive button toggles
+    function toggleHeart(btn) {
+      btn.classList.toggle('active-heart');
+      const isSaved = btn.classList.contains('active-heart');
+      showToast(isSaved ? '❤️ 已收录至生词本与复习队列' : '已移出生词本');
+    }
+
+    function toggleCheck(btn) {
+      btn.classList.toggle('active-check');
+      const isChecked = btn.classList.contains('active-check');
+      showToast(isChecked ? '✓ 已标记为完全掌握 (斩词)' : '已恢复为待复习状态');
+    }
+
+    function toggleHudSave(btn) {
+      btn.classList.toggle('active');
+      btn.textContent = btn.classList.contains('active') ? '已藏' : '收藏';
+      showToast('已更新生词本收录状态');
+    }
+
+    function toggleHudCheck(btn) {
+      btn.classList.toggle('active');
+      btn.textContent = btn.classList.contains('active') ? '已斩' : '标熟';
+      showToast('已更新熟词掌握状态');
+    }
+
+    function toggleEditorialSave(btn) {
+      btn.classList.toggle('saved');
+      btn.innerHTML = btn.classList.contains('saved')
+        ? '<svg class="icon" style="width:11px;height:11px;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg> <span>生词本</span>'
+        : '<span>+ 生词本</span>';
+      showToast('已更新生词本');
+    }
+
+    function toggleMiniCheck(btn) {
+      showToast('✓ 已斩词');
+    }
+
+    function toggleMiniSave(btn) {
+      btn.textContent = btn.textContent.includes('✓') ? '+ 生词本' : '✓ 已在生词本';
+      showToast('已更新生词本');
+    }
+
+    function openAiDemo(scheme) {
+      showToast('已展示配套 AI 语境解析深度面板');
+      const section = document.querySelector('.ai-showcase-section');
+      if (section) {
+        section.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+
+    // Filter schemes
+    function filterScheme(type, tab) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      tab.classList.add('active');
+
+      const cards = document.querySelectorAll('.scheme-card');
+      cards.forEach(card => {
+        if (type === 'all' || card.getAttribute('data-scheme') === type) {
+          card.style.display = 'flex';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+    }
+
+    // Sandbox Word Click Interaction
+    const SANDBOX_WORDS = {
+      academic: { word: 'academic', phone: '/ˌækəˈdemɪk/', def: '学业的，学术的；学术界人士' },
+      accelerate: { word: 'accelerate', phone: '/əkˈseləreɪt/', def: '使加快，促进；增加速度' },
+      arrangement: { word: 'arrangement', phone: '/əˈreɪndʒmənt/', def: '安排，筹备；排列，布置' },
+      flow: { word: 'flow', phone: '/fləʊ/', def: '流动，流淌；流畅；水流' },
+      created: { word: 'create', phone: '/kriˈeɪt/', def: '创造，创建；引起，造成' },
+    };
+
+    function triggerSandbox(el, wordKey) {
+      const data = SANDBOX_WORDS[wordKey] || { word: wordKey, phone: '/.../', def: '柯林斯权威释义加载中...' };
+      const popover = document.getElementById('sandboxFloatingPopover');
+      document.getElementById('sbWord').textContent = data.word;
+      document.getElementById('sbPhone').textContent = data.phone;
+      document.getElementById('sbDef').textContent = data.def;
+
+      const rect = el.getBoundingClientRect();
+      const parentRect = el.closest('.reading-sandbox-card').getBoundingClientRect();
+
+      popover.style.display = 'flex';
+      popover.style.top = (rect.bottom - parentRect.top + 8) + 'px';
+      popover.style.left = Math.max(10, Math.min(parentRect.width - 340, rect.left - parentRect.left - 20)) + 'px';
+
+      speak(data.word);
+    }
+
+    function closeSandboxPopover() {
+      document.getElementById('sandboxFloatingPopover').style.display = 'none';
+    }
+
+    // Toast
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 2000);
+    }
+
+    // Scheme voting selection
+    function selectScheme(name, btn) {
+      document.querySelectorAll('.btn-vote').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      showToast('🎉 您已选定方案 ' + name + '！请在对话框告诉我，我将立即开始真实重构！');
+    }
+  </script>
+</body>
+</html>

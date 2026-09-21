@@ -24,12 +24,6 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
-      // 除语音桥接之外的 /api/* 全部转发到 Spring Boot。
-      //
-      // 必须显式排除 `speech`：Next.js 的 rewrites 在路由层先于文件系统匹配，
-      // 因此 `app/api/speech/[...path]/route.ts` 会被这条重写抢先吃掉，请求
-      // 直接打到 :8080 并报 "No static resource api/speech/health"。
-      // `shadowing` 由 Spring Boot 提供，无需排除。
       {
         source: "/api/:path((?!speech(?:/|$)).*)",
         destination: "http://127.0.0.1:8080/api/:path*",

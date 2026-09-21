@@ -19,6 +19,7 @@ import {
   BookOpenIcon,
   BookmarkCheckIcon,
   VideoIcon,
+  HeadphonesIcon,
   BookMarkedIcon,
   SettingsIcon,
   LifeBuoyIcon,
@@ -45,6 +46,7 @@ const data = {
   navContext: [
     { title: "语境文章", url: "/reading/story", icon: <SparklesIcon className="size-4" />, badge: "AI" },
     { title: "视频精听", url: "/videos", icon: <VideoIcon className="size-4" /> },
+    { title: "播客精听", url: "/podcasts", icon: <HeadphonesIcon className="size-4" /> },
     { title: "阅读库", url: "/reading", icon: <BookMarkedIcon className="size-4" /> },
   ],
   navSecondary: [

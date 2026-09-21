@@ -19,6 +19,8 @@ public interface AsyncJobService {
 
     AsyncJobVo updateProgress(Long jobId, String workerId, String stage, int progress);
 
+    AsyncJobVo updateProgress(Long jobId, String workerId, String stage, int progress, String detail);
+
     AsyncJobVo complete(Long jobId, String workerId, String resultRef);
 
     AsyncJobVo fail(Long jobId, String workerId, boolean retryable, String error);

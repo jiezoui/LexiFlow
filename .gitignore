@@ -39,13 +39,7 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 
-# ── 本机部署产物与工具链（绝不入库）─────────────────────────────────────────
-# .devtools           : 仓库内隔离的 JDK / Maven / espeak-ng（约 540MB）
-# .deploy-cache       : 模型缓存(1.7GB)、npm 缓存、解包的开源项目、日志（约 2.3GB）
-# speech-bridge/.venv : Python 虚拟环境（约 2.4GB）—— 用 requirements.txt 重建
-#
-# 三者合计 5.3GB / 4 万个文件，推送必然失败（Gitee 单文件上限 100MB），
-# 而且都属于「可重建的本地环境」，不应进入版本库。
+# Speech bridge & local model cache
 .devtools/
 .deploy-cache/
 speech-bridge/.venv/
@@ -53,9 +47,7 @@ speech-bridge/.uploads/
 __pycache__/
 **/__pycache__/
 *.py[cod]
-
-# 部署过程日志（根目录 .deploy-*.log）
 .deploy-*.log
-.deploy-*.out.log
-.deploy-*.err.log
-
+# Local docs and scratch files
+SHADOWING-DEPLOY.md
+视频模块开发文档.md

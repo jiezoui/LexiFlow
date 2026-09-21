@@ -1,211 +1,243 @@
 # 语脉 · LexiFlow
 
-LexiFlow 是一个面向英语学习者的多模态学习系统，将词书、真实语境、视频字幕采词和 FSRS 间隔复习连接到同一套学习闭环中。
+LexiFlow 是一个面向二语习得者的多模态智能研习系统。平台将词书记忆、真实分级语境阅读、YouTube 与本地视频精听、播客收录、AI 影子跟读发音评测以及 FSRS 记忆算法排期串联至同一闭环中。
 
-## 核心能力
+---
 
-- FSRS 自适应记忆排期与行为反馈
-- ECDICT 本地词典、词形还原与语境查词
-- 分级阅读、语境采词和生词本
-- AI 语境释义、长难句分析与助记
-- 本地视频与 YouTube 视频播放、字幕翻译和精听
-
-## 当前视频模块
-
-已经完成：
-
-- 本地视频分片上传、合并、元数据探测与 HTTP Range 播放
-- 独立媒体 Worker、任务领取、心跳、失败重试与进度状态
-- FFmpeg 探测与按需 H.264/AAC 转码
-- 用户字幕、内嵌字幕和 Whisper ASR 分级处理
-- faster-whisper `small + int8` CPU 推理
-- 逐词时间戳回传、视频库与双语字幕精听页面
-- 独立字幕翻译任务、分批写回、断点重试和 LibreTranslate Provider
-- Whisper 模型持久化缓存及断点续传
-- YouTube 链接识别、公开视频元数据读取、视频库封面展示和官方 IFrame Player 播放
-- YouTube 播放时间同步、字幕跟随、点击字幕跳转，以及 SRT/WebVTT 字幕导入
-
-Bilibili 地址导入仍属于后续阶段。YouTube 模块只使用官方嵌入播放器，不下载或代理
-平台视频；需要双语精听时，在视频详情页导入有权使用的英文 SRT 或 WebVTT 字幕，
-系统会继续使用本地 LibreTranslate 生成中文。翻译服务不可用时仍可播放视频和英文字幕。
-
-## 项目结构
-
-| 目录 | 说明 |
-| --- | --- |
-| `LexiFlow/` | Next.js 前端，默认端口 `3000` |
-| `server/` | Spring Boot API 与任务调度服务，默认端口 `8080` |
-| `media-worker/` | Python、FFmpeg、faster-whisper 媒体处理 Worker |
-| `material/` | 词典数据与第三方资料 |
-| `deploy/` | 部署配置 |
-
-## 技术栈
-
-- 前端：Next.js 16、React 19、TypeScript、Tailwind CSS 4
-- 后端：Java 17、Spring Boot 3.2.3、MyBatis-Plus、Flyway
-- 数据：MySQL 8、Redis、本地文件存储或 MinIO
-- 媒体处理：Python 3.11、FFmpeg、faster-whisper
-- 字幕翻译：Java 异步任务、LibreTranslate，可扩展其他 Provider
-- 默认模型：`Systran/faster-whisper-small`，CPU 使用 `int8`
-
-## 本地运行
-
-### 1. 准备数据库
-
-启动 MySQL 和 Redis，并创建数据库：
-
-```sql
-CREATE DATABASE IF NOT EXISTS lexiflow_db
-  DEFAULT CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
-```
-
-Flyway 会在后端启动时执行 `server/src/main/resources/db/migration/` 中的版本化迁移。示例数据仍可按需导入 `server/src/main/resources/db/seed.sql`。
-
-### 2. 启动本地翻译服务
-
-字幕翻译默认连接 `http://localhost:5000`。LibreTranslate 第一次直接从官方源准备模型时，
-在国内网络下可能长时间停留在 `Booting...`。推荐先从 ModelScope 下载并校验模型，
-再写入 Docker 持久化卷。已经完成模型安装的机器可以跳过下载和安装步骤。
-
-下载英文与简体中文双向模型：
-
-```powershell
-$enZh = Join-Path $env:TEMP "translate-en_zh-1_9.argosmodel"
-$zhEn = Join-Path $env:TEMP "translate-zh_en-1_9.argosmodel"
-
-curl.exe -fL --retry 20 --retry-all-errors --retry-delay 2 -C - `
-  -o $enZh `
-  "https://modelscope.cn/models/wer277/translate/resolve/master/translate-en_zh-1_9.argosmodel"
-
-curl.exe -fL --retry 20 --retry-all-errors --retry-delay 2 -C - `
-  -o $zhEn `
-  "https://modelscope.cn/models/wer277/translate/resolve/master/translate-zh_en-1_9.argosmodel"
-
-if ((Get-FileHash $enZh -Algorithm SHA256).Hash.ToLower() -ne `
-  "433e7c4f034d87fbe2353161e05f18646d7999452f801a4e1f0378522b9850ab") {
-  throw "英译中模型校验失败"
-}
-if ((Get-FileHash $zhEn -Algorithm SHA256).Hash.ToLower() -ne `
-  "62e7af5a3a48b530e47b7b3e5c78c2de79073ecd815750d2bf3ab35b4a67da2d") {
-  throw "中译英模型校验失败"
-}
-```
-
-创建模型卷并离线安装：
-
-```powershell
-docker volume create lexiflow-translate-data
-
-docker run --rm `
-  --entrypoint /app/venv/bin/python `
-  --mount "type=volume,source=lexiflow-translate-data,target=/home/libretranslate/.local" `
-  --mount "type=bind,source=$enZh,target=/tmp/en_zh.argosmodel,readonly" `
-  --mount "type=bind,source=$zhEn,target=/tmp/zh_en.argosmodel,readonly" `
-  libretranslate/libretranslate:latest `
-  -c "import argostranslate.package as p; p.install_from_path('/tmp/en_zh.argosmodel'); p.install_from_path('/tmp/zh_en.argosmodel')"
-```
-
-启动翻译服务：
-
-```powershell
-docker run -d --name lexiflow-libretranslate --restart unless-stopped `
-  -p 5000:5000 `
-  -e LT_LOAD_ONLY=en,zh `
-  -v lexiflow-translate-data:/home/libretranslate/.local `
-  libretranslate/libretranslate:latest
-```
-
-检查服务是否就绪：
-
-```powershell
-Invoke-RestMethod http://localhost:5000/languages
-```
-
-如果容器已经存在，后续只需执行：
-
-```powershell
-docker restart lexiflow-libretranslate
-```
-
-可用环境变量：
-
-- `LEXIFLOW_TRANSLATION_ENABLED`：是否自动创建字幕翻译任务，默认 `true`。
-- `LEXIFLOW_TRANSLATION_TARGET`：目标语言，默认 `zh-CN`。
-- `LEXIFLOW_LIBRETRANSLATE_URL`：LibreTranslate 地址，默认 `http://localhost:5000`。
-- `LEXIFLOW_LIBRETRANSLATE_API_KEY`：自建服务通常留空，托管服务按需填写。
-- `LEXIFLOW_TRANSLATION_BATCH_SIZE`：每批字幕数量，默认 `30`。
-
-### 3. 启动后端
-
-```powershell
-cd server
-mvn spring-boot:run
-```
-
-- API：`http://localhost:8080`
-- Swagger UI：`http://localhost:8080/swagger-ui.html`
-
-### 4. 启动前端
-
-```powershell
-cd LexiFlow
-npm install
-npm run dev
-```
-
-访问 `http://localhost:3000`。前端的 `/api/*` 请求会代理到 `http://127.0.0.1:8080/api/*`。
-
-### 5. 启动媒体 Worker
-
-```powershell
-docker build -t lexiflow-media-worker:local ./media-worker
-docker volume create lexiflow-whisper-cache
-docker run -d --name lexiflow-media-worker --restart unless-stopped `
-  -e LEXIFLOW_API_BASE=http://host.docker.internal:8080 `
-  -e LEXIFLOW_MEDIA_WORKER_TOKEN=change-me-in-production `
-  -e LEXIFLOW_WORKER_ID=media-worker-1 `
-  -e LEXIFLOW_WHISPER_MODEL=small `
-  -e LEXIFLOW_WHISPER_DEVICE=cpu `
-  -e LEXIFLOW_WHISPER_COMPUTE_TYPE=int8 `
-  -v lexiflow-whisper-cache:/root/.cache/huggingface `
-  lexiflow-media-worker:local
-```
-
-Worker Token 必须与后端 `lexiflow.async-job.worker-token` 一致。
-
-## 视频处理阶段
+## 系统拓扑与服务概览
 
 ```text
-UPLOADING
-  -> PROBING
-  -> TRANSCODING（按需）
-  -> ACQUIRING_SUBTITLE
-  -> DOWNLOADING_MODEL（首次运行）
-  -> TRANSCRIBING
-  -> NORMALIZING
-  -> FINALIZING
-  -> READY（英文字幕已可播放）
-
-SUBTITLE_TRANSLATE
-  -> PENDING
-  -> TRANSLATING（分批写回中文）
-  -> READY / PARTIAL / FAILED
+[ 客户端浏览器 (Next.js 16 :3000) ]
+   │
+   ├── /api/speech/** ─────► [ Python 语音桥接服务 (FastAPI :8100) ]
+   │                           └── PyTorch / Wav2Vec2 CTC / faster-whisper (发音评测)
+   │
+   └── /api/** ────────────► [ Spring Boot 核心服务 (:8080) ]
+                               ├── MySQL 8.0+ (:3306) (业务数据持久化，Flyway 自动迁移)
+                               ├── Redis (:6379) (可选缓存 / 频控)
+                               │
+                               ├── 异步任务分发 ──► [ Python 媒体 Worker ]
+                               │                     └── FFmpeg / faster-whisper (视频 ASR)
+                               │
+                               └── 翻译适配层 ───► [ 本地 LibreTranslate (:5000) 或 OpenAI/DeepSeek API ]
 ```
 
-Whisper `small` 模型首次下载约 484 MB，缓存保存在 Docker 卷 `lexiflow-whisper-cache` 中。连接中断时可以续传，重建 Worker 容器不会清空模型。
+### 端口速查表
 
-完整精听功能可用时，状态应为：
+| 组件 | 对应目录 | 默认端口 | 职责说明 |
+| :--- | :--- | :--- | :--- |
+| **前端工作台** | `LexiFlow/` | `3000` | Next.js 16 (App Router) 交互界面，自动反向代理 API |
+| **核心后端** | `server/` | `8080` | Spring Boot 3 业务调度、数据持久化、JWT 鉴权、RSS 解析 |
+| **语音桥接** | `speech-bridge/` | `8100` | 影子跟读 AI 评测、GOP 音素发音打分、参考音生成 |
+| **媒体 Worker** | `media-worker/` | 独立进程 | 领取本地视频与音频转写任务，执行 Whisper ASR 与时间戳切分 |
+| **翻译服务** | Docker / 云端 API | `5000` / HTTPS | 视频双语字幕及标题翻译（支持 LibreTranslate / DeepSeek / OpenAI） |
+| **MySQL 数据库**| 宿主机 / 容器 | `3306` | 系统核心数据存储（`lexiflow_db`） |
+| **Redis 缓存** | 宿主机 / 容器 | `6379` | 任务调度与高频缓存（可选推荐） |
 
-- 媒体：`READY`
-- 字幕：`READY`
-- 媒体任务：`SUCCEEDED`
-- 翻译：`READY`；翻译失败不影响英文字幕播放
-- 进度：`100`
+---
 
-## 文档
+## 环境依赖与安装指南
 
-- [产品说明](./PRODUCT.md)
-- [视频模块开发文档](./视频模块开发文档.md)
-- [媒体 Worker 说明](./media-worker/README.md)
-- [第三方资料与许可证](./material/参考资料与引用出处.md)
+为降低启动门槛，系统支持**分层按需部署**：
+- 若仅需体验**Web 工作台、词典、生词本、分级阅读、播客收录与 YouTube 订阅**，仅需安装【基础环境】。
+- 若需进一步使用**本地视频 Whisper 转写**或**影子跟读 AI 评测**，可继续安装【多模态 AI 环境】。
+
+### 1. 基础环境（运行主站必选）
+
+| 依赖软件 | 最低版本要求 | 推荐版本 | 作用 |
+| :--- | :--- | :--- | :--- |
+| **Node.js** | `>= 20.9.0` | `20.x LTS` 或 `22.x` | 运行 Next.js 前端应用 |
+| **pnpm** | `>= 9.0.0` | 最新稳定版 | 前端高性能包管理器 |
+| **JDK** | `17` | `Java 17 LTS` (OpenJDK / Temurin) | 运行 Spring Boot 后端 |
+| **Maven** | `>= 3.8.0` | `3.9.x` | 后端项目依赖解析与构建 |
+| **MySQL** | `>= 8.0` | `8.0+` | 核心数据库（要求 `utf8mb4` 字符集） |
+| **Redis** | `>= 6.0` | `7.x` | 缓存与任务辅助队列（本地可选用默认配置） |
+
+#### 常用包管理器一键安装指令
+
+- **Windows (Winget)**:
+  ```powershell
+  winget install OpenJS.NodeJS.LTS
+  winget install EclipseAdoptium.Temurin.17.JDK
+  winget install Apache.Maven
+  winget install Oracle.MySQL
+  npm install -g pnpm
+  ```
+
+- **macOS (Homebrew)**:
+  ```bash
+  brew install node pnpm openjdk@17 maven mysql redis
+  brew services start mysql
+  brew services start redis
+  ```
+
+- **Linux (Ubuntu/Debian)**:
+  ```bash
+  sudo apt-get update
+  sudo apt-get install -y openjdk-17-jdk maven mysql-server redis-server
+  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  sudo apt-get install -y nodejs
+  sudo npm install -g pnpm
+  ```
+
+---
+
+### 2. 多模态 AI 扩展依赖（按需选用）
+
+#### A. 视频转写工坊 (`media-worker`)
+- **Python**: `3.10` ~ `3.11`
+- **FFmpeg**: 系统需配置全局 `ffmpeg` 并在环境变量 `PATH` 中可执行。
+  - Windows: `winget install Gyan.FFmpeg`
+  - macOS: `brew install ffmpeg`
+  - Linux: `sudo apt-get install -y ffmpeg`
+
+#### B. 影子跟读语音评测 (`speech-bridge`)
+- **Python**: `3.10` ~ `3.11`
+- **PyTorch**: `>= 2.3.1`（推荐 CPU 或 CUDA 11.8/12.1）
+- **espeak-ng**: 用于音素提取（若未安装，系统将平滑降级使用基础音标引擎）。
+  - Windows: `winget install eSpeak-ng.eSpeak-ng`
+  - Linux: `sudo apt-get install -y espeak-ng`
+
+---
+
+## 快速启动指南
+
+### 第一步：准备数据库
+
+1. 启动 MySQL 服务，创建 `lexiflow_db` 数据库：
+   ```sql
+   CREATE DATABASE IF NOT EXISTS lexiflow_db
+     DEFAULT CHARACTER SET utf8mb4
+     COLLATE utf8mb4_unicode_ci;
+   ```
+2. 后端集成了 Flyway 迁移工具，**无需手动导入初始 SQL**。服务启动时将自动依次执行 `V1` 至 `V8` 脚本建立完整架构。
+3. （可选）如需载入常用词汇与示例数据，可在数据库建好后按需执行 `server/src/main/resources/db/seed.sql`。
+
+---
+
+### 第二步：启动核心后端 (Spring Boot)
+
+1. 进入 `server` 目录：
+   ```powershell
+   cd server
+   ```
+2. 确认 `server/src/main/resources/application.yml` 中的 MySQL 账号密码（默认配置为 `root` / `root`，可按实际环境或通过环境变量 `SPRING_DATASOURCE_USERNAME`、`SPRING_DATASOURCE_PASSWORD` 修改）。
+3. 编译并启动服务：
+   ```powershell
+   mvn spring-boot:run
+   ```
+   启动成功后输出 `Started LexiFlowApplication in ... seconds`。
+   - API 服务地址：`http://localhost:8080`
+   - Swagger 交互文档：`http://localhost:8080/swagger-ui.html`
+
+---
+
+### 第三步：启动前端工作台 (Next.js)
+
+1. 新建终端窗口，进入 `LexiFlow` 目录：
+   ```powershell
+   cd LexiFlow
+   ```
+2. 安装依赖（优先使用 `pnpm`）：
+   ```powershell
+   pnpm install
+   ```
+3. 启动开发服务器：
+   ```powershell
+   pnpm run dev
+   ```
+4. 打开浏览器访问：`http://localhost:3000`。
+   - 前端已预设 API 代理规则，访问 `/api/*` 会自动转发至 `8080` 后端，访问 `/api/speech/*` 会转发至 `8100` 语音桥接服务。
+
+---
+
+### 第四步：启动多模态扩展服务（可选）
+
+#### 选项 A：启动影子跟读语音桥接服务 (`speech-bridge`)
+
+项目提供现成的一键初始化与启动脚本：
+
+- **自动化初始化（创建虚拟环境并下载权重）**：
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts\setup-speech-bridge.ps1
+  ```
+- **启动语音服务**：
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts\start-speech-bridge.ps1
+  ```
+  服务启动后运行于 `http://localhost:8100`，访问前端 `/practice/shadowing` 即可直接录音跟读并获得发音综合评分。
+
+#### 选项 B：启动媒体 Worker (`media-worker`)
+
+用于自动对本地上传的视频进行音频剥离与 Whisper ASR 转写：
+
+- **方式 1：本地 Python 直接运行**
+  ```powershell
+  cd media-worker
+  python -m venv .venv
+  .venv\Scripts\activate
+  pip install -r requirements.txt
+  python worker.py
+  ```
+- **方式 2：Docker 容器运行**
+  ```powershell
+  docker build -t lexiflow-media-worker:local ./media-worker
+  docker volume create lexiflow-whisper-cache
+  docker run -d --name lexiflow-media-worker --restart unless-stopped `
+    -e LEXIFLOW_API_BASE=http://host.docker.internal:8080 `
+    -e LEXIFLOW_MEDIA_WORKER_TOKEN=change-me-in-production `
+    -v lexiflow-whisper-cache:/root/.cache/huggingface `
+    lexiflow-media-worker:local
+  ```
+
+#### 选项 C：配置字幕与标题翻译通道
+
+支持两种方案（二选一）：
+1. **云端 LLM 翻译（推荐，零本地资源占用）**：
+   在环境变量中设置 `LEXIFLOW_OPENAI_TRANSLATION_API_KEY`（如 DeepSeek、OpenAI），后端会自动调用大模型翻译中文字幕与标题。
+2. **本地离线 LibreTranslate**：
+   ```powershell
+   docker run -d --name lexiflow-libretranslate --restart unless-stopped `
+     -p 5000:5000 `
+     -e LT_LOAD_ONLY=en,zh `
+     libretranslate/libretranslate:latest
+   ```
+
+---
+
+## 核心研习模块概览
+
+1. **多模态视频精听库 (`/videos`)**：
+   - 顶栏同排工具区：导入 YouTube、本地视频大文件分片秒传、`中 / A` 标题双语翻译切换、创作者即时筛选。
+   - YouTube 频道免 Key 订阅：直接输入 `@handle`（如 `@TED`、`@BBCLearningEnglish`）或导入 OPML 订阅文件，直连官方公开 Atom/RSS 获取最新 15 篇单集，支持“在库检测”与“一键导入精听”。
+2. **独立播客精听库 (`/podcasts`)**：
+   - 独立专有收录通道，支持公开 RSS 节目源直连抓取（如 VOA Learning English、BBC 6 Minute English）与音频单集快速建档。
+3. **AI 影子跟读工坊 (`/practice/shadowing`)**：
+   - 采用 CTC 前向-后向算法强行对齐音素，结合发音优度（GOP）模型输出流利度、完整度、发音准确率三维雷达数据与逐词颜色标注。
+4. **FSRS 智能记忆复习 (`/cards`) 与生词本 (`/vocab`)**：
+   - 基于自由间隔重复调度算法（FSRS），根据遗忘曲线自动动态规划最佳复习间隔。
+5. **真实语境分级阅读与 AI 采词 (`/reading`)**：
+   - 聚合分级外刊、即时词形还原与双语例句溯源。
+
+---
+
+## 常见排错与注意事项 (FAQ)
+
+1. **MySQL 提示 Public Key Retrieval 错误？**
+   - 确保 JDBC 连接串包含 `allowPublicKeyRetrieval=true&useSSL=false`。当前代码已默认包含该参数。
+2. **前端页面发起请求报 500 或连接拒绝？**
+   - 确认 Spring Boot 后端 `8080` 端口已启动。若是在不同主机运行，请检查 `LexiFlow/next.config.ts` 中的 rewrite 代理目标地址。
+3. **YouTube 频道动态提示网络超时或解析失败？**
+   - YouTube 官方 RSS 与公共主页在部分地区需科学网络环境支持。若使用本地代理，可为 JVM 或宿主机设置 `http.proxyHost` 与 `http.proxyPort`。
+4. **影子跟读录音时报 503 或评测不可用？**
+   - 影子跟读前端默认具备健全的服务降级策略。若未启动 `speech-bridge`（端口 8100），仍可正常回放原生参考音频；启动 `speech-bridge` 后将自动激活 AI 评测。
+
+---
+
+## 相关技术文档
+
+- [视频模块架构与开发文档](./视频模块开发文档.md)
+- [影子跟读模块部署与验收记录](./SHADOWING-DEPLOY.md)
+- [产品定位与业务规范](./PRODUCT.md)
+- [媒体 Worker 内部说明](./media-worker/README.md)
+- [第三方素材与许可证引用](./material/参考资料与引用出处.md)

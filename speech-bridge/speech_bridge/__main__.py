@@ -29,13 +29,17 @@ def main() -> int:
 
     config.ensure_dirs()
 
+    from pathlib import Path
+
     # uvicorn 的 log_config=None 会保留我们已配置的 root logger；
     # 这里为「服务自身日志」与「uvicorn 访问日志」分别挂文件 handler。
     if args.log_file:
         from logging.handlers import RotatingFileHandler
 
+        log_path = Path(args.log_file).resolve()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
         handler = RotatingFileHandler(
-            args.log_file, maxBytes=8 * 1024 * 1024, backupCount=3, encoding="utf-8"
+            str(log_path), maxBytes=8 * 1024 * 1024, backupCount=3, encoding="utf-8"
         )
         handler.setFormatter(
             logging.Formatter("%(asctime)s %(levelname)-7s %(name)s | %(message)s")
@@ -48,8 +52,10 @@ def main() -> int:
     if args.error_log_file:
         from logging.handlers import RotatingFileHandler
 
+        err_path = Path(args.error_log_file).resolve()
+        err_path.parent.mkdir(parents=True, exist_ok=True)
         err_handler = RotatingFileHandler(
-            args.error_log_file, maxBytes=4 * 1024 * 1024, backupCount=2, encoding="utf-8"
+            str(err_path), maxBytes=4 * 1024 * 1024, backupCount=2, encoding="utf-8"
         )
         err_handler.setLevel(logging.WARNING)
         err_handler.setFormatter(

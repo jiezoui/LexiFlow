@@ -116,6 +116,11 @@ public class AsyncJobServiceImpl implements AsyncJobService {
 
     @Override
     public AsyncJobVo updateProgress(Long jobId, String workerId, String stage, int progress) {
+        return updateProgress(jobId, workerId, stage, progress, null);
+    }
+
+    @Override
+    public AsyncJobVo updateProgress(Long jobId, String workerId, String stage, int progress, String detail) {
         AsyncJobStage validatedStage;
         try {
             validatedStage = AsyncJobStage.valueOf(stage.trim().toUpperCase());
@@ -125,7 +130,7 @@ public class AsyncJobServiceImpl implements AsyncJobService {
         if (progress < 0 || progress > 100) {
             throw new BusinessException("任务进度必须在 0 到 100 之间");
         }
-        int updated = mapper.updateProgress(jobId, workerId, validatedStage.name(), progress, LocalDateTime.now());
+        int updated = mapper.updateProgress(jobId, workerId, validatedStage.name(), progress, blankToNull(detail), LocalDateTime.now());
         ensureWorkerMutation(updated);
         return publishCurrent(jobId);
     }

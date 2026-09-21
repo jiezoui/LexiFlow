@@ -42,6 +42,8 @@ class Config:
         os.getenv("LEXIFLOW_WORKER_HEARTBEAT_SECONDS", "20")
     )
     transcode_crf: int = int(os.getenv("LEXIFLOW_TRANSCODE_CRF", "23"))
+    whisper_beam_size: int = int(os.getenv("LEXIFLOW_WHISPER_BEAM_SIZE", "1"))
+    whisper_threads: int = int(os.getenv("LEXIFLOW_WHISPER_THREADS", "8"))
 
 
 CONFIG = Config()
@@ -82,11 +84,14 @@ def claim() -> list[dict[str, Any]]:
     ) or []
 
 
-def progress(job_id: int, stage: str, percent: int) -> None:
+def progress(job_id: int, stage: str, percent: int, detail: str | None = None) -> None:
+    body: dict[str, Any] = {"workerId": CONFIG.worker_id, "stage": stage, "progress": percent}
+    if detail:
+        body["detail"] = detail
     api(
         "POST",
         f"/internal/jobs/{job_id}/progress",
-        json={"workerId": CONFIG.worker_id, "stage": stage, "progress": percent},
+        json=body,
     )
 
 
@@ -242,31 +247,48 @@ def srt_timestamp(seconds: float) -> str:
     return f"{hours:02}:{minutes:02}:{secs:02},{millis:03}"
 
 
+def format_mm_ss(seconds: float) -> str:
+    secs = max(0, int(round(seconds)))
+    m, s = divmod(secs, 60)
+    return f"{m:02d}:{s:02d}"
+
+
 def ensure_whisper_model():
     global _WHISPER_MODEL
     if _WHISPER_MODEL is None:
         from faster_whisper import WhisperModel
 
-        LOG.info("loading Whisper model %s", CONFIG.whisper_model)
-        _WHISPER_MODEL = WhisperModel(
+        LOG.info(
+            "loading Whisper model %s (threads=%s, beam_size=%s)",
             CONFIG.whisper_model,
-            device=CONFIG.whisper_device,
-            compute_type=CONFIG.whisper_compute_type,
+            CONFIG.whisper_threads,
+            CONFIG.whisper_beam_size,
         )
+        kwargs: dict[str, Any] = {
+            "device": CONFIG.whisper_device,
+            "compute_type": CONFIG.whisper_compute_type,
+        }
+        if CONFIG.whisper_device.lower() == "cpu":
+            kwargs["cpu_threads"] = CONFIG.whisper_threads
+        _WHISPER_MODEL = WhisperModel(CONFIG.whisper_model, **kwargs)
         LOG.info("Whisper model %s is ready", CONFIG.whisper_model)
     return _WHISPER_MODEL
 
 
-def transcribe(source: Path, target: Path, token_target: Path) -> str:
+def transcribe(
+    source: Path, target: Path, token_target: Path, job_id: int | None = None
+) -> str:
     model = ensure_whisper_model()
     segments, info = model.transcribe(
         str(source),
         language=CONFIG.whisper_language,
         vad_filter=True,
         word_timestamps=True,
-        beam_size=5,
+        beam_size=CONFIG.whisper_beam_size,
     )
+    total_sec = max(getattr(info, "duration", 0.0) or 0.0, 1.0)
     cue_tokens: list[dict[str, Any]] = []
+    last_report_time = 0.0
     with target.open("w", encoding="utf-8", newline="\n") as output:
         sequence = 0
         for segment in segments:
@@ -291,6 +313,17 @@ def transcribe(source: Path, target: Path, token_target: Path) -> str:
                 )
             if words:
                 cue_tokens.append({"sequenceNo": sequence, "tokens": words})
+
+            now = time.time()
+            if job_id and (now - last_report_time >= 1.2):
+                last_report_time = now
+                curr_sec = min(segment.end, total_sec)
+                pct = min(95, 70 + int((curr_sec / total_sec) * 25))
+                detail = f"已转写 {sequence} 句 ({format_mm_ss(curr_sec)} / {format_mm_ss(total_sec)})"
+                try:
+                    progress(job_id, "TRANSCRIBING", pct, detail=detail)
+                except Exception as e:
+                    LOG.debug("transcription progress report failed: %s", e)
     if not target.exists() or target.stat().st_size == 0:
         raise RuntimeError("Whisper returned no subtitle cues")
     token_target.write_text(
@@ -372,7 +405,9 @@ def handle(job: dict[str, Any]) -> None:
                     progress(job_id, "TRANSCRIBING", 74)
                     generated = task / "asr.srt"
                     generated_tokens = task / "asr.tokens.json"
-                    language = transcribe(playback_source, generated, generated_tokens)
+                    language = transcribe(
+                        playback_source, generated, generated_tokens, job_id=job_id
+                    )
                     upload_subtitle(media_id, generated, language, "ASR", generated_tokens)
 
             progress(job_id, "NORMALIZING", 92)
@@ -414,72 +449,84 @@ def sanitize_cue_text(text: str) -> str:
 def fetch_youtube_transcript(
     video_id: str, srt_target: Path, token_target: Path
 ) -> tuple[str, bool]:
-    try:
-        from youtube_transcript_api import YouTubeTranscriptApi
+    for attempt in range(2):
+        try:
+            from youtube_transcript_api import YouTubeTranscriptApi
 
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-        transcript = None
-        for lang_code in ["en", "en-US", "en-GB", "en-CA"]:
-            try:
-                transcript = transcript_list.find_transcript([lang_code])
-                break
-            except Exception:
-                pass
-        if transcript is None:
-            try:
-                transcript = transcript_list.find_generated_transcript(["en"])
-            except Exception:
-                pass
+            if hasattr(YouTubeTranscriptApi, "list_transcripts"):
+                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            else:
+                ytt = YouTubeTranscriptApi()
+                transcript_list = ytt.list(video_id)
 
-        if transcript is None:
+            transcript = None
+            for lang_code in ["en", "en-US", "en-GB", "en-CA"]:
+                try:
+                    transcript = transcript_list.find_transcript([lang_code])
+                    break
+                except Exception:
+                    pass
+            if transcript is None:
+                try:
+                    transcript = transcript_list.find_generated_transcript(["en"])
+                except Exception:
+                    pass
+
+            if transcript is None:
+                return "", False
+
+            data = transcript.fetch()
+            if not data:
+                return "", False
+
+            cue_tokens = []
+            sequence = 0
+            with srt_target.open("w", encoding="utf-8", newline="\n") as out:
+                for item in data:
+                    raw_text = getattr(item, "text", "") if not isinstance(item, dict) else item.get("text", "")
+                    text = sanitize_cue_text(raw_text)
+                    if not text:
+                        continue
+                    sequence += 1
+                    raw_start = getattr(item, "start", 0.0) if not isinstance(item, dict) else item.get("start", 0.0)
+                    raw_duration = getattr(item, "duration", 2.0) if not isinstance(item, dict) else item.get("duration", 2.0)
+                    start_sec = float(raw_start)
+                    duration_sec = float(raw_duration)
+                    end_sec = start_sec + duration_sec
+
+                    out.write(f"{sequence}\n")
+                    out.write(f"{srt_timestamp(start_sec)} --> {srt_timestamp(end_sec)}\n")
+                    out.write(f"{text}\n\n")
+
+                    words = text.split()
+                    if words:
+                        step = duration_sec / len(words)
+                        tokens = [
+                            {
+                                "text": w,
+                                "startMs": max(0, round((start_sec + idx * step) * 1000)),
+                                "endMs": max(
+                                    0, round((start_sec + (idx + 1) * step) * 1000)
+                                ),
+                            }
+                            for idx, w in enumerate(words)
+                        ]
+                        cue_tokens.append({"sequenceNo": sequence, "tokens": tokens})
+
+            if not srt_target.exists() or srt_target.stat().st_size == 0:
+                return "", False
+
+            token_target.write_text(
+                json.dumps(cue_tokens, ensure_ascii=False, separators=(",", ":")),
+                encoding="utf-8",
+            )
+            return "en", True
+        except Exception as exc:
+            if attempt == 0:
+                time.sleep(1)
+                continue
+            LOG.info("fetching native YouTube transcript for %s failed: %s", video_id, exc)
             return "", False
-
-        data = transcript.fetch()
-        if not data:
-            return "", False
-
-        cue_tokens = []
-        sequence = 0
-        with srt_target.open("w", encoding="utf-8", newline="\n") as out:
-            for item in data:
-                text = sanitize_cue_text(item.get("text", ""))
-                if not text:
-                    continue
-                sequence += 1
-                start_sec = float(item.get("start", 0.0))
-                duration_sec = float(item.get("duration", 2.0))
-                end_sec = start_sec + duration_sec
-
-                out.write(f"{sequence}\n")
-                out.write(f"{srt_timestamp(start_sec)} --> {srt_timestamp(end_sec)}\n")
-                out.write(f"{text}\n\n")
-
-                words = text.split()
-                if words:
-                    step = duration_sec / len(words)
-                    tokens = [
-                        {
-                            "text": w,
-                            "startMs": max(0, round((start_sec + idx * step) * 1000)),
-                            "endMs": max(
-                                0, round((start_sec + (idx + 1) * step) * 1000)
-                            ),
-                        }
-                        for idx, w in enumerate(words)
-                    ]
-                    cue_tokens.append({"sequenceNo": sequence, "tokens": tokens})
-
-        if not srt_target.exists() or srt_target.stat().st_size == 0:
-            return "", False
-
-        token_target.write_text(
-            json.dumps(cue_tokens, ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8",
-        )
-        return "en", True
-    except Exception as exc:
-        LOG.info("fetching native YouTube transcript for %s failed: %s", video_id, exc)
-        return "", False
 
 
 def handle_youtube(job: dict[str, Any]) -> None:
@@ -516,7 +563,7 @@ def handle_youtube(job: dict[str, Any]) -> None:
                     "no native YouTube transcripts for %s, falling back to yt-dlp + faster-whisper",
                     video_id,
                 )
-                progress(job_id, "DOWNLOADING_AUDIO", 35)
+                progress(job_id, "ACQUIRING_SUBTITLE", 35)
                 audio_out_tmpl = str(task / "audio.%(ext)s")
                 ydl_cmd = [
                     "yt-dlp",
@@ -544,7 +591,9 @@ def handle_youtube(job: dict[str, Any]) -> None:
                 progress(job_id, "TRANSCRIBING", 75)
                 asr_srt = task / "asr.srt"
                 asr_tokens = task / "asr.tokens.json"
-                detected_lang = transcribe(audio_file, asr_srt, asr_tokens)
+                detected_lang = transcribe(
+                    audio_file, asr_srt, asr_tokens, job_id=job_id
+                )
                 upload_subtitle(media_id, asr_srt, detected_lang, "ASR", asr_tokens)
 
             progress(job_id, "FINALIZING", 98)

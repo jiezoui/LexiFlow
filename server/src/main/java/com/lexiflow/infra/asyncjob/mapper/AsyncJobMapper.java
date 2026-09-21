@@ -46,13 +46,16 @@ public interface AsyncJobMapper extends BaseMapper<AsyncJobEntity> {
                   @Param("now") LocalDateTime now);
 
     @Update("""
+            <script>
             UPDATE async_job
             SET stage = #{stage}, progress = #{progress}, heartbeat_at = #{now}
+            <if test="detail != null and detail != ''">, result_ref = #{detail}</if>
             WHERE id = #{id} AND status = 'RUNNING' AND locked_by = #{workerId}
+            </script>
             """)
     int updateProgress(@Param("id") Long id, @Param("workerId") String workerId,
                        @Param("stage") String stage, @Param("progress") int progress,
-                       @Param("now") LocalDateTime now);
+                       @Param("detail") String detail, @Param("now") LocalDateTime now);
 
     @Update("""
             UPDATE async_job

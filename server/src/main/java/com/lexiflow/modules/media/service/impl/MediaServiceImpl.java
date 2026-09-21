@@ -76,7 +76,24 @@ public class MediaServiceImpl implements MediaService {
     @Override
     public MediaDetailVo detail(String publicId, Long userId) {
         MediaItemEntity media = requireOwned(publicId, userId);
-        return MediaDetailVo.from(media, latestReadyTrack(media.getId()));
+        Integer processingProgress = null;
+        String processingDetail = null;
+        if (MediaStatus.PROCESSING.name().equals(media.getStatus())
+                || MediaStatus.WAITING_SUBTITLE.name().equals(media.getStatus())) {
+            AsyncJobEntity active = jobMapper.selectByAggregateForUser("MEDIA", media.getId(), userId)
+                    .stream()
+                    .filter(job -> {
+                        AsyncJobStatus status = AsyncJobStatus.valueOf(job.getStatus());
+                        return status == AsyncJobStatus.PENDING || status == AsyncJobStatus.RUNNING
+                                || status == AsyncJobStatus.RETRY_WAIT;
+                    })
+                    .findFirst().orElse(null);
+            if (active != null) {
+                processingProgress = active.getProgress();
+                processingDetail = active.getResultRef();
+            }
+        }
+        return MediaDetailVo.from(media, latestReadyTrack(media.getId()), processingProgress, processingDetail);
     }
 
     @Override
@@ -192,7 +209,7 @@ public class MediaServiceImpl implements MediaService {
     @Transactional
     public AsyncJobVo reprocess(String publicId, Long userId) {
         MediaItemEntity media = requireOwned(publicId, userId);
-        if (media.getSourceStorageKey() == null) {
+        if (!MediaPlatform.YOUTUBE.name().equals(media.getPlatform()) && media.getSourceStorageKey() == null) {
             throw new BusinessException(ResultCode.MEDIA_UPLOAD_CONFLICT);
         }
         AsyncJobEntity active = jobMapper.selectByAggregateForUser("MEDIA", media.getId(), userId)

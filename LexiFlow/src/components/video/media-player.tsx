@@ -33,7 +33,6 @@ interface TimedWord {
 export interface MediaPlayerHandle {
   seekTo: (seconds: number, autoplay?: boolean) => void
   pause?: () => void
-  play?: () => void
 }
 
 const HIDE_CONTROLS_DELAY = 1800
@@ -217,16 +216,7 @@ export const MediaPlayer = forwardRef<MediaPlayerHandle, MediaPlayerProps>(funct
       if (autoplay) void player.play()
     },
     pause: () => {
-      const player = playerRef.current
-      if (player && !player.paused) {
-        player.pause()
-      }
-    },
-    play: () => {
-      const player = playerRef.current
-      if (player && player.paused) {
-        void player.play()
-      }
+      playerRef.current?.pause()
     },
   }), [revealControls, syncVisualState])
 
@@ -485,7 +475,7 @@ export const MediaPlayer = forwardRef<MediaPlayerHandle, MediaPlayerProps>(funct
             <button type="button" className="video-control hidden sm:inline-flex" onClick={() => seekBy(5)} aria-label="前进 5 秒">
               <RotateCwIcon className="size-4" />
             </button>
-            <span className="ml-1 whitespace-nowrap font-mono text-[11px] tabular-nums text-zinc-200">
+            <span className="ml-1 whitespace-nowrap text-[11px] font-medium tabular-nums text-zinc-200">
               <span ref={currentTimeLabelRef}>0:00</span>
               <span className="mx-1 text-zinc-500">/</span>
               <span>{formatTime(duration)}</span>

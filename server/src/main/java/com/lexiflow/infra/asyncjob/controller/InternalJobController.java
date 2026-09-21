@@ -65,7 +65,7 @@ public class InternalJobController {
     ) {
         tokenVerifier.verify(token);
         return Result.success(jobService.updateProgress(
-                jobId, request.workerId(), request.stage(), request.progress()
+                jobId, request.workerId(), request.stage(), request.progress(), request.detail()
         ));
     }
 

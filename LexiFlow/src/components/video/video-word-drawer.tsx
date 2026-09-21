@@ -1,46 +1,95 @@
 "use client"
 
-/**
- * 视频字幕单词精析抽屉
- *
- * 在「视频 + 字幕」学习场景中，点击字幕里的任意单词会打开本抽屉：
- * 1. 展示该词在**当前字幕句**中的语境释义、语法角色、搭配与记忆法
- *    （复用 `aiApi.explainWord`，与阅读页的划词解析共用同一 AI 网关）
- * 2. 提供音标、发音试听与一键加入生词本
- * 3. 支持回到原句重听（通过 `onReplayCue` 让播放器 seek 到该字幕起点）
- *
- * 与 `word-lookup-popover` 的区别：这里是**固定侧栏抽屉**而非浮层，
- * 因为学习区已经分成「播放器 + 字幕栏」两列，抽屉叠加在字幕栏上不会遮挡视频。
- */
-
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import {
-  AlertCircleIcon,
-  BookmarkPlusIcon,
   CheckIcon,
-  Loader2Icon,
-  RefreshCwIcon,
-  RepeatIcon,
-  SparklesIcon,
+  HeartIcon,
   Volume2Icon,
   XIcon,
+  CopyIcon,
+  CheckCheckIcon,
+  Loader2Icon,
+  RotateCcwIcon,
+  ArrowLeftIcon,
+  PlayIcon,
+  BookOpenIcon,
 } from "lucide-react"
 import {
-  aiApi,
   dictApi,
-  parseJsonArray,
   vocabApi,
-  type AiExplainResult,
+  parseJsonArray,
   type DictEntry,
+  type UserWordCard,
   type MediaCue,
 } from "@/lib/api-client"
-import { getActiveAiConfig } from "@/lib/ai-config"
+import { lemmatize } from "@/lib/lemmatizer"
 
-interface VideoWordDrawerProps {
+export interface VideoWordDrawerProps {
   word: string
   cue: MediaCue
   onClose: () => void
   onReplayCue?: (cue: MediaCue) => void
+}
+
+interface PosDefinition {
+  type: "pos" | "domain" | "general"
+  label: string
+  meaning: string
+}
+
+const DOMAIN_MAP: Record<string, string> = {
+  计: "计 · 计算机",
+  经: "经 · 经济",
+  医: "医 · 医学",
+  化: "化 · 化学",
+  机: "机 · 机械",
+  电: "电 · 电子",
+  法: "法 · 法律",
+  物: "物 · 物理",
+  建: "建 · 建筑",
+  军: "军 · 军事",
+  航: "航 · 航海航空",
+  天: "天 · 天文",
+  地: "地 · 地理地质",
+  体: "体 · 体育",
+  数: "数 · 数学",
+  语: "语 · 语言学",
+  动: "动 · 动物学",
+  植: "植 · 植物学",
+  网络: "网络",
+  口: "口语",
+  美: "美式",
+  英: "英式",
+}
+
+function formatTime(seconds: number) {
+  const minutes = Math.floor(seconds / 60)
+  const remaining = Math.floor(seconds % 60)
+  return `${minutes}:${String(remaining).padStart(2, "0")}`
+}
+
+function renderHighlightedText(text: string, targetWord: string) {
+  if (!text) return null
+  if (!targetWord || !targetWord.trim()) return text
+
+  const cleanTarget = targetWord.trim().toLowerCase()
+  const escaped = targetWord.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const regex = new RegExp(`(\\b${escaped}[a-z]*\\b)`, "gi")
+  const parts = text.split(regex)
+
+  return parts.map((part, i) => {
+    if (part.toLowerCase().startsWith(cleanTarget)) {
+      return (
+        <span
+          key={i}
+          className="bg-primary/15 text-primary font-bold px-1 rounded underline decoration-primary decoration-2 underline-offset-2"
+        >
+          {part}
+        </span>
+      )
+    }
+    return part
+  })
 }
 
 export function VideoWordDrawer({
@@ -49,338 +98,502 @@ export function VideoWordDrawer({
   onClose,
   onReplayCue,
 }: VideoWordDrawerProps) {
+  const [activeWord, setActiveWord] = useState(word)
   const [entry, setEntry] = useState<DictEntry | null>(null)
-  const [explain, setExplain] = useState<AiExplainResult | null>(null)
-  const [loadingDict, setLoadingDict] = useState(false)
-  const [loadingAi, setLoadingAi] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [saved, setSaved] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [userCard, setUserCard] = useState<UserWordCard | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [isHarvested, setIsHarvested] = useState(false)
+  const [isKnown, setIsKnown] = useState(false)
+  const [accent, setAccent] = useState<"us" | "uk">("us")
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false)
+  const [copied, setCopied] = useState(false)
 
-  // 按「词 + 句子」缓存 AI 解析，避免反复点击同一处浪费额度
-  const cacheRef = useRef<Map<string, AiExplainResult>>(new Map())
+  const drawerRef = useRef<HTMLDivElement>(null)
+  const lemmatized = lemmatize(activeWord)
 
-  const cleanWord = useMemo(
-    () => word.replace(/^[^A-Za-z]+|[^A-Za-z']+$/g, "").toLowerCase(),
-    [word]
-  )
+  useEffect(() => {
+    setActiveWord(word)
+  }, [word])
 
-  const runExplain = useCallback(
-    async (force = false) => {
-      const key = `${cleanWord}::${cue.sourceText}`
-      if (!force) {
-        const cached = cacheRef.current.get(key)
-        if (cached) {
-          setExplain(cached)
-          return
-        }
+  // 播放发音
+  const playPronunciation = useCallback((audioWord: string, specificUrl?: string) => {
+    if (typeof window === "undefined") return
+    setIsPlayingAudio(true)
+
+    const url =
+      specificUrl && specificUrl.startsWith("http")
+        ? specificUrl
+        : `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(audioWord)}&type=${accent === "us" ? 2 : 1}`
+
+    const audio = new Audio(url)
+    audio.onended = () => setIsPlayingAudio(false)
+    audio.onerror = () => {
+      if ("speechSynthesis" in window) {
+        const u = new SpeechSynthesisUtterance(audioWord)
+        u.lang = accent === "us" ? "en-US" : "en-GB"
+        u.onend = () => setIsPlayingAudio(false)
+        u.onerror = () => setIsPlayingAudio(false)
+        window.speechSynthesis.speak(u)
+      } else {
+        setIsPlayingAudio(false)
       }
+    }
+    audio.play().catch(() => setIsPlayingAudio(false))
+  }, [accent])
 
-      setLoadingAi(true)
-      setError(null)
-      try {
-        const config = getActiveAiConfig()
-        const result = await aiApi.explainWord({
-          word: cleanWord,
-          contextSentence: cue.sourceText,
-          provider: config.provider,
-          apiHost: config.apiHost,
-          apiKey: config.apiKey,
-          model: config.model,
-        })
-        cacheRef.current.set(key, result)
-        setExplain(result)
-      } catch (err: unknown) {
-        setError(
-          err instanceof Error
-            ? `${err.message}（可在「设置 → AI 模型」中检查 API Key）`
-            : "AI 解析失败"
-        )
-      } finally {
-        setLoadingAi(false)
-      }
-    },
-    [cleanWord, cue.sourceText]
-  )
-
-  // 词或句子变化时：拉词典释义 + 触发 AI 语境解析
+  // 加载词条详情
   useEffect(() => {
     let cancelled = false
+    const loadData = async () => {
+      setLoading(true)
+      const searchLemma = lemmatized.baseLemma || activeWord.toLowerCase().trim()
+      const rawWord = activeWord.toLowerCase().trim()
 
-    setEntry(null)
-    setExplain(null)
-    setError(null)
-    setSaved(false)
+      try {
+        const [dictRes, cardRes] = await Promise.all([
+          dictApi.getByLemma(searchLemma).catch(async () => {
+            if (searchLemma !== rawWord) {
+              return await dictApi.getByLemma(rawWord).catch(() => null)
+            }
+            return null
+          }),
+          vocabApi.getCardByLemma(searchLemma).catch(() => null),
+        ])
 
-    setLoadingDict(true)
-    void dictApi
-      .search(cleanWord, 1)
-      .then((list) => {
-        if (!cancelled) setEntry(list[0] ?? null)
-      })
-      .catch(() => {
-        if (!cancelled) setEntry(null)
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingDict(false)
-      })
+        let finalCard = cardRes
+        if (!finalCard && searchLemma !== rawWord) {
+          finalCard = await vocabApi.getCardByLemma(rawWord).catch(() => null)
+        }
+        if (!finalCard && dictRes?.lemma) {
+          const dictLemma = dictRes.lemma.toLowerCase().trim()
+          if (dictLemma !== searchLemma && dictLemma !== rawWord) {
+            finalCard = await vocabApi.getCardByLemma(dictLemma).catch(() => null)
+          }
+        }
 
-    void runExplain()
+        if (!cancelled) {
+          setEntry(dictRes)
+          setUserCard(finalCard)
+          setIsHarvested(!!finalCard)
+          setIsKnown(finalCard ? finalCard.isKnown === 1 : false)
 
+          if (dictRes) {
+            playPronunciation(dictRes.lemma, dictRes.audioUs)
+          }
+        }
+      } catch (err) {
+        console.warn("加载词条详情失败:", err)
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
+    }
+
+    loadData()
     return () => {
       cancelled = true
     }
-  }, [cleanWord, cue.sourceText, runExplain])
+  }, [activeWord, lemmatized.baseLemma, playPronunciation])
 
-  const speak = useCallback(() => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return
-    window.speechSynthesis.cancel()
-    const utterance = new SpeechSynthesisUtterance(cleanWord)
-    utterance.lang = "en-US"
-    utterance.rate = 0.85
-    window.speechSynthesis.speak(utterance)
-  }, [cleanWord])
-
-  const addToVocab = useCallback(async () => {
-    setSaving(true)
-    try {
-      await vocabApi.addCard({
-        lemma: cleanWord,
-        wordId: entry?.id,
-        source: "VIDEO",
-        contextSentence: cue.sourceText,
-        contextTranslation: cue.translation ?? undefined,
-      })
-      setSaved(true)
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "加入生词本失败")
-    } finally {
-      setSaving(false)
+  // Esc 键关闭抽屉
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose()
+      }
     }
-  }, [cleanWord, cue.sourceText, cue.translation, entry?.id])
+    document.addEventListener("keydown", handleKeyDown)
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [onClose])
 
-  const phonetics = [entry?.phoneticUs, entry?.phoneticUk].filter(Boolean) as string[]
-  const synonyms = parseJsonArray(entry?.synonyms)
+  // 一键入库 / 移除生词本
+  const handleToggleHarvest = async () => {
+    const targetLemma = lemmatized.baseLemma || activeWord.toLowerCase().trim()
+    try {
+      if (isHarvested && userCard) {
+        await vocabApi.deleteCard(userCard.id)
+        setIsHarvested(false)
+        setUserCard(null)
+      } else {
+        const newCard = await vocabApi.addCard({
+          lemma: targetLemma,
+          wordId: entry?.id,
+          source: "VIDEO",
+          contextSentence: cue.sourceText,
+          contextTranslation: cue.translation || "",
+        })
+        setIsHarvested(true)
+        setUserCard(newCard)
+      }
+      window.dispatchEvent(new CustomEvent("lexiflow_wordbook_updated"))
+    } catch (e) {
+      console.error("切换生词本状态失败:", e)
+    }
+  }
+
+  // 一键标熟 / 斩词
+  const handleToggleKnown = async () => {
+    const targetLemma = lemmatized.baseLemma || activeWord.toLowerCase().trim()
+    const nextKnown = !isKnown
+    try {
+      const res = await vocabApi.toggleKnown(targetLemma, nextKnown)
+      setIsKnown(nextKnown)
+      setUserCard(res)
+      if (nextKnown) {
+        setIsHarvested(true)
+      }
+      window.dispatchEvent(new CustomEvent("lexiflow_wordbook_updated"))
+    } catch (e) {
+      console.error("切换标熟状态失败:", e)
+    }
+  }
+
+  // 复制词条
+  const handleCopyText = () => {
+    const textToCopy = `${entry?.lemma || activeWord} [${entry?.phoneticUs || ""}]\n${entry?.definitionCn || ""}\n台词: ${cue.sourceText}\n译文: ${cue.translation || ""}`
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  // 解析词性与释义
+  const parseDefinitions = (defText?: string): PosDefinition[] => {
+    if (!defText) return []
+    if (defText.includes("自定义导入词条") && !defText.includes("\n")) {
+      return []
+    }
+    const lines = defText.split("\n").map((l) => l.trim()).filter(Boolean)
+    const result: PosDefinition[] = []
+
+    for (const line of lines) {
+      if (line.includes("自定义导入词条")) continue
+
+      const domainMatch = line.match(/^\[([^\]]+)\]\s*(.*)$/)
+      if (domainMatch) {
+        const rawTag = domainMatch[1].trim()
+        const fullLabel = DOMAIN_MAP[rawTag] || rawTag
+        result.push({
+          type: "domain",
+          label: fullLabel,
+          meaning: domainMatch[2].trim(),
+        })
+        continue
+      }
+
+      const posMatch = line.match(/^([a-z]+[.]|[a-z]+\/[a-z]+[.]|[a-z]+[.]?)\s+(.*)$/i)
+      if (posMatch && !domainMatch) {
+        let rawPos = posMatch[1].toLowerCase().trim()
+        if (!rawPos.endsWith(".")) rawPos += "."
+        if (rawPos === "a.") rawPos = "adj."
+        if (rawPos === "ad.") rawPos = "adv."
+        result.push({
+          type: "pos",
+          label: rawPos,
+          meaning: posMatch[2].trim(),
+        })
+        continue
+      }
+
+      result.push({
+        type: "general",
+        label: "释",
+        meaning: line,
+      })
+    }
+
+    return result.slice(0, 5)
+  }
+
+  const defItems = parseDefinitions(entry?.definitionCn)
 
   return (
-    <aside className="absolute inset-y-0 right-0 z-20 flex w-full max-w-[380px] flex-col border-l border-border bg-card shadow-2xl">
-      {/* 头部 */}
-      <header className="flex items-start justify-between gap-2 border-b border-border px-4 py-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h2 className="truncate font-serif text-lg font-bold text-foreground">
-              {cleanWord}
-            </h2>
-            <button
-              type="button"
-              onClick={speak}
-              title="试听发音"
-              className="rounded-lg border border-border p-1 text-muted-foreground transition-colors hover:text-primary"
-            >
-              <Volume2Icon className="size-3.5" />
-            </button>
-          </div>
-          {phonetics.length > 0 && (
-            <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
-              {phonetics.join("  ")}
-            </p>
-          )}
-          {entry?.pos && (
-            <span className="mt-1 inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-              {entry.pos}
-            </span>
-          )}
-        </div>
+    <aside
+      ref={drawerRef}
+      className="absolute inset-0 z-30 flex flex-col bg-card border-l border-border shadow-2xl animate-in slide-in-from-right duration-200 overflow-hidden select-text"
+      aria-label="单词精析侧抽屉"
+    >
+      {/* 1. 顶部操作栏 */}
+      <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4 bg-muted/20">
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          title="关闭"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer py-1 px-1.5 -ml-1.5 rounded-lg hover:bg-muted/60"
+          title="返回字幕列表 (Esc)"
         >
-          <XIcon className="size-4" />
+          <ArrowLeftIcon className="size-3.5" />
+          <span>返回字幕列表</span>
         </button>
-      </header>
 
-      {/* 内容 */}
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-3">
-        {/* 当前字幕 */}
-        <section className="rounded-xl border border-border/70 bg-muted/30 p-3">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              所在字幕
+        <div className="flex items-center gap-1">
+          {/* 标熟按钮 */}
+          <button
+            type="button"
+            onClick={handleToggleKnown}
+            className={`size-7 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+              isKnown
+                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+            }`}
+            title={isKnown ? "已标记熟词 (点击取消)" : "一键标熟 (斩词)"}
+          >
+            <CheckIcon className={`size-3.5 ${isKnown ? "stroke-[2.5]" : ""}`} />
+          </button>
+
+          {/* 收藏生词本 */}
+          <button
+            type="button"
+            onClick={handleToggleHarvest}
+            className={`size-7 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+              isHarvested
+                ? "text-rose-500"
+                : "text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10"
+            }`}
+            title={isHarvested ? "已收录至生词本 (点击移出)" : "收录至生词本"}
+          >
+            <HeartIcon className={`size-3.5 ${isHarvested ? "fill-current" : ""}`} />
+          </button>
+
+          {/* 复制 */}
+          <button
+            type="button"
+            onClick={handleCopyText}
+            className="size-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
+            title="复制词条"
+          >
+            {copied ? <CheckCheckIcon className="size-3.5 text-emerald-500" /> : <CopyIcon className="size-3.5" />}
+          </button>
+
+          {/* 关闭按钮 */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="size-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
+            title="关闭抽屉"
+          >
+            <XIcon className="size-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* 2. 抽屉滚动内容区 */}
+      <div className="flex-1 overflow-y-auto p-4 sm:p-5 flex flex-col gap-4">
+        {/* 词头与发音 */}
+        <div className="flex flex-col gap-2 pb-1 border-b border-border/50">
+          <div className="flex items-baseline gap-2.5 flex-wrap">
+            <h2 className="text-2xl font-extrabold tracking-tight text-foreground">
+              {entry?.lemma || activeWord}
+            </h2>
+            <span className="font-serif italic font-semibold text-sm text-primary">
+              {entry?.pos ? `[${entry.pos.replace(/[\[\]]/g, "").trim()}]` : ""}
             </span>
-            {onReplayCue && (
-              <button
-                type="button"
-                onClick={() => onReplayCue(cue)}
-                className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-0.5 text-[10px] font-semibold transition-colors hover:bg-muted"
-              >
-                <RepeatIcon className="size-3" />
-                重听该句
-              </button>
-            )}
           </div>
-          <p className="mt-1.5 font-serif text-[13px] leading-relaxed text-foreground">
-            {cue.sourceText}
-          </p>
-          {cue.translation && (
-            <p className="mt-1 text-[11px] text-muted-foreground">{cue.translation}</p>
-          )}
-        </section>
 
-        {/* 词典释义 */}
-        <section>
-          <h3 className="font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            词典释义
-          </h3>
-          {loadingDict ? (
-            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2Icon className="size-3 animate-spin" /> 查询中…
-            </p>
-          ) : entry ? (
-            <div className="mt-1.5 flex flex-col gap-1">
-              <p className="text-[13px] text-foreground">{entry.definitionCn}</p>
-              {entry.definitionEn && (
-                <p className="text-[11px] text-muted-foreground">{entry.definitionEn}</p>
-              )}
-              {synonyms.length > 0 && (
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  <span className="font-semibold">近义：</span>
-                  {synonyms.slice(0, 6).join("、")}
-                </p>
-              )}
-            </div>
-          ) : (
-            <p className="mt-1.5 text-[11px] text-muted-foreground">
-              词典未收录该词形，可参考下方 AI 语境解析。
-            </p>
-          )}
-        </section>
-
-        {/* AI 语境解析 */}
-        <section>
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="flex items-center gap-1 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              <SparklesIcon className="size-3" />
-              AI 语境解析
-            </h3>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <button
               type="button"
-              onClick={() => void runExplain(true)}
-              disabled={loadingAi}
-              className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-0.5 text-[10px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+              onClick={() => setAccent(accent === "us" ? "uk" : "us")}
+              className="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+              title="切换美音 / 英音"
             >
-              <RefreshCwIcon className={`size-3 ${loadingAi ? "animate-spin" : ""}`} />
-              重解析
+              {accent.toUpperCase()}
             </button>
+
+            <span className="font-mono text-xs text-muted-foreground tracking-wide">
+              {accent === "us"
+                ? entry?.phoneticUs && entry.phoneticUs !== `/${activeWord.toLowerCase()}/`
+                  ? entry.phoneticUs
+                  : "/.../"
+                : entry?.phoneticUk && entry.phoneticUk !== `/${activeWord.toLowerCase()}/`
+                ? entry.phoneticUk
+                : "/.../"}
+            </span>
+
+            <button
+              type="button"
+              onClick={() => playPronunciation(entry?.lemma || activeWord, accent === "us" ? entry?.audioUs : entry?.audioUk)}
+              className={`p-1 rounded-md text-muted-foreground hover:text-primary transition-colors cursor-pointer ${
+                isPlayingAudio ? "text-primary animate-pulse" : ""
+              }`}
+              title="播放真人发音"
+            >
+              <Volume2Icon className="size-4" />
+            </button>
+
+            {lemmatized.isInflected && (
+              <>
+                <span className="text-border">|</span>
+                <span className="text-[11px] font-mono text-muted-foreground">
+                  原形: {lemmatized.baseLemma}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* 权威词典释义 */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between text-[11px] font-semibold text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <BookOpenIcon className="size-3" /> 权威词典释义
+            </span>
+            {entry?.tags ? (
+              <span className="font-mono text-[10px] text-primary/80 font-medium truncate max-w-[150px]">
+                {entry.tags.replace(/,/g, " · ")}
+              </span>
+            ) : null}
           </div>
 
-          {loadingAi && !explain ? (
-            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2Icon className="size-3 animate-spin" /> 正在结合语境分析…
+          {loading ? (
+            <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground py-3">
+              <Loader2Icon className="size-3.5 animate-spin text-primary" />
+              <span>正在检索词典释义...</span>
+            </div>
+          ) : defItems.length > 0 ? (
+            <div className="rounded-xl border border-border/80 bg-muted/30 p-3 flex flex-col gap-2">
+              {defItems.map((item, idx) => (
+                <div key={idx} className="flex items-baseline gap-2 text-xs leading-relaxed">
+                  <span className="font-serif italic font-semibold text-primary shrink-0 w-7">
+                    {item.label.replace(/[\[\]]/g, "").trim()}
+                  </span>
+                  <span className="text-foreground/90 font-medium">
+                    {item.meaning}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-border/80 bg-muted/20 p-3 text-xs text-muted-foreground">
+              {entry?.definitionCn && !entry.definitionCn.includes("自定义导入词条")
+                ? entry.definitionCn
+                : "暂无离线中文释义"}
+            </div>
+          )}
+        </div>
+
+        {/* 当前视频台词原句语境与重播 */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between text-[11px] font-semibold text-muted-foreground">
+            <span>当前视频台词原句</span>
+            <span className="font-mono text-[10px] text-primary">
+              {formatTime(cue.startMs / 1000)}
+            </span>
+          </div>
+
+          <div className="rounded-xl border border-border/80 bg-muted/40 p-3.5 flex flex-col gap-2.5">
+            {/* 英文台词 */}
+            <p className="text-xs sm:text-[13px] font-serif leading-relaxed text-foreground select-text">
+              “{renderHighlightedText(cue.sourceText, word)}”
             </p>
-          ) : explain ? (
-            <div className="mt-1.5 flex flex-col gap-2.5">
-              {explain.contextMeaning && (
-                <div>
-                  <span className="text-[10px] font-semibold text-muted-foreground">
-                    语境含义
-                  </span>
-                  <p className="text-[12px] leading-relaxed text-foreground">
-                    {explain.contextMeaning}
-                  </p>
-                </div>
-              )}
-              {explain.grammarRole && (
-                <div>
-                  <span className="text-[10px] font-semibold text-muted-foreground">
-                    语法角色
-                  </span>
-                  <p className="text-[12px] leading-relaxed text-foreground">
-                    {explain.grammarRole}
-                  </p>
-                </div>
-              )}
-              {explain.collocations?.length > 0 && (
-                <div>
-                  <span className="text-[10px] font-semibold text-muted-foreground">
-                    常用搭配
-                  </span>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {explain.collocations.map((c) => (
-                      <span
-                        key={c}
-                        className="rounded-md border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-[11px] text-foreground"
+
+            {/* 中文翻译 */}
+            {cue.translation && (
+              <p className="text-xs leading-relaxed text-muted-foreground font-sans select-text border-t border-border/40 pt-2">
+                {cue.translation}
+              </p>
+            )}
+
+            {/* 重听本句按钮 */}
+            {onReplayCue && (
+              <div className="pt-1 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => onReplayCue(cue)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-primary/10 text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+                  title="跳转至本句开始时间并重放"
+                >
+                  <RotateCcwIcon className="size-3" />
+                  <span>重听本句 ({formatTime(cue.startMs / 1000)})</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 同近义词与反义词扩展 */}
+        {(() => {
+          const synonymList = parseJsonArray(entry?.synonyms)
+          const antonymList = parseJsonArray(entry?.antonyms)
+          if (synonymList.length === 0 && antonymList.length === 0) return null
+
+          return (
+            <div className="flex flex-col gap-2.5 rounded-xl border border-border/70 bg-muted/20 p-3">
+              {synonymList.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between text-[11px] font-semibold text-muted-foreground">
+                    <span>同近义词 ({synonymList.length})</span>
+                    <span className="text-[10px] text-muted-foreground/70">点击可切换查词</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {synonymList.map((syn, idx) => (
+                      <button
+                        type="button"
+                        key={idx}
+                        onClick={() => setActiveWord(syn)}
+                        className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
+                          activeWord.toLowerCase() === syn.toLowerCase()
+                            ? "bg-primary/15 text-primary border-primary/40 font-semibold shadow-xs"
+                            : "bg-muted/50 hover:bg-primary/10 hover:text-primary hover:border-primary/30 text-foreground/85 border-border/50"
+                        }`}
+                        title={`点击查词: ${syn}`}
                       >
-                        {c}
-                      </span>
+                        {syn}
+                      </button>
                     ))}
                   </div>
                 </div>
               )}
-              {explain.mnemonics && (
-                <div>
-                  <span className="text-[10px] font-semibold text-muted-foreground">
-                    记忆法
-                  </span>
-                  <p className="text-[12px] leading-relaxed text-foreground">
-                    {explain.mnemonics}
-                  </p>
-                </div>
-              )}
-              {explain.examTips && (
-                <div>
-                  <span className="text-[10px] font-semibold text-muted-foreground">
-                    考点提示
-                  </span>
-                  <p className="text-[12px] leading-relaxed text-foreground">
-                    {explain.examTips}
-                  </p>
+
+              {antonymList.length > 0 && (
+                <div className="flex flex-col gap-1.5 border-t border-border/40 pt-2">
+                  <span className="text-[11px] font-semibold text-muted-foreground">反义词</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {antonymList.map((ant, idx) => (
+                      <button
+                        type="button"
+                        key={idx}
+                        onClick={() => setActiveWord(ant)}
+                        className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-muted/40 hover:bg-rose-500/10 hover:text-rose-500 hover:border-rose-500/30 text-foreground/80 border border-border/50 transition-colors cursor-pointer"
+                        title={`点击查词: ${ant}`}
+                      >
+                        {ant}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
-          ) : (
-            <p className="mt-1.5 text-[11px] text-muted-foreground">
-              暂无解析结果。
-            </p>
-          )}
-        </section>
-
-        {error && (
-          <div className="flex items-start gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-amber-700 dark:text-amber-300">
-            <AlertCircleIcon className="mt-0.5 size-3.5 shrink-0" />
-            {error}
-          </div>
-        )}
+          )
+        })()}
       </div>
 
-      {/* 底部操作 */}
-      <footer className="border-t border-border px-4 py-3">
+      {/* 3. 底部收录动作区 */}
+      <div className="mt-auto p-4 border-t border-border/50 bg-muted/10">
         <button
           type="button"
-          onClick={() => void addToVocab()}
-          disabled={saving || saved}
-          className={`inline-flex w-full items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold transition-colors ${
-            saved
-              ? "border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-              : "bg-primary text-primary-foreground hover:opacity-90"
-          } disabled:opacity-70`}
+          onClick={handleToggleHarvest}
+          className={`w-full h-9 rounded-xl font-semibold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs ${
+            isHarvested
+              ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+              : "bg-primary text-primary-foreground hover:bg-primary/90"
+          }`}
         >
-          {saved ? (
+          {isHarvested ? (
             <>
-              <CheckIcon className="size-3.5" /> 已加入生词本
-            </>
-          ) : saving ? (
-            <>
-              <Loader2Icon className="size-3.5 animate-spin" /> 正在加入…
+              <CheckIcon className="size-3.5 stroke-[2.5]" />
+              <span>已收录此视频生词卡片</span>
             </>
           ) : (
             <>
-              <BookmarkPlusIcon className="size-3.5" /> 加入生词本（带语境例句）
+              <HeartIcon className="size-3.5" />
+              <span>收录此生词至生词本</span>
             </>
           )}
         </button>
-      </footer>
+      </div>
     </aside>
   )
 }

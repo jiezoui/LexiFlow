@@ -147,13 +147,29 @@ def load_phoneme_model():
         return _PHONEME_BUNDLE
 
     import torch
-    from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+    from transformers import (
+        Wav2Vec2CTCTokenizer,
+        Wav2Vec2FeatureExtractor,
+        Wav2Vec2ForCTC,
+        Wav2Vec2Processor,
+    )
 
     name = config.PHONEME_MODEL
     LOG.info("加载音素 CTC 模型 %s …", name)
-    processor = Wav2Vec2Processor.from_pretrained(
-        name, cache_dir=str(config.MODEL_CACHE_DIR / "hub")
-    )
+    try:
+        processor = Wav2Vec2Processor.from_pretrained(
+            name, cache_dir=str(config.MODEL_CACHE_DIR / "hub")
+        )
+    except Exception as exc:  # noqa: BLE001
+        LOG.warning("Wav2Vec2Processor.from_pretrained 失败 (%s)，回退显式构造 (FeatureExtractor + CTCTokenizer)", exc)
+        feat = Wav2Vec2FeatureExtractor.from_pretrained(
+            name, cache_dir=str(config.MODEL_CACHE_DIR / "hub")
+        )
+        tok = Wav2Vec2CTCTokenizer.from_pretrained(
+            name, cache_dir=str(config.MODEL_CACHE_DIR / "hub")
+        )
+        processor = Wav2Vec2Processor(feature_extractor=feat, tokenizer=tok)
+
     model = Wav2Vec2ForCTC.from_pretrained(
         name, cache_dir=str(config.MODEL_CACHE_DIR / "hub")
     )

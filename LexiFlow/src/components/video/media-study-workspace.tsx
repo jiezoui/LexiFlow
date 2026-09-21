@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { ArrowLeftIcon, CaptionsIcon, LanguagesIcon, LoaderCircleIcon, RefreshCwIcon, VideoIcon } from "lucide-react"
+import { ArrowLeftIcon, CaptionsIcon, LanguagesIcon, LoaderCircleIcon, RefreshCwIcon, SparklesIcon, VideoIcon } from "lucide-react"
 import { mediaApi, type MediaCue, type MediaCueTranslation, type MediaItem } from "@/lib/api-client"
 import { MediaPlayer, type MediaPlayerHandle } from "@/components/video/media-player"
 import { TranscriptRail } from "@/components/video/transcript-rail"
@@ -227,13 +227,20 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
         </div>
         <div className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
           {media.status === "PROCESSING" && (
-            <div className="flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-primary">
-              <LoaderCircleIcon className="size-3.5 animate-spin" />
-              <span>正在获取与转写字幕...</span>
+            <div className="flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/10 px-3 py-1 text-primary shadow-xs">
+              <LoaderCircleIcon className="size-3.5 animate-spin shrink-0" />
+              <div className="flex items-center gap-1.5 font-medium">
+                <span>{media.processingDetail || "正在获取与转写字幕..."}</span>
+                {media.processingProgress != null && media.processingProgress > 0 && (
+                  <span className="font-mono text-[10px] font-bold rounded-sm bg-primary/20 px-1 py-0.5">
+                    {media.processingProgress}%
+                  </span>
+                )}
+              </div>
             </div>
           )}
 
-          {(media.status === "WAITING_SUBTITLE" || media.status === "FAILED") && (
+          {(media.status === "WAITING_SUBTITLE" || media.status === "FAILED" || media.status === "READY") && (
             <button
               type="button"
               onClick={() => void handleReprocess()}
@@ -242,7 +249,7 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
               title="自动探测 YouTube 原生字幕或调用 Whisper 转写"
             >
               <RefreshCwIcon className={`size-3.5 ${isReprocessing ? "animate-spin" : ""}`} />
-              <span>获取/转写字幕</span>
+              <span>{media.status === "READY" ? "重新转写字幕" : "获取/转写字幕"}</span>
             </button>
           )}
 
@@ -346,15 +353,65 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
         </main>
 
         <div className="relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-background">
-          <TranscriptRail
-            cues={cues}
-            activeIndex={activeIndex}
-            onCueSelect={(cue) => playerRef.current?.seekTo(cue.startMs / 1000)}
-            onWordSelect={handleWordSelect}
-            selectedWord={selectedWordTarget?.word}
-            emptyTitle={media.source === "YOUTUBE" ? "尚未导入字幕" : undefined}
-            emptyDescription={media.source === "YOUTUBE" ? "导入 SRT 或 VTT 英文字幕后，会自动生成中文翻译并启用字幕跟随。" : undefined}
-          />
+          {media.status === "PROCESSING" && cues.length === 0 ? (
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-6 text-center">
+              <div className="relative flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <LoaderCircleIcon className="size-8 animate-spin" />
+                <div className="absolute -bottom-1 -right-1 flex size-5 items-center justify-center rounded-full bg-background shadow-xs">
+                  <SparklesIcon className="size-3 text-amber-500" />
+                </div>
+              </div>
+
+              <h2 className="mt-4 text-base font-bold text-foreground">
+                正在通过 AI Whisper 转写字幕
+              </h2>
+              <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
+                采用 faster-whisper 引擎进行高精度逐句切分与词级时间戳识别。
+              </p>
+
+              {/* 实时进度卡片 */}
+              <div className="mt-5 w-full max-w-xs rounded-xl border border-border/80 bg-muted/40 p-4 text-left shadow-xs">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-medium text-foreground truncate max-w-[200px]" title={media.processingDetail || "准备模型与音频..."}>
+                    {media.processingDetail || "准备模型与音频..."}
+                  </span>
+                  <span className="font-mono font-bold text-primary shrink-0 ml-2">
+                    {media.processingProgress || 0}%
+                  </span>
+                </div>
+
+                {/* 进度条 */}
+                <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-border/60">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
+                    style={{ width: `${Math.max(5, media.processingProgress || 0)}%` }}
+                  />
+                </div>
+
+                <div className="mt-3 flex items-center justify-between border-t border-border/40 pt-2.5 text-[11px] text-muted-foreground">
+                  <span>当前阶段</span>
+                  <span className="font-medium text-foreground">
+                    {media.processingStage === "TRANSCRIBING" ? "逐句转写中" : (media.processingStage || "分析中")}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-6 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <CaptionsIcon className="size-3.5 text-primary/70" />
+                <span>转写完成后将自动呈现双语精听与词汇研读工作台</span>
+              </div>
+            </div>
+          ) : (
+            <TranscriptRail
+              cues={cues}
+              activeIndex={activeIndex}
+              onCueSelect={(cue) => playerRef.current?.seekTo(cue.startMs / 1000)}
+              onWordSelect={handleWordSelect}
+              selectedWord={selectedWordTarget?.word}
+              emptyTitle={media.source === "YOUTUBE" ? "尚未导入字幕" : undefined}
+              emptyDescription={media.source === "YOUTUBE" ? "导入 SRT 或 VTT 英文字幕后，会自动生成中文翻译并启用字幕跟随。" : undefined}
+            />
+          )}
 
           {/* 右侧单词精析抽屉 */}
           {selectedWordTarget && (
