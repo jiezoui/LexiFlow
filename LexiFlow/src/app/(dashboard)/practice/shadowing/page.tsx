@@ -22,29 +22,28 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import Link from "next/link"
+import { createPortal } from "react-dom"
 import {
   ActivityIcon,
   AlertCircleIcon,
   ArrowRightIcon,
-  BarChart3Icon,
   BookOpenIcon,
   CheckCircle2Icon,
-  FlameIcon,
-  GaugeIcon,
+  FileTextIcon,
+  FileUpIcon,
   HistoryIcon,
   LayersIcon,
   Loader2Icon,
   MicIcon,
   PauseIcon,
   PlayIcon,
-  PlusIcon,
   RadioIcon,
   RotateCcwIcon,
   SparklesIcon,
   SquareIcon,
   TargetIcon,
   Trash2Icon,
+  UploadIcon,
   Volume2Icon,
   XIcon,
 } from "lucide-react"
@@ -78,13 +77,93 @@ const SOURCE_META: Record<
     description: "来自你正在记忆的生词，跟读同时巩固语境",
   },
   CUSTOM: {
-    label: "自主输入句子",
-    icon: LayersIcon,
-    description: "粘贴任意英文句子，随时开练",
+    label: "上传文本",
+    icon: FileUpIcon,
+    description: "上传 txt / srt / md 文本，自动切句后批量导入个人句库",
   },
 }
 
 const SPEED_OPTIONS = [0.75, 1.0, 1.25] as const
+
+/** 单次最多导入的句子数：既保护后端，也让「导入 → 立刻开练」不至于等太久。 */
+const MAX_IMPORT = 50
+
+/** 可上传的纯文本后缀（也接受浏览器判定为 text/* 的文件）。 */
+const TEXT_FILE_PATTERN = /\.(txt|text|md|markdown|srt|vtt|csv|tsv|log)$/i
+
+/** 单行超过这个长度时，按句末标点再切一次（避免一句话长到没法跟读）。 */
+const LONG_LINE_THRESHOLD = 140
+
+interface ParsedSentence {
+  text: string
+  translation?: string
+}
+
+/** 归一化比较键：忽略大小写、标点与空白，用于在导入前识别「重复句」。 */
+function normalizeForCompare(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+}
+
+/** 去掉行首的项目符号 / 编号，例如 `1.` `2)` `-` `•`。 */
+function stripLeadingMarker(line: string): string {
+  return line.replace(/^(?:[-–—•*·※]|\(?\d{1,3}[.)、]|[a-zA-Z][.)])\s+/, "").trim()
+}
+
+/**
+ * 把上传/粘贴的纯文本切成「一句一条」的跟读句。
+ *
+ * 兼容三类常见输入：
+ *   - 纯文本 / Markdown：一行一句
+ *   - SRT / VTT 字幕：跳过序号行与时间轴行
+ *   - 带译文的对照文本：`英文 | 中文` 或 Tab 分隔（右半部分作为参考译文）
+ *
+ * 同一批里重复的句子只保留第一条；超长行按句末标点再切分。
+ */
+function parseTextToSentences(raw: string): ParsedSentence[] {
+  const out: ParsedSentence[] = []
+  const seen = new Set<string>()
+
+  for (const rawLine of raw.split(/\r?\n/)) {
+    let line = rawLine.trim()
+    if (!line) continue
+    if (/^WEBVTT/i.test(line)) continue
+    if (/^\d+$/.test(line)) continue
+    if (/^\d{1,2}:\d{2}(:\d{2})?([,.]\d{1,3})?\s*-->/.test(line)) continue
+
+    line = stripLeadingMarker(line)
+    if (!line) continue
+
+    // 「英文 | 中文」/ Tab 分隔：右半部分当作参考译文
+    let translation: string | undefined
+    const sep = line.includes("\t") ? "\t" : line.includes("|") ? "|" : null
+    if (sep) {
+      const idx = line.indexOf(sep)
+      const left = line.slice(0, idx).trim()
+      const right = line.slice(idx + sep.length).trim()
+      if (left) {
+        line = left
+        translation = right || undefined
+      }
+    }
+    if (!line) continue
+
+    const chunks =
+      line.length > LONG_LINE_THRESHOLD ? (line.match(/[^.!?…]+[.!?…]*/g) ?? [line]) : [line]
+    for (const chunk of chunks) {
+      const text = chunk.trim().replace(/\s+/g, " ")
+      if (text.length < 2) continue
+      const key = normalizeForCompare(text)
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      out.push({ text, translation: chunks.length === 1 ? translation : undefined })
+    }
+  }
+
+  return out
+}
 
 function formatWhen(iso: string | null): string {
   if (!iso) return "未练习"
@@ -120,12 +199,15 @@ function SentenceWorkspace({
   onSaved,
   onRequestNext,
   hasNext,
+  reportHost,
 }: {
   sentence: ShadowingSentence
   playRate: number
   onSaved: () => void
   onRequestNext: () => void
   hasNext: boolean
+  /** 右侧「评测报告」列的挂载点：卡片在左、报告在右，由父组件给出 DOM 节点 */
+  reportHost: HTMLDivElement | null
 }) {
   const recorder = useShadowingRecorder()
 
@@ -302,9 +384,10 @@ function SentenceWorkspace({
 
   return (
     <>
-      <div className="flex flex-col gap-6 rounded-3xl border border-border/80 bg-gradient-to-b from-card via-card/95 to-card/90 p-6 shadow-md sm:p-8">
+      {/* 主体卡片：撑满左列剩余高度（不滚动），句子区在中间垂直居中 */}
+      <div className="flex min-h-[300px] flex-1 flex-col gap-3 rounded-3xl border border-border/80 bg-gradient-to-b from-card via-card/95 to-card/90 p-4 shadow-md sm:gap-4 sm:p-6">
         {/* 元数据 + 参考音 */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-primary/10 px-2.5 py-0.5 font-mono text-[10px] font-bold text-primary">
               {sentence.sourceTitle}
@@ -357,13 +440,13 @@ function SentenceWorkspace({
           </div>
         </div>
 
-        {/* 基准句 + 译文 + IPA */}
-        <div className="flex flex-col gap-4">
-          <p className="font-serif text-xl leading-relaxed font-bold tracking-tight text-foreground sm:text-2xl md:text-3xl">
+        {/* 基准句 + 译文 + IPA：与波形各占一半弹性空间，句子随高度自动放大 */}
+        <div className="flex min-h-0 flex-1 flex-col justify-center gap-3">
+          <p className="font-serif text-[clamp(1.25rem,3vh,2rem)] leading-snug font-bold tracking-tight text-foreground">
             &ldquo;{sentence.text}&rdquo;
           </p>
           {sentence.translation && (
-            <p className="text-xs leading-normal text-muted-foreground sm:text-sm">
+            <p className="text-[11px] leading-snug text-muted-foreground sm:text-xs">
               {sentence.translation}
             </p>
           )}
@@ -396,17 +479,18 @@ function SentenceWorkspace({
           )}
         </div>
 
-        {/* 录音区 */}
-        <div className="flex flex-col items-center justify-center gap-4 border-t border-border/60 pt-6">
-          <AudioWaveform
-            isRecording={recorder.isRecording}
-            audioStream={null}
-            waveform={recorder.waveform}
-            level={recorder.level}
-            elapsedMs={recorder.elapsedMs}
-            className="h-24 w-full max-w-xl"
-          />
+        {/* 实时波形：随卡片剩余高度伸展（上下限都留了约束，短屏也不会把内容挤出卡片） */}
+        <AudioWaveform
+          isRecording={recorder.isRecording}
+          audioStream={null}
+          waveform={recorder.waveform}
+          level={recorder.level}
+          elapsedMs={recorder.elapsedMs}
+          className="max-h-48 min-h-16 w-full flex-1"
+        />
 
+        {/* 录音控制区（固定在卡片底部） */}
+        <div className="flex shrink-0 flex-col items-center justify-center gap-3 border-t border-border/60 pt-3">
           {recorder.isRecording && (
             <div className="flex items-center gap-3 font-mono text-xs">
               <span className="flex items-center gap-1.5 font-bold text-rose-600 dark:text-rose-400">
@@ -432,7 +516,7 @@ function SentenceWorkspace({
                 type="button"
                 onClick={() => void startRecording()}
                 disabled={isEvaluating}
-                className="flex items-center gap-3 rounded-2xl bg-primary px-8 py-3.5 text-sm font-bold text-primary-foreground shadow-lg transition-all hover:scale-105 hover:opacity-95 active:scale-95 disabled:opacity-50"
+                className="flex items-center gap-2.5 rounded-2xl bg-primary px-7 py-3.5 text-sm font-bold text-primary-foreground shadow-lg transition-all hover:scale-105 hover:opacity-95 active:scale-95 disabled:opacity-50"
               >
                 <span className="flex size-8 items-center justify-center rounded-full bg-primary-foreground/20">
                   <MicIcon className="size-4" />
@@ -443,7 +527,7 @@ function SentenceWorkspace({
               <button
                 type="button"
                 onClick={() => void stopAndEvaluate()}
-                className="flex animate-pulse items-center gap-3 rounded-2xl bg-rose-600 px-8 py-3.5 text-sm font-bold text-white shadow-xl transition-all hover:scale-105 hover:bg-rose-700 active:scale-95"
+                className="flex animate-pulse items-center gap-2.5 rounded-2xl bg-rose-600 px-7 py-3.5 text-sm font-bold text-white shadow-xl transition-all hover:scale-105 hover:bg-rose-700 active:scale-95"
               >
                 <span className="flex size-8 items-center justify-center rounded-full bg-white/20">
                   <SquareIcon className="size-4 fill-white" />
@@ -483,6 +567,8 @@ function SentenceWorkspace({
           <p className="text-center font-mono text-[11px] text-muted-foreground">
             {recorder.isRecording
               ? "正在采集 16kHz 单声道音频，读完请点击「结束并评测」"
+              : assessment
+              ? "已出分：先看「本轮反馈」的主要问题，按提示调整口型后再重录一遍"
               : "建议先听 1~2 遍标准原声，再模仿母语者的语流、连读与重音跟读"}
           </p>
 
@@ -495,102 +581,117 @@ function SentenceWorkspace({
         </div>
       </div>
 
-      {/* 评测中 */}
-      {isEvaluating && (
-        <div className="flex flex-col items-center justify-center gap-3 rounded-3xl border border-border bg-card/60 p-12">
-          <Loader2Icon className="size-8 animate-spin text-primary" />
-          <p className="font-mono text-sm font-semibold text-foreground">正在评测发音…</p>
-          <p className="max-w-md text-center font-mono text-[11px] text-muted-foreground">
-            Whisper 转写 → 音素 CTC 前向-后向强制对齐 → GOP 打分，CPU 推理通常 2~5 秒
-          </p>
-        </div>
-      )}
-
-      {/* 评测错误 */}
-      {evalError && !isEvaluating && (
-        <div className="flex flex-col gap-2 rounded-3xl border border-rose-500/40 bg-rose-500/5 p-5">
-          <div className="flex items-center gap-2 text-sm font-bold text-rose-700 dark:text-rose-300">
-            <AlertCircleIcon className="size-4" />
-            评测失败
-          </div>
-          <p className="text-xs text-muted-foreground">{evalError}</p>
-          <p className="font-mono text-[11px] text-muted-foreground">
-            排查顺序：① 语音桥接服务是否运行（scripts\start-speech-bridge.ps1）
-            ② 麦克风是否授权 ③ 录音是否过短
-          </p>
-        </div>
-      )}
-
-      {/* 评测结果 */}
+      {/* A/B 听觉对比 + 换句：属于「练习动作」，留在左列卡片下方 */}
       {assessment && !isEvaluating && (
-        <div className="flex flex-col gap-4">
-          {saveNotice && (
-            <div
-              className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-[11px] ${
-                saveNotice.includes("失败")
-                  ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                  : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-              }`}
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-muted/40 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[11px] font-bold text-foreground">声学听觉对比</span>
+            <button
+              type="button"
+              onClick={playReference}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-2.5 py-1 text-[11px] font-semibold transition-colors hover:bg-muted"
             >
-              {saveNotice.includes("失败") ? (
-                <AlertCircleIcon className="size-3.5" />
-              ) : (
-                <CheckCircle2Icon className="size-3.5" />
-              )}
-              {saveNotice}
-              {!assessment.engine.phoneme_alignment &&
-                " · 本次为词级评分（音素模型未就绪）"}
-            </div>
-          )}
-
-          <ShadowingVerdict result={assessment} onPlayWord={playWord} />
-
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-border bg-muted/40 p-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="font-mono text-xs font-bold text-foreground">声学听觉对比</span>
+              <Volume2Icon className="size-3.5 text-primary" />
+              母语原声 [A]
+            </button>
+            {recordedUrl && (
               <button
                 type="button"
-                onClick={playReference}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-muted"
+                onClick={playMine}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/20 dark:text-emerald-300"
               >
-                <Volume2Icon className="size-3.5 text-primary" />
-                母语原声 [A]
+                <PlayIcon className="size-3.5" />
+                我的跟读 [B]
               </button>
-              {recordedUrl && (
-                <button
-                  type="button"
-                  onClick={playMine}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/20 dark:text-emerald-300"
-                >
-                  <PlayIcon className="size-3.5" />
-                  我的跟读 [B]
-                </button>
-              )}
-            </div>
+            )}
+          </div>
 
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void startRecording()}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-2.5 py-1 text-[11px] font-semibold transition-colors hover:bg-muted"
+            >
+              <RotateCcwIcon className="size-3.5" />
+              重录本句
+            </button>
+            {hasNext && (
               <button
                 type="button"
-                onClick={() => void startRecording()}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-muted"
+                onClick={onRequestNext}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3 py-1 text-[11px] font-bold text-primary-foreground shadow transition-opacity hover:opacity-90"
               >
-                <RotateCcwIcon className="size-3.5" />
-                重录本句
+                跟读下一句
+                <ArrowRightIcon className="size-3.5" />
               </button>
-              {hasNext && (
-                <button
-                  type="button"
-                  onClick={onRequestNext}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-1.5 text-xs font-bold text-primary-foreground shadow transition-opacity hover:opacity-90"
-                >
-                  跟读下一句
-                  <ArrowRightIcon className="size-3.5" />
-                </button>
-              )}
-            </div>
+            )}
           </div>
         </div>
       )}
+
+      {/*
+       * 评测报告（评测中 / 失败 / 得分与三选项卡）渲染到父组件提供的右列挂载点。
+       * 用 portal 而不是把状态提到页面：练习状态继续由本组件按 key={sentence.id}
+       * 持有并随换句重挂载，「左练习 / 右报告」只是同一份状态的两种摆放方式。
+       */}
+      {reportHost
+        ? createPortal(
+            <div className="flex flex-col gap-2.5">
+              {/* 评测中 */}
+              {isEvaluating && (
+                <div className="flex flex-col items-center justify-center gap-2.5 rounded-3xl border border-border bg-card/60 p-8">
+                  <Loader2Icon className="size-8 animate-spin text-primary" />
+                  <p className="font-mono text-sm font-semibold text-foreground">正在评测发音…</p>
+                  <p className="max-w-md text-center font-mono text-[11px] text-muted-foreground">
+                    Whisper 转写 → 音素 CTC 前向-后向强制对齐 → GOP 打分，CPU 推理通常 2~5 秒
+                  </p>
+                </div>
+              )}
+
+              {/* 评测错误 */}
+              {evalError && !isEvaluating && (
+                <div className="flex flex-col gap-2 rounded-3xl border border-rose-500/40 bg-rose-500/5 p-5">
+                  <div className="flex items-center gap-2 text-sm font-bold text-rose-700 dark:text-rose-300">
+                    <AlertCircleIcon className="size-4" />
+                    评测失败
+                  </div>
+                  <p className="text-xs text-muted-foreground">{evalError}</p>
+                  <p className="font-mono text-[11px] text-muted-foreground">
+                    排查顺序：① 语音桥接服务是否运行（scripts\start-speech-bridge.ps1）
+                    ② 麦克风是否授权 ③ 录音是否过短
+                  </p>
+                </div>
+              )}
+
+              {/* 评测结果 */}
+              {assessment && !isEvaluating && (
+                <>
+                  {saveNotice && (
+                    <div
+                      className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-[11px] ${
+                        saveNotice.includes("失败")
+                          ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                          : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                      }`}
+                    >
+                      {saveNotice.includes("失败") ? (
+                        <AlertCircleIcon className="size-3.5" />
+                      ) : (
+                        <CheckCircle2Icon className="size-3.5" />
+                      )}
+                      {saveNotice}
+                      {!assessment.engine.phoneme_alignment &&
+                        " · 本次为词级评分（音素模型未就绪）"}
+                    </div>
+                  )}
+
+                  <ShadowingVerdict result={assessment} onPlayWord={playWord} />
+                </>
+              )}
+            </div>,
+            reportHost
+          )
+        : null}
     </>
   )
 }
@@ -608,11 +709,18 @@ export default function ShadowingPracticePage() {
 
   const [stats, setStats] = useState<ShadowingStats | null>(null)
   const [history, setHistory] = useState<ShadowingAttemptRecord[]>([])
-  const [bridgeOnline, setBridgeOnline] = useState<boolean | null>(null)
 
-  const [customInput, setCustomInput] = useState("")
-  const [customTranslation, setCustomTranslation] = useState("")
+  const [uploadedText, setUploadedText] = useState("")
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
+  const [readingFile, setReadingFile] = useState(false)
+  const [dragActive, setDragActive] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [importProgress, setImportProgress] = useState<string | null>(null)
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  // 右侧「评测报告」列的挂载点：由 <SentenceWorkspace> 用 portal 往里渲染报告
+  const [reportHost, setReportHost] = useState<HTMLDivElement | null>(null)
 
   const [toast, setToast] = useState<string | null>(null)
 
@@ -675,15 +783,6 @@ export default function ShadowingPracticePage() {
       } catch {
         /* 统计失败忽略 */
       }
-
-      try {
-        const health = await speechApi.health()
-        if (!cancelled) {
-          setBridgeOnline(health.status === "UP" && health.engines.asr_loaded)
-        }
-      } catch {
-        if (!cancelled) setBridgeOnline(false)
-      }
     })()
     return () => {
       cancelled = true
@@ -724,29 +823,97 @@ export default function ShadowingPracticePage() {
     [sentences]
   )
 
-  const handleImportCustom = useCallback(async () => {
-    const text = customInput.trim()
-    if (!text) return
+  /** 上传/粘贴的文本解析结果：一次 parse，导入与预览共用。 */
+  const parsedSentences = useMemo(() => parseTextToSentences(uploadedText), [uploadedText])
+
+  const handleTextFile = useCallback(
+    async (file: File | undefined | null) => {
+      if (!file) return
+      if (file.size > 512 * 1024) {
+        setSentenceError("文本文件过大（超过 512KB），请拆分后再上传")
+        return
+      }
+      if (!TEXT_FILE_PATTERN.test(file.name) && !file.type.startsWith("text/")) {
+        setSentenceError("仅支持 txt / md / srt / vtt / csv 等纯文本文件")
+        return
+      }
+      setReadingFile(true)
+      setSentenceError(null)
+      try {
+        const text = await file.text()
+        setUploadedText(text)
+        setUploadedFileName(file.name)
+        setToast(`已读取 ${file.name}`)
+      } catch {
+        setSentenceError("文本读取失败，请换一个文件重试")
+      } finally {
+        setReadingFile(false)
+      }
+    },
+    []
+  )
+
+  /**
+   * 批量导入：逐句调用导入接口（后端对同句自动去重），
+   * 单句失败不中断整批，最后统一汇报「导入 / 跳过 / 失败」的数量。
+   */
+  const handleImportBatch = useCallback(async () => {
+    if (parsedSentences.length === 0 || importing) return
+    const batch = parsedSentences.slice(0, MAX_IMPORT)
+    const existing = new Set(
+      sentences.filter((s) => s.sourceType === "CUSTOM").map((s) => normalizeForCompare(s.text))
+    )
+    const sourceTitle = uploadedFileName
+      ? uploadedFileName.replace(/\.[^.]+$/, "").slice(0, 60)
+      : "上传文本"
+
     setImporting(true)
     setSentenceError(null)
-    try {
-      const created = await shadowingApi.createSentence({
-        text,
-        translation: customTranslation.trim() || undefined,
-        cefrLevel: "B2",
-      })
-      setCustomInput("")
-      setCustomTranslation("")
-      await loadSentences()
-      setActiveTab("CUSTOM")
-      setCurrentId(created.id)
-      setToast("自定义跟读句已导入")
-    } catch (err: unknown) {
-      setSentenceError(err instanceof Error ? err.message : "导入失败")
-    } finally {
-      setImporting(false)
+    let created = 0
+    let skipped = 0
+    let failed = 0
+    let firstId: number | null = null
+
+    for (const [index, item] of batch.entries()) {
+      setImportProgress(`${index + 1}/${batch.length}`)
+      if (existing.has(normalizeForCompare(item.text))) {
+        skipped += 1
+        continue
+      }
+      try {
+        const vo = await shadowingApi.createSentence({
+          text: item.text,
+          translation: item.translation,
+          cefrLevel: "B2",
+          sourceTitle,
+        })
+        existing.add(normalizeForCompare(item.text))
+        created += 1
+        if (firstId === null) firstId = vo.id
+      } catch {
+        failed += 1
+      }
     }
-  }, [customInput, customTranslation, loadSentences])
+
+    try {
+      const list = await loadSentences()
+      setActiveTab("CUSTOM")
+      setCurrentId(firstId ?? list.find((s) => s.sourceType === "CUSTOM")?.id ?? null)
+    } catch {
+      // 刷新失败不影响导入结果提示
+    }
+
+    const tail = parsedSentences.length > MAX_IMPORT ? `（单次上限 ${MAX_IMPORT} 句，剩余请再次导入）` : ""
+    setToast(
+      `已导入 ${created} 句${skipped ? `，跳过重复 ${skipped} 句` : ""}${
+        failed ? `，失败 ${failed} 句` : ""
+      }${tail}`
+    )
+    setUploadedText("")
+    setUploadedFileName(null)
+    setImportProgress(null)
+    setImporting(false)
+  }, [parsedSentences, importing, sentences, uploadedFileName, loadSentences])
 
   const handleDeleteCustom = useCallback(
     async (id: number) => {
@@ -767,116 +934,32 @@ export default function ShadowingPracticePage() {
   )
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-5 p-4 pt-2 md:p-6">
-      {/* ══ 标题 + 服务状态 ══ */}
-      <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
-        <div>
-          <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-primary">
-            <RadioIcon className="size-3.5" />
-            Acoustic Shadowing · Forced Alignment · Phoneme GOP
-          </div>
-          <h1 className="mt-0.5 text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">
-            语脉 · 影子跟读智能评测工坊
-          </h1>
-          <p className="mt-1 max-w-3xl text-xs text-muted-foreground sm:text-sm">
-            本地 Whisper ASR 转写 × wav2vec2 音素 CTC 强制对齐，逐音素给出后验概率与发音诊断，
-            再按三维评分反哺记忆训练。
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {bridgeOnline === false && (
-            <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-              <AlertCircleIcon className="size-3.5" />
-              语音服务未就绪 · 运行 scripts\start-speech-bridge.ps1
-            </span>
-          )}
-          {bridgeOnline === true && (
-            <span className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-              <CheckCircle2Icon className="size-3.5" />
-              本地语音引擎在线
-            </span>
-          )}
-          <Link
-            href="/cards"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3.5 py-2 text-xs font-bold transition-colors hover:bg-muted"
-          >
-            <BookOpenIcon className="size-3.5" />
-            闪卡工作台
-          </Link>
-          <Link
-            href="/reading"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3.5 py-2 text-xs font-bold transition-colors hover:bg-muted"
-          >
-            <LayersIcon className="size-3.5" />
-            外刊阅读库
-          </Link>
-        </div>
+    // 高度链：shell 侧栏留白 1rem + 顶栏 4rem ⇒ 可视区高 = 100svh - 5rem。
+    // 这里刻意不用 flex-1：flex-basis:0 会让 height 失效、页面被内容撑高，
+    // 从而出现整页滚动条。改用确定高度 + overflow-hidden，滚动交给两列内部。
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-2 p-4 pt-2 md:px-6 lg:h-[calc(100svh-5rem)] lg:overflow-hidden">
+      {/* ══ 标题（一行放下：技术标签 + 标题 + 一句话说明）══ */}
+      <header className="flex shrink-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+        <h1 className="text-lg font-extrabold tracking-tight text-foreground sm:text-xl">
+          语脉 · 影子跟读智能评测工坊
+        </h1>
+        <span className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-primary">
+          <RadioIcon className="size-3" />
+          Acoustic Shadowing · Forced Alignment · Phoneme GOP
+        </span>
+        <span className="hidden text-[11px] text-muted-foreground xl:inline">
+          本地 Whisper ASR × wav2vec2 音素 CTC 强制对齐，逐音素给出后验概率与发音诊断
+        </span>
       </header>
 
-      {/* ══ 训练总览 ══ */}
-      {stats && stats.totalAttempts > 0 && (
-        <section className="grid grid-cols-2 gap-3 md:grid-cols-5">
-          {[
-            {
-              label: "累计跟读",
-              value: stats.totalAttempts,
-              unit: "次",
-              icon: MicIcon,
-              hint: `今日 ${stats.todayAttempts} 次`,
-            },
-            {
-              label: "平均得分",
-              value: stats.averageScore,
-              unit: "/100",
-              icon: GaugeIcon,
-              hint: `最高 ${stats.bestScore}`,
-            },
-            {
-              label: "已掌握句子",
-              value: stats.masteredSentences,
-              unit: `/ ${stats.practicedSentences}`,
-              icon: TargetIcon,
-              hint: "最高分 ≥ 85 视为掌握",
-            },
-            {
-              label: "连续打卡",
-              value: stats.streakDays,
-              unit: "天",
-              icon: FlameIcon,
-              hint: `累计 ${stats.totalDurationMinutes} 分钟`,
-            },
-            {
-              label: "今日平均",
-              value: stats.todayAverageScore,
-              unit: "/100",
-              icon: BarChart3Icon,
-              hint: stats.todayAttempts > 0 ? "保持节奏" : "今天还没练",
-            },
-          ].map((card) => (
-            <div
-              key={card.label}
-              className="flex flex-col gap-1 rounded-2xl border border-border bg-card p-3.5"
-            >
-              <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                <card.icon className="size-3.5" />
-                {card.label}
-              </div>
-              <div className="flex items-baseline gap-1">
-                <span className="font-mono text-xl font-bold text-foreground">{card.value}</span>
-                <span className="font-mono text-[10px] text-muted-foreground">{card.unit}</span>
-              </div>
-              <span className="text-[10px] text-muted-foreground">{card.hint}</span>
-            </div>
-          ))}
-        </section>
-      )}
-
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+      {/* grid-rows-[minmax(0,1fr)]：把唯一一行的高度钉死在可视区内，
+          这样两列内部的 overflow-y-auto 才会生效，而不是把页面撑高。
+          左列＝跟读练习，右列＝评测报告（本轮反馈 / 逐词发音 / 完整分析）+ 训练统计 */}
+      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[minmax(0,1fr)]">
         {/* ══════════ 主工作区 ══════════ */}
-        <div className="flex min-w-0 flex-col gap-5">
+        <div className="flex min-h-0 min-w-0 flex-col gap-2">
           {/* 题源标签 + 语速 */}
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/80 bg-muted/40 p-1.5">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/80 bg-muted/40 p-1.5">
             <div className="flex flex-wrap items-center gap-1 rounded-xl border border-border/60 bg-card/80 p-1">
               {(Object.keys(SOURCE_META) as SourceTab[]).map((key) => {
                 const meta = SOURCE_META[key]
@@ -921,50 +1004,145 @@ export default function ShadowingPracticePage() {
             </div>
           </div>
 
-          {/* 自定义导入 */}
+          {/* 上传文本（替代原来的「自主输入句子」：上传/拖入文本文件，或直接粘贴多行文本） */}
           {activeTab === "CUSTOM" && (
-            <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card/70 p-4">
-              <div className="flex flex-col gap-2 sm:flex-row">
+            <div
+              onDragOver={(e) => {
+                e.preventDefault()
+                setDragActive(true)
+              }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={(e) => {
+                e.preventDefault()
+                setDragActive(false)
+                void handleTextFile(e.dataTransfer.files?.[0])
+              }}
+              className={`flex shrink-0 flex-col gap-2 rounded-2xl border bg-card/70 p-3 transition-colors ${
+                dragActive ? "border-primary bg-primary/5" : "border-border"
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <FileUpIcon className="size-4 shrink-0 text-primary" />
+                  <span className="text-xs font-bold text-foreground">上传跟读文本</span>
+                  {uploadedFileName ? (
+                    <span className="flex min-w-0 items-center gap-1 truncate rounded-lg bg-muted px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+                      <FileTextIcon className="size-3 shrink-0" />
+                      <span className="truncate">{uploadedFileName}</span>
+                    </span>
+                  ) : (
+                    <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                      支持 txt / md / srt / vtt / csv，拖进来即可
+                    </span>
+                  )}
+                </div>
                 <input
-                  type="text"
-                  placeholder="粘贴或键入任意想跟读的英文句子…"
-                  value={customInput}
-                  onChange={(e) => setCustomInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void handleImportCustom()
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".txt,.text,.md,.markdown,.srt,.vtt,.csv,.tsv,.log,text/plain"
+                  className="hidden"
+                  onChange={(e) => {
+                    void handleTextFile(e.target.files?.[0])
+                    e.target.value = ""
                   }}
-                  className="flex-1 rounded-xl border border-border bg-background px-3 py-2 font-serif text-sm focus:ring-2 focus:ring-primary/40 focus:outline-none"
                 />
-                <input
-                  type="text"
-                  placeholder="参考译文（可选）"
-                  value={customTranslation}
-                  onChange={(e) => setCustomTranslation(e.target.value)}
-                  className="flex-1 rounded-xl border border-border bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary/40 focus:outline-none"
-                />
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={readingFile}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-2.5 py-1.5 text-[11px] font-bold transition-colors hover:bg-muted disabled:opacity-50"
+                  >
+                    {readingFile ? (
+                      <Loader2Icon className="size-3.5 animate-spin" />
+                    ) : (
+                      <UploadIcon className="size-3.5" />
+                    )}
+                    选择文本文件
+                  </button>
+                  {(uploadedText || uploadedFileName) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUploadedText("")
+                        setUploadedFileName(null)
+                      }}
+                      className="rounded-xl border border-border bg-card px-2 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-muted"
+                    >
+                      清空
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <textarea
+                rows={3}
+                value={uploadedText}
+                onChange={(e) => {
+                  setUploadedText(e.target.value)
+                  if (uploadedFileName) setUploadedFileName(null)
+                }}
+                placeholder={
+                  "把英文文本粘贴到这里，或把 .txt / .srt 文件拖进本区域…\n每行一句；需要参考译文时写成「英文 | 中文」或用 Tab 分隔。"
+                }
+                className="w-full resize-y rounded-xl border border-border bg-background px-3 py-2 font-mono text-[11px] leading-relaxed focus:ring-2 focus:ring-primary/40 focus:outline-none"
+              />
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                  <span className="font-mono text-[11px] font-bold text-foreground">
+                    已识别 {parsedSentences.length} 句
+                  </span>
+                  {parsedSentences.length > MAX_IMPORT && (
+                    <span className="font-mono text-[10px] text-amber-600 dark:text-amber-400">
+                      单次最多导入 {MAX_IMPORT} 句
+                    </span>
+                  )}
+                  {parsedSentences.slice(0, 3).map((item, i) => (
+                    <span
+                      key={`${item.text}-${i}`}
+                      className="max-w-[220px] truncate rounded-lg border border-border/70 bg-muted/40 px-2 py-0.5 text-[10px] text-muted-foreground"
+                      title={item.text}
+                    >
+                      {item.text}
+                    </span>
+                  ))}
+                  {parsedSentences.length > 3 && (
+                    <span className="font-mono text-[10px] text-muted-foreground">
+                      … 等 {parsedSentences.length} 句
+                    </span>
+                  )}
+                </div>
+
                 <button
                   type="button"
-                  onClick={() => void handleImportCustom()}
-                  disabled={!customInput.trim() || importing}
+                  onClick={() => void handleImportBatch()}
+                  disabled={parsedSentences.length === 0 || importing}
                   className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow transition-opacity hover:opacity-90 disabled:opacity-50"
                 >
                   {importing ? (
-                    <Loader2Icon className="size-3.5 animate-spin" />
+                    <>
+                      <Loader2Icon className="size-3.5 animate-spin" />
+                      导入中 {importProgress}
+                    </>
                   ) : (
-                    <PlusIcon className="size-3.5" />
+                    <>
+                      <FileUpIcon className="size-3.5" />
+                      导入 {Math.min(parsedSentences.length, MAX_IMPORT)} 句到句库
+                    </>
                   )}
-                  导入句库
                 </button>
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                {SOURCE_META.CUSTOM.description} · 导入后永久保存在你的个人句库中
+
+              <p className="text-[10px] text-muted-foreground">
+                {SOURCE_META.CUSTOM.description} · 导入后永久保存在个人句库中，重复句会自动合并
               </p>
             </div>
           )}
 
           {/* 句子选择器 */}
           {tabSentences.length > 0 && (
-            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            <div className="flex shrink-0 items-center gap-2 overflow-x-auto pb-1">
               <span className="shrink-0 font-mono text-[11px] text-muted-foreground">题目</span>
               {tabSentences.map((item, idx) => {
                 const mastery = MASTERY_META[item.masteryStatus] ?? MASTERY_META.NEW
@@ -1008,54 +1186,75 @@ export default function ShadowingPracticePage() {
           )}
 
           {sentenceError && (
-            <div className="flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
+            <div className="flex shrink-0 items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
               <AlertCircleIcon className="size-3.5" />
               {sentenceError}
             </div>
           )}
 
-          {/* 工作区 */}
-          {loadingSentences ? (
-            <div className="flex items-center justify-center gap-2 rounded-3xl border border-border bg-card/60 p-16 text-sm text-muted-foreground">
-              <Loader2Icon className="size-4 animate-spin" />
-              正在加载跟读句库…
-            </div>
-          ) : !current ? (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-3xl border border-dashed border-border bg-card/40 p-16 text-center">
-              <LayersIcon className="size-8 text-muted-foreground" />
-              <p className="text-sm font-semibold text-foreground">该题源下还没有跟读句</p>
-              <p className="max-w-sm text-xs text-muted-foreground">
-                {activeTab === "CUSTOM"
-                  ? "在上方输入任意英文句子并导入，即可开始跟读练习。"
-                  : "换一个题源，或先在生词本中添加卡片例句。"}
-              </p>
-            </div>
-          ) : (
-            // key 让「换句」变成重新挂载：录音、评测结果、IPA 状态自然清空
-            <SentenceWorkspace
-              key={current.id}
-              sentence={current}
-              playRate={playRate}
-              onSaved={refreshAfterSave}
-              hasNext={Boolean(nextSentence)}
-              onRequestNext={() => {
-                if (nextSentence) setCurrentId(nextSentence.id)
-              }}
-            />
-          )}
+          {/* 主体（跟读卡片 + A/B）：本列**不滚动**，卡片自动撑满剩余高度 */}
+          <div
+            data-testid="shadowing-practice-column"
+            className="flex min-h-0 flex-1 flex-col gap-2.5"
+          >
+            {loadingSentences ? (
+              <div className="flex flex-1 items-center justify-center gap-2 rounded-3xl border border-border bg-card/60 p-10 text-sm text-muted-foreground">
+                <Loader2Icon className="size-4 animate-spin" />
+                正在加载跟读句库…
+              </div>
+            ) : !current ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-2.5 rounded-3xl border border-dashed border-border bg-card/40 p-10 text-center">
+                <LayersIcon className="size-7 text-muted-foreground" />
+                <p className="text-sm font-semibold text-foreground">该题源下还没有跟读句</p>
+                <p className="max-w-sm text-xs text-muted-foreground">
+                  {activeTab === "CUSTOM"
+                    ? "在上方上传或粘贴英文文本并导入，即可开始跟读练习。"
+                    : "换一个题源，或先在生词本中添加卡片例句。"}
+                </p>
+              </div>
+            ) : (
+              // key 让「换句」变成重新挂载：录音、评测结果、IPA 状态自然清空
+              <SentenceWorkspace
+                key={current.id}
+                sentence={current}
+                playRate={playRate}
+                onSaved={refreshAfterSave}
+                hasNext={Boolean(nextSentence)}
+                reportHost={reportHost}
+                onRequestNext={() => {
+                  if (nextSentence) setCurrentId(nextSentence.id)
+                }}
+              />
+            )}
+          </div>
         </div>
 
-        {/* ══════════ 侧栏 ══════════ */}
-        <aside className="flex min-w-0 flex-col gap-4">
+        {/* ══════════ 右栏：评测报告 + 训练统计（本列内部滚动） ══════════ */}
+        <aside
+          data-testid="shadowing-report-column"
+          className="flex min-h-0 min-w-0 flex-col gap-2.5 lg:overflow-y-auto lg:pr-1"
+        >
+          {/* 评测报告挂载点：工作区通过 portal 把「本轮反馈 / 逐词发音 / 完整分析」渲染进来 */}
+          <div ref={setReportHost} className="flex shrink-0 flex-col gap-2.5" />
+
           {stats && stats.weakPhonemes.length > 0 && (
-            <section className="rounded-2xl border border-border bg-card p-4">
-              <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                <TargetIcon className="size-3.5" />
-                重点打磨音素
+            <section className="shrink-0 rounded-2xl border border-border bg-card p-3.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <TargetIcon className="size-3.5" />
+                  重点打磨音素
+                </div>
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  TOP {Math.min(stats.weakPhonemes.length, 5)}
+                </span>
               </div>
-              <div className="mt-3 flex flex-col gap-2.5">
-                {stats.weakPhonemes.map((p) => (
-                  <div key={p.phoneme} className="flex items-start gap-2.5">
+              <div className="mt-2 flex flex-col gap-1.5">
+                {stats.weakPhonemes.slice(0, 5).map((p) => (
+                  <div
+                    key={p.phoneme}
+                    className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-background/40 px-2 py-1.5"
+                    title={p.hint}
+                  >
                     <button
                       type="button"
                       onClick={() => {
@@ -1066,24 +1265,17 @@ export default function ShadowingPracticePage() {
                         u.rate = 0.7
                         window.speechSynthesis.speak(u)
                       }}
-                      className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border border-rose-500/30 bg-rose-500/10 font-mono text-base font-bold text-rose-600 dark:text-rose-400"
+                      className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10 font-mono text-sm font-bold text-rose-600 dark:text-rose-400"
                       title="试听该音素"
                     >
                       {p.phoneme}
                     </button>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono text-[11px] font-bold text-foreground">
-                          {p.averageScore} 分
-                        </span>
-                        <span className="font-mono text-[10px] text-muted-foreground">
-                          {p.occurrences} 次
-                        </span>
-                      </div>
-                      <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                        {p.hint}
-                      </p>
-                    </div>
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                      {p.hint}
+                    </span>
+                    <span className="shrink-0 font-mono text-[11px] font-bold text-foreground">
+                      {p.averageScore}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -1091,14 +1283,14 @@ export default function ShadowingPracticePage() {
           )}
 
           {stats && stats.totalAttempts > 0 && (
-            <section className="rounded-2xl border border-border bg-card p-4">
+            <section className="shrink-0 rounded-2xl border border-border bg-card p-3.5">
               <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 <ActivityIcon className="size-3.5" />
                 近 14 天得分趋势
               </div>
-              <div className="mt-3 flex h-24 items-end gap-1">
+              <div className="mt-2 flex h-16 items-end gap-1">
                 {stats.trend.map((d) => {
-                  const height = d.attempts > 0 ? Math.max(6, (d.averageScore / 100) * 88) : 3
+                  const height = d.attempts > 0 ? Math.max(6, (d.averageScore / 100) * 58) : 3
                   return (
                     <div
                       key={d.date}
@@ -1121,14 +1313,17 @@ export default function ShadowingPracticePage() {
                   )
                 })}
               </div>
-              <div className="mt-2 flex justify-between font-mono text-[10px] text-muted-foreground">
+              <div className="mt-1.5 flex items-center justify-between font-mono text-[10px] text-muted-foreground">
                 <span>{stats.trend[0]?.date.slice(5)}</span>
+                <span>
+                  均 {stats.averageScore} · 最高 {stats.bestScore} · 今日 {stats.todayAttempts} 次
+                </span>
                 <span>今天</span>
               </div>
             </section>
           )}
 
-          <section className="rounded-2xl border border-border bg-card p-4">
+          <section className="shrink-0 rounded-2xl border border-border bg-card p-3.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 <HistoryIcon className="size-3.5" />
@@ -1136,18 +1331,18 @@ export default function ShadowingPracticePage() {
               </div>
               {history.length > 0 && (
                 <span className="font-mono text-[10px] text-muted-foreground">
-                  最近 {history.length} 条
+                  最近 {Math.min(history.length, 5)} 条
                 </span>
               )}
             </div>
 
             {history.length === 0 ? (
-              <p className="mt-3 text-[11px] text-muted-foreground">
+              <p className="mt-2 text-[11px] text-muted-foreground">
                 还没有跟读记录。完成第一次评测后，这里会显示得分曲线。
               </p>
             ) : (
-              <div className="mt-3 flex flex-col gap-2">
-                {history.map((h) => {
+              <div className="mt-2 flex flex-col gap-1.5">
+                {history.slice(0, 5).map((h) => {
                   const tone =
                     h.overallScore >= 85
                       ? "text-emerald-600 dark:text-emerald-400"
@@ -1167,9 +1362,9 @@ export default function ShadowingPracticePage() {
                         setActiveTab(target.sourceType)
                         setCurrentId(target.id)
                       }}
-                      className="flex items-start gap-2.5 rounded-xl border border-border/70 bg-background/50 p-2.5 text-left transition-colors hover:bg-muted/60"
+                      className="flex items-start gap-2 rounded-xl border border-border/70 bg-background/50 px-2 py-1.5 text-left transition-colors hover:bg-muted/60"
                     >
-                      <span className={`font-mono text-lg font-bold ${tone}`}>
+                      <span className={`font-mono text-base font-bold ${tone}`}>
                         {Math.round(h.overallScore)}
                       </span>
                       <span className="min-w-0 flex-1">
@@ -1195,17 +1390,17 @@ export default function ShadowingPracticePage() {
             )}
           </section>
 
-          <section className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-            <div className="font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <details className="rounded-2xl border border-border/70 bg-muted/30 p-3">
+            <summary className="cursor-pointer font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               影子跟读法要点
-            </div>
+            </summary>
             <ol className="mt-2 flex flex-col gap-1.5 text-[11px] leading-snug text-muted-foreground">
               <li>1. 先盲听 1~2 遍原声，抓住意群与重音位置</li>
               <li>2. 与原声同步开口（比原声慢半拍），模仿语调与连读</li>
               <li>3. 录音后先看「准确度」再看「流利度」——先读准再读快</li>
               <li>4. 针对标红的音素，按教练提示调整舌位与口型后重录</li>
             </ol>
-          </section>
+          </details>
         </aside>
       </div>
 
