@@ -24,7 +24,8 @@ class TranslationRouterTest {
                         new TranslationItem(12L, "World")
                 ),
                 "en",
-                "zh-CN"
+                "zh-CN",
+                null
         );
 
         assertEquals("fallback", result.provider());
@@ -62,7 +63,8 @@ class TranslationRouterTest {
             public List<TranslationResult> translateBatch(
                     List<TranslationItem> items,
                     String sourceLanguage,
-                    String targetLanguage
+                    String targetLanguage,
+                    Long userId
             ) {
                 if (fail) {
                     throw new IllegalStateException("provider unavailable");

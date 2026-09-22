@@ -7,8 +7,10 @@ import com.lexiflow.infra.asyncjob.entity.AsyncJobEntity;
 import com.lexiflow.infra.asyncjob.execution.AsyncJobHandler;
 import com.lexiflow.infra.asyncjob.model.AsyncJobStage;
 import com.lexiflow.infra.asyncjob.service.AsyncJobService;
+import com.lexiflow.modules.media.entity.MediaItemEntity;
 import com.lexiflow.modules.media.entity.SubtitleCueEntity;
 import com.lexiflow.modules.media.entity.SubtitleTrackEntity;
+import com.lexiflow.modules.media.mapper.MediaItemMapper;
 import com.lexiflow.modules.media.mapper.SubtitleCueMapper;
 import com.lexiflow.modules.media.mapper.SubtitleTrackMapper;
 import com.lexiflow.modules.translation.TranslationProperties;
@@ -31,6 +33,7 @@ public class SubtitleTranslationJobHandler implements AsyncJobHandler {
     private final TranslationProperties properties;
     private final SubtitleTrackMapper trackMapper;
     private final SubtitleCueMapper cueMapper;
+    private final MediaItemMapper mediaItemMapper;
     private final TranslationRouter router;
     private final TranslationPersistenceService persistenceService;
     private final AsyncJobService jobService;
@@ -51,6 +54,10 @@ public class SubtitleTranslationJobHandler implements AsyncJobHandler {
         if (track == null) {
             throw new IllegalStateException("字幕轨道不存在: " + trackId);
         }
+
+        // 后台任务线程没有安全上下文，这里按字幕所属媒体文件回查归属账号，
+        // 供基于大模型的翻译 Provider 解析该账号已保存的 AI 凭据
+        Long ownerUserId = resolveOwnerUserId(track);
 
         List<SubtitleCueEntity> allCues = cueMapper.selectList(
                 new LambdaQueryWrapper<SubtitleCueEntity>()
@@ -73,7 +80,7 @@ public class SubtitleTranslationJobHandler implements AsyncJobHandler {
             List<TranslationItem> items = batch.stream()
                     .map(cue -> new TranslationItem(cue.getId(), cue.getSourceText()))
                     .toList();
-            RoutedTranslation translated = router.translate(items, sourceLanguage, targetLanguage);
+            RoutedTranslation translated = router.translate(items, sourceLanguage, targetLanguage, ownerUserId);
             translatedCount += batch.size();
             int progress = percentage(translatedCount, allCues.size());
             persistenceService.saveBatch(
@@ -114,5 +121,17 @@ public class SubtitleTranslationJobHandler implements AsyncJobHandler {
 
     private int percentage(int translated, int total) {
         return total <= 0 ? 0 : Math.min(100, Math.max(0, (int) Math.floor(translated * 100.0 / total)));
+    }
+
+    /**
+     * 字幕轨道 -> 媒体文件 -> 归属账号。任一层缺失时返回 null，
+     * 此时基于大模型的 Provider 会因取不到凭据而自动降级到下一个 Provider。
+     */
+    private Long resolveOwnerUserId(SubtitleTrackEntity track) {
+        if (track.getMediaItemId() == null) {
+            return null;
+        }
+        MediaItemEntity media = mediaItemMapper.selectById(track.getMediaItemId());
+        return media != null ? media.getUserId() : null;
     }
 }

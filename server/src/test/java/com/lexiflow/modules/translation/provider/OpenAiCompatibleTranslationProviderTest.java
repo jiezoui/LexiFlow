@@ -53,7 +53,7 @@ class OpenAiCompatibleTranslationProviderTest {
                 new TranslationItem(103L, "Let's start learning.")
         );
 
-        List<TranslationResult> results = provider.translateBatch(items, "en", "zh-CN");
+        List<TranslationResult> results = provider.translateBatch(items, "en", "zh-CN", null);
         assertEquals(3, results.size());
         assertEquals(101L, results.get(0).cueId());
         assertEquals("你好，世界！", results.get(0).translation());
@@ -75,7 +75,7 @@ class OpenAiCompatibleTranslationProviderTest {
                 new TranslationItem(103L, "Let's start learning.")
         );
 
-        List<TranslationResult> results = provider.translateBatch(items, "en", "zh-CN");
+        List<TranslationResult> results = provider.translateBatch(items, "en", "zh-CN", null);
         assertEquals(3, results.size());
         assertEquals("你好，世界！", results.get(0).translation());
         assertEquals("今天天气真好。", results.get(1).translation());
@@ -91,6 +91,6 @@ class OpenAiCompatibleTranslationProviderTest {
                 new TranslationItem(101L, "Hello, world!")
         );
 
-        assertThrows(IllegalStateException.class, () -> provider.translateBatch(items, "en", "zh-CN"));
+        assertThrows(IllegalStateException.class, () -> provider.translateBatch(items, "en", "zh-CN", null));
     }
 }

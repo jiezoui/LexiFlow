@@ -4,7 +4,10 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.lexiflow.modules.stats.entity.DailyStatEntity;
 import com.lexiflow.modules.stats.mapper.DailyStatMapper;
+import com.lexiflow.modules.stats.mapper.StatsActivityMapper;
 import com.lexiflow.modules.stats.service.StatsService;
+import com.lexiflow.modules.stats.vo.DailyCountRow;
+import com.lexiflow.modules.stats.vo.HeatmapCalendarVo;
 import com.lexiflow.modules.stats.vo.HeatmapDayVo;
 import com.lexiflow.modules.stats.vo.LearningOverviewStatsVo;
 import com.lexiflow.modules.vocabulary.entity.UserWordEntity;
@@ -30,15 +33,23 @@ import java.util.stream.Collectors;
 public class StatsServiceImpl extends ServiceImpl<DailyStatMapper, DailyStatEntity> implements StatsService {
 
     private final UserWordMapper userWordMapper;
+    private final StatsActivityMapper statsActivityMapper;
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     @Override
-    public List<HeatmapDayVo> getHeatmap(Long userId, Integer year) {
+    public HeatmapCalendarVo getHeatmap(Long userId, Integer year) {
         int targetYear = (year != null && year > 2000) ? year : LocalDate.now().getYear();
         LocalDate startDate = LocalDate.of(targetYear, 1, 1);
         LocalDate endDate = LocalDate.of(targetYear, 12, 31);
 
+        // 1. 原始事件表：复习流水与采词记录，构成热力图的真实活动量
+        Map<LocalDate, Integer> reviewByDay = toDailyMap(
+                statsActivityMapper.countReviewsByDay(userId, startDate.atStartOfDay(), endDate.plusDays(1).atStartOfDay()));
+        Map<LocalDate, Integer> collectedByDay = toDailyMap(
+                statsActivityMapper.countCollectedByDay(userId, startDate.atStartOfDay(), endDate.plusDays(1).atStartOfDay()));
+
+        // 2. 预聚合表：只贡献研习时长与新学/复习的细分数值
         List<DailyStatEntity> records = this.list(new LambdaQueryWrapper<DailyStatEntity>()
                 .eq(DailyStatEntity::getUserId, userId)
                 .ge(DailyStatEntity::getStatDate, startDate)
@@ -47,30 +58,91 @@ public class StatsServiceImpl extends ServiceImpl<DailyStatMapper, DailyStatEnti
         Map<LocalDate, DailyStatEntity> statMap = records.stream()
                 .collect(Collectors.toMap(DailyStatEntity::getStatDate, Function.identity(), (a, b) -> a));
 
-        List<HeatmapDayVo> heatmapList = new ArrayList<>(366);
-        LocalDate curr = startDate;
+        // 3. 逐日铺满整年，缺失日期补 0，保证前端矩阵行数稳定
+        List<HeatmapDayVo> days = new ArrayList<>(366);
+        int totalReviews = 0;
+        int totalCollected = 0;
+        int totalDuration = 0;
+        int activeDays = 0;
+        int maxDailyCount = 0;
+        int longestStreak = 0;
+        int runningStreak = 0;
 
+        LocalDate curr = startDate;
         while (!curr.isAfter(endDate)) {
             DailyStatEntity stat = statMap.get(curr);
-            int count = (stat != null) ? stat.getTotalReviews() : 0;
-            int level = calculateHeatmapLevel(count);
-            int duration = (stat != null) ? stat.getDurationMinutes() : 0;
-            int newCards = (stat != null) ? stat.getNewCards() : 0;
-            int reviewCards = (stat != null) ? stat.getReviewCards() : 0;
+            int reviewCount = reviewByDay.getOrDefault(curr, 0);
+            int collectedCount = collectedByDay.getOrDefault(curr, 0);
+            int count = reviewCount + collectedCount;
 
-            heatmapList.add(HeatmapDayVo.builder()
+            totalReviews += reviewCount;
+            totalCollected += collectedCount;
+            if (stat != null && stat.getDurationMinutes() != null) {
+                totalDuration += stat.getDurationMinutes();
+            }
+
+            if (count > 0) {
+                activeDays++;
+                runningStreak++;
+                longestStreak = Math.max(longestStreak, runningStreak);
+                maxDailyCount = Math.max(maxDailyCount, count);
+            } else {
+                runningStreak = 0;
+            }
+
+            days.add(HeatmapDayVo.builder()
                     .date(curr.format(DATE_FORMATTER))
                     .count(count)
-                    .level(level)
-                    .durationMinutes(duration)
-                    .newCards(newCards)
-                    .reviewCards(reviewCards)
+                    .level(calculateHeatmapLevel(count))
+                    .reviewCount(reviewCount)
+                    .collectedCount(collectedCount)
+                    .durationMinutes(stat != null && stat.getDurationMinutes() != null ? stat.getDurationMinutes() : 0)
+                    .newCards(stat != null && stat.getNewCards() != null ? stat.getNewCards() : 0)
+                    .reviewCards(stat != null && stat.getReviewCards() != null ? stat.getReviewCards() : 0)
+                    .retentionRate(stat != null ? stat.getRetentionRate() : null)
                     .build());
 
             curr = curr.plusDays(1);
         }
 
-        return heatmapList;
+        return HeatmapCalendarVo.builder()
+                .year(targetYear)
+                .totalCount(totalReviews + totalCollected)
+                .totalReviews(totalReviews)
+                .totalCollected(totalCollected)
+                .activeDays(activeDays)
+                .totalDurationMinutes(totalDuration)
+                .maxDailyCount(maxDailyCount)
+                .longestStreak(longestStreak)
+                .availableYears(resolveAvailableYears(userId, targetYear))
+                .days(days)
+                .build();
+    }
+
+    private Map<LocalDate, Integer> toDailyMap(List<DailyCountRow> rows) {
+        Map<LocalDate, Integer> map = new HashMap<>(rows.size() * 2);
+        for (DailyCountRow row : rows) {
+            if (row.getStatDate() != null && row.getTotal() != null) {
+                map.put(row.getStatDate(), row.getTotal());
+            }
+        }
+        return map;
+    }
+
+    /**
+     * 可切换年份 = 账号确有记录的年份 ∪ 当前查询年份，倒序且至少包含当前年份，
+     * 避免新账号出现空白的年份选择器。
+     */
+    private List<Integer> resolveAvailableYears(Long userId, int targetYear) {
+        Set<Integer> years = new TreeSet<>(Comparator.reverseOrder());
+        years.add(targetYear);
+        years.add(LocalDate.now().getYear());
+        try {
+            years.addAll(statsActivityMapper.selectActiveYears(userId));
+        } catch (Exception e) {
+            log.warn("读取可选统计年份失败，仅返回默认年份: {}", e.getMessage());
+        }
+        return new ArrayList<>(years);
     }
 
     @Override

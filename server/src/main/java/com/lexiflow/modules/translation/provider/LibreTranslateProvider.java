@@ -58,8 +58,10 @@ public class LibreTranslateProvider implements TranslationProvider {
     public List<TranslationResult> translateBatch(
             List<TranslationItem> items,
             String sourceLanguage,
-            String targetLanguage
+            String targetLanguage,
+            Long userId
     ) {
+        // LibreTranslate 是无状态公共服务，不需要账号级凭据
         if (items.isEmpty()) {
             return List.of();
         }
