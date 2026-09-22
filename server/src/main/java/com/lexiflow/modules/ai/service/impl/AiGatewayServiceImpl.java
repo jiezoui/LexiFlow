@@ -5,23 +5,31 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.lexiflow.modules.ai.dto.AiExplainRequest;
-import com.lexiflow.modules.ai.dto.AiFetchModelsRequest;
 import com.lexiflow.modules.ai.dto.AiTestConnectionRequest;
+import com.lexiflow.modules.ai.model.AiResolvedConfig;
+import com.lexiflow.modules.ai.service.AiConfigStore;
 import com.lexiflow.modules.ai.service.AiGatewayService;
 import com.lexiflow.modules.ai.vo.AiExplainVo;
+import com.lexiflow.modules.ai.vo.AiModelDetectionVo;
 import com.lexiflow.modules.ai.vo.AiTestConnectionVo;
+import com.lexiflow.infra.security.UserContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.net.ConnectException;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.net.http.HttpClient;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 @Slf4j
@@ -30,6 +38,7 @@ import java.util.List;
 public class AiGatewayServiceImpl implements AiGatewayService {
 
     private final ObjectMapper objectMapper;
+    private final AiConfigStore configStore;
 
     // 内存缓存: key -> (provider:model:word:sentence), 24小时有效，消除重复调用并实现 0ms 秒开
     private final java.util.Map<String, CacheEntry> explainCache = new java.util.concurrent.ConcurrentHashMap<>();
@@ -39,7 +48,14 @@ public class AiGatewayServiceImpl implements AiGatewayService {
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_2)
             .connectTimeout(Duration.ofSeconds(10))
+            .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
+
+    /** Anthropic Messages API 要求的协议版本头 */
+    private static final String ANTHROPIC_VERSION = "2023-06-01";
+
+    /** 探测阶段的上游等待上限，避免填错地址时设置面板长时间无响应 */
+    private static final Duration DETECT_TIMEOUT = Duration.ofSeconds(12);
 
     @Override
     public AiTestConnectionVo testConnection(AiTestConnectionRequest req) {
@@ -152,56 +168,246 @@ public class AiGatewayServiceImpl implements AiGatewayService {
     }
 
     @Override
-    public List<String> fetchModels(AiFetchModelsRequest req) {
-        String provider = StringUtils.hasText(req.getProvider()) ? req.getProvider().toLowerCase().trim() : "openai";
-        String host = normalizeApiHost(req.getApiHost(), provider);
-        String apiKey = req.getApiKey() != null ? req.getApiKey().trim() : "";
+    public AiModelDetectionVo fetchModels(AiResolvedConfig cfg) {
+        String endpoint = buildEndpoint(cfg.apiHost(), "/models");
+        long startedAt = System.currentTimeMillis();
+
+        if (!cfg.configured()) {
+            return detectionFailure("NOT_CONFIGURED", "尚未填写 API Key", endpoint, null, startedAt, Collections.emptyList());
+        }
 
         try {
-            String endpoint = buildEndpoint(host, "/models");
-            HttpRequest.Builder builder = HttpRequest.newBuilder()
-                    .uri(URI.create(endpoint))
-                    .timeout(Duration.ofSeconds(10))
-                    .GET();
+            HttpRequest request = requestBuilder(endpoint, cfg)
+                    .timeout(DETECT_TIMEOUT)
+                    .GET()
+                    .build();
 
-            if (StringUtils.hasText(apiKey)) {
-                builder.header("Authorization", "Bearer " + apiKey);
+            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+            long elapsed = System.currentTimeMillis() - startedAt;
+
+            if (response.statusCode() == 200) {
+                List<String> models = parseModelList(response.body());
+                if (models.isEmpty()) {
+                    return detectionFailure("NO_MODELS", "已连通，但该 Key 下没有可用模型", endpoint,
+                            response.statusCode(), startedAt, models);
+                }
+                return AiModelDetectionVo.builder()
+                        .ok(true)
+                        .status("CONNECTED")
+                        .message("已连接 · 共 " + models.size() + " 个可用模型")
+                        .endpoint(endpoint)
+                        .httpStatus(response.statusCode())
+                        .elapsedMs(elapsed)
+                        .models(models)
+                        .detectedAt(System.currentTimeMillis())
+                        .build();
             }
 
-            HttpResponse<String> response = HTTP_CLIENT.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() == 200) {
-                JsonNode root = objectMapper.readTree(response.body());
-                List<String> list = new ArrayList<>();
-                if (root.has("data") && root.get("data").isArray()) {
-                    for (JsonNode item : root.get("data")) {
-                        if (item.has("id")) {
-                            list.add(item.get("id").asText());
-                        }
-                    }
-                } else if (root.has("models") && root.get("models").isArray()) { // Ollama 格式: {"models": [{"name": "..."}]}
-                    for (JsonNode item : root.get("models")) {
-                        if (item.has("name")) {
-                            list.add(item.get("name").asText());
-                        }
+            String detail = parseErrorResponse(response.statusCode(), response.body());
+            String status = switch (response.statusCode()) {
+                case 401, 403 -> "INVALID_KEY";
+                case 404 -> "ENDPOINT_NOT_FOUND";
+                case 429 -> "RATE_LIMITED";
+                default -> "UPSTREAM_ERROR";
+            };
+            log.warn("AI 模型探测失败: provider={}, HTTP {} - {}", cfg.provider(), response.statusCode(), detail);
+            return detectionFailure(status, detail, endpoint, response.statusCode(), startedAt, Collections.emptyList());
+
+        } catch (Exception e) {
+            boolean connectivity = isConnectivityFailure(e);
+            String status = connectivity ? "UNREACHABLE" : "REQUEST_FAILED";
+            String message = connectivity
+                    ? "无法连接到 " + safeHost(cfg.apiHost()) + "，请检查接口地址、网络或代理设置"
+                    : "请求异常: " + e.getMessage();
+            log.warn("AI 模型探测异常: provider={}, endpoint={}, {}", cfg.provider(), endpoint, e.getMessage());
+            return detectionFailure(status, message, endpoint, null, startedAt, Collections.emptyList());
+        }
+    }
+
+    /**
+     * 解析服务商返回的模型列表。
+     * OpenAI / Anthropic 均为 data[].id，Ollama 原生 /api/tags 为 models[].name。
+     */
+    private List<String> parseModelList(String body) throws Exception {
+        JsonNode root = objectMapper.readTree(body);
+        List<String> list = new ArrayList<>();
+        if (root.has("data") && root.get("data").isArray()) {
+            for (JsonNode item : root.get("data")) {
+                if (item.hasNonNull("id")) {
+                    list.add(item.get("id").asText());
+                }
+            }
+        } else if (root.has("models") && root.get("models").isArray()) {
+            for (JsonNode item : root.get("models")) {
+                if (item.hasNonNull("name")) {
+                    list.add(item.get("name").asText());
+                } else if (item.hasNonNull("id")) {
+                    list.add(item.get("id").asText());
+                }
+            }
+        }
+        list.sort(Comparator.naturalOrder());
+        return list;
+    }
+
+    private AiModelDetectionVo detectionFailure(String status, String message, String endpoint,
+                                                Integer httpStatus, long startedAt, List<String> models) {
+        return AiModelDetectionVo.builder()
+                .ok(false)
+                .status(status)
+                .message(message)
+                .endpoint(endpoint)
+                .httpStatus(httpStatus)
+                .elapsedMs(System.currentTimeMillis() - startedAt)
+                .models(models)
+                .detectedAt(System.currentTimeMillis())
+                .build();
+    }
+
+    private boolean isConnectivityFailure(Throwable e) {
+        Throwable cursor = e;
+        while (cursor != null) {
+            if (cursor instanceof ConnectException
+                    || cursor instanceof UnknownHostException
+                    || cursor instanceof HttpConnectTimeoutException
+                    || cursor instanceof HttpTimeoutException) {
+                return true;
+            }
+            cursor = cursor.getCause();
+        }
+        return false;
+    }
+
+    private String safeHost(String host) {
+        return StringUtils.hasText(host) ? host : "(未填写地址)";
+    }
+
+    /**
+     * 按供应商协议构造请求头：Anthropic 使用 x-api-key + anthropic-version，
+     * 其余 OpenAI 兼容服务使用 Authorization: Bearer。
+     */
+    private HttpRequest.Builder requestBuilder(String endpoint, AiResolvedConfig cfg) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder().uri(URI.create(endpoint));
+        if (cfg.isAnthropic()) {
+            if (StringUtils.hasText(cfg.apiKey())) {
+                builder.header("x-api-key", cfg.apiKey());
+            }
+            builder.header("anthropic-version", ANTHROPIC_VERSION);
+        } else if (StringUtils.hasText(cfg.apiKey())) {
+            builder.header("Authorization", "Bearer " + cfg.apiKey());
+        }
+        return builder;
+    }
+
+    /**
+     * 构造对话请求体。Anthropic Messages 协议需要把 system 提到顶层字段，
+     * 且不支持 response_format，因此这里按协议分别拼装。
+     */
+    private ObjectNode buildChatBody(AiResolvedConfig cfg, String systemPrompt, String userPrompt,
+                                     int maxTokens, double temperature, boolean jsonMode) {
+        ObjectNode root = objectMapper.createObjectNode();
+        root.put("model", cfg.model());
+        root.put("temperature", temperature);
+        root.put("max_tokens", maxTokens);
+
+        if (cfg.isAnthropic()) {
+            if (StringUtils.hasText(systemPrompt)) {
+                root.put("system", systemPrompt);
+            }
+            ArrayNode messages = root.putArray("messages");
+            ObjectNode userMsg = messages.addObject();
+            userMsg.put("role", "user");
+            userMsg.put("content", userPrompt);
+            return root;
+        }
+
+        // 针对 DeepSeek / SiliconFlow 等推理模型，显式关闭思考模式，
+        // 防止模型自言自语占满 tokens 导致 JSON 截断
+        if (cfg.provider().contains("deepseek") || cfg.model().contains("deepseek")
+                || cfg.provider().contains("siliconflow") || cfg.model().contains("r1")) {
+            ObjectNode thinkingNode = objectMapper.createObjectNode();
+            thinkingNode.put("type", "disabled");
+            root.set("thinking", thinkingNode);
+            root.put("enable_thinking", false);
+        }
+
+        if (jsonMode) {
+            ObjectNode respFormat = objectMapper.createObjectNode();
+            respFormat.put("type", "json_object");
+            root.set("response_format", respFormat);
+        }
+
+        ArrayNode messages = root.putArray("messages");
+        if (StringUtils.hasText(systemPrompt)) {
+            ObjectNode sysMsg = messages.addObject();
+            sysMsg.put("role", "system");
+            sysMsg.put("content", systemPrompt);
+        }
+        ObjectNode userMsg = messages.addObject();
+        userMsg.put("role", "user");
+        userMsg.put("content", userPrompt);
+        return root;
+    }
+
+    /**
+     * 从对话响应中取出正文。Anthropic 返回 content[] 数组，OpenAI 兼容返回 choices[0].message.content。
+     */
+    private String extractChatContent(AiResolvedConfig cfg, String responseBody) throws Exception {
+        JsonNode resJson = objectMapper.readTree(responseBody);
+
+        if (cfg.isAnthropic() || resJson.has("content")) {
+            JsonNode content = resJson.get("content");
+            if (content != null && content.isArray()) {
+                StringBuilder text = new StringBuilder();
+                for (JsonNode block : content) {
+                    if (block.hasNonNull("text")) {
+                        text.append(block.get("text").asText());
                     }
                 }
-                Collections.sort(list);
-                return list;
-            } else {
-                log.warn("拉取模型失败: HTTP {} - {}", response.statusCode(), response.body());
+                if (!text.isEmpty()) {
+                    return text.toString();
+                }
             }
-        } catch (Exception e) {
-            log.error("请求获取模型列表异常: {}", e.getMessage());
         }
-        return Collections.emptyList();
+
+        if (resJson.has("choices") && resJson.get("choices").isArray() && !resJson.get("choices").isEmpty()) {
+            JsonNode choice = resJson.get("choices").get(0);
+            if (choice.has("message")) {
+                JsonNode msg = choice.get("message");
+                if (msg.hasNonNull("content")) {
+                    String content = msg.get("content").asText("");
+                    if (StringUtils.hasText(content)) {
+                        return content;
+                    }
+                }
+                // 绝不直接采纳思考过程作为最终内容；仅当正文为空且 reasoning_content
+                // 中包含闭合的 JSON 时尝试提取
+                if (msg.has("reasoning_content")) {
+                    String reasoning = msg.get("reasoning_content").asText("");
+                    int fb = reasoning.indexOf('{');
+                    int lb = reasoning.lastIndexOf('}');
+                    if (fb >= 0 && lb > fb) {
+                        return reasoning.substring(fb, lb + 1);
+                    }
+                }
+            } else if (choice.has("text")) {
+                return choice.get("text").asText("");
+            }
+        }
+        return "";
     }
 
     @Override
     public AiExplainVo explainWord(AiExplainRequest req) {
-        String provider = StringUtils.hasText(req.getProvider()) ? req.getProvider().toLowerCase().trim() : "deepseek";
-        String host = normalizeApiHost(req.getApiHost(), provider);
-        String apiKey = req.getApiKey() != null ? req.getApiKey().trim() : "";
-        String model = StringUtils.hasText(req.getModel()) ? req.getModel().trim() : getDefaultModelForProvider(provider);
+        // 请求未携带凭据时回落到当前账号已保存的 AI 配置，
+        // 使阅读器、视频抽屉等模块无需各自透传 API Key
+        AiResolvedConfig cfg = configStore.resolve(
+                UserContext.getCurrentUserId(),
+                req.getProvider(), req.getApiHost(), req.getApiKey(), req.getModel());
+
+        String provider = cfg.provider();
+        String host = cfg.apiHost();
+        String model = cfg.model();
 
         boolean isCustomQuestion = StringUtils.hasText(req.getQuestion());
         String cleanWord = req.getWord() != null ? req.getWord().toLowerCase().trim() : "";
@@ -251,72 +457,21 @@ public class AiGatewayServiceImpl implements AiGatewayService {
         log.info("AI Explain 请求发起 -> word: [{}], model: [{}], provider: [{}]", cleanWord, model, provider);
 
         try {
-            String endpoint = buildEndpoint(host, "/chat/completions");
+            String endpoint = buildEndpoint(host, cfg.isAnthropic() ? "/messages" : "/chat/completions");
 
-            ObjectNode root = objectMapper.createObjectNode();
-            root.put("model", model);
-            root.put("temperature", 0.1);
+            // 第 2 层约束 · OpenAI 兼容服务注入标准结构化 JSON 模式；
+            // Anthropic Messages 协议不支持该字段，仅靠 System Prompt 约束
+            ObjectNode root = buildChatBody(cfg, systemPrompt, userPrompt.toString(), 1500, 0.1, true);
 
-            // 充足的 Token 封顶 (1500 tokens)，确保模型有充足空间完整输出完整结构化 JSON，绝不在结尾发生截断
-            root.put("max_tokens", 1500);
-
-            // 针对 DeepSeek / SiliconFlow 等推理模型，显式关闭思考模式，防止模型自言自语占用全部 tokens 导致截断
-            if (provider.contains("deepseek") || model.contains("deepseek") || provider.contains("siliconflow") || model.contains("flash") || model.contains("r1")) {
-                ObjectNode thinkingNode = objectMapper.createObjectNode();
-                thinkingNode.put("type", "disabled");
-                root.set("thinking", thinkingNode);
-                root.put("enable_thinking", false);
-            }
-
-            // 第 2 层约束 · 注入 OpenAI / DeepSeek / SiliconFlow 标准结构化 JSON 模式
-            ObjectNode respFormat = objectMapper.createObjectNode();
-            respFormat.put("type", "json_object");
-            root.set("response_format", respFormat);
-
-            ArrayNode messages = root.putArray("messages");
-
-            ObjectNode sysMsg = messages.addObject();
-            sysMsg.put("role", "system");
-            sysMsg.put("content", systemPrompt);
-
-            ObjectNode userMsg = messages.addObject();
-            userMsg.put("role", "user");
-            userMsg.put("content", userPrompt.toString());
-
-            HttpRequest.Builder builder = HttpRequest.newBuilder()
-                    .uri(URI.create(endpoint))
-                    .timeout(Duration.ofSeconds(15))
+            HttpRequest.Builder builder = requestBuilder(endpoint, cfg)
+                    .timeout(Duration.ofSeconds(20))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(root)));
 
-            if (StringUtils.hasText(apiKey)) {
-                builder.header("Authorization", "Bearer " + apiKey);
-            }
-
             HttpResponse<String> response = HTTP_CLIENT.send(builder.build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
-                JsonNode resJson = objectMapper.readTree(response.body());
-                if (resJson.has("choices") && resJson.get("choices").isArray() && resJson.get("choices").size() > 0) {
-                    JsonNode choice = resJson.get("choices").get(0);
-                    String content = "";
-                    if (choice.has("message")) {
-                        JsonNode msg = choice.get("message");
-                        if (msg.has("content") && !msg.get("content").isNull()) {
-                            content = msg.get("content").asText("");
-                        }
-                        // 绝不直接采纳思考过程作为最终内容；仅当 choices[0].message.content 为空且 reasoning_content 中包含闭合的 JSON 时尝试提取
-                        if (!StringUtils.hasText(content) && msg.has("reasoning_content")) {
-                            String reasoning = msg.get("reasoning_content").asText("");
-                            int fb = reasoning.indexOf('{');
-                            int lb = reasoning.lastIndexOf('}');
-                            if (fb >= 0 && lb > fb) {
-                                content = reasoning.substring(fb, lb + 1);
-                            }
-                        }
-                    } else if (choice.has("text")) {
-                        content = choice.get("text").asText("");
-                    }
-
+                String content = extractChatContent(cfg, response.body());
+                if (StringUtils.hasText(content)) {
                     log.info("AI Explain 收到 LLM 原始响应内容: {}", content);
                     AiExplainVo parsedVo = parseAiExplainContent(req.getWord(), content);
 
@@ -637,66 +792,36 @@ public class AiGatewayServiceImpl implements AiGatewayService {
 
     @Override
     public String generateText(String systemPrompt, String userPrompt, String providerInput, String modelInput, String apiKeyInput, String apiHostInput) {
-        String provider = StringUtils.hasText(providerInput) ? providerInput.toLowerCase().trim() : "deepseek";
-        String host = normalizeApiHost(apiHostInput, provider);
-        String apiKey = apiKeyInput != null ? apiKeyInput.trim() : "";
-        String model = StringUtils.hasText(modelInput) ? modelInput.trim() : getDefaultModelForProvider(provider);
+        // 调用方未传凭据时回落到账号已保存的 AI 配置，避免各业务模块重复透传 Key
+        AiResolvedConfig cfg = configStore.resolve(
+                UserContext.getCurrentUserId(), providerInput, apiHostInput, apiKeyInput, modelInput);
 
-        log.info("AI GenerateText 请求发起 -> provider: [{}], model: [{}]", provider, model);
+        log.info("AI GenerateText 请求发起 -> provider: [{}], model: [{}], 凭据来源: [{}]",
+                cfg.provider(), cfg.model(), cfg.source());
+
+        if (!cfg.configured()) {
+            throw new RuntimeException("尚未配置 AI 模型，请先到「设置 · AI 助理与大语言模型中心」填写 API Key");
+        }
 
         try {
-            String endpoint = buildEndpoint(host, "/chat/completions");
+            String endpoint = buildEndpoint(cfg.apiHost(), cfg.isAnthropic() ? "/messages" : "/chat/completions");
 
-            ObjectNode root = objectMapper.createObjectNode();
-            root.put("model", model);
-            root.put("temperature", 0.3);
-            root.put("max_tokens", 2500);
+            ObjectNode root = buildChatBody(cfg, systemPrompt, userPrompt, 2500, 0.3, false);
 
-            if (provider.contains("deepseek") || model.contains("deepseek") || provider.contains("siliconflow") || model.contains("r1")) {
-                ObjectNode thinkingNode = objectMapper.createObjectNode();
-                thinkingNode.put("type", "disabled");
-                root.set("thinking", thinkingNode);
-                root.put("enable_thinking", false);
-            }
-
-            ArrayNode messages = root.putArray("messages");
-            if (StringUtils.hasText(systemPrompt)) {
-                ObjectNode sysMsg = messages.addObject();
-                sysMsg.put("role", "system");
-                sysMsg.put("content", systemPrompt);
-            }
-
-            ObjectNode userMsg = messages.addObject();
-            userMsg.put("role", "user");
-            userMsg.put("content", userPrompt);
-
-            HttpRequest.Builder builder = HttpRequest.newBuilder()
-                    .uri(URI.create(endpoint))
+            HttpRequest.Builder builder = requestBuilder(endpoint, cfg)
                     .timeout(Duration.ofSeconds(45))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(root)));
 
-            if (StringUtils.hasText(apiKey)) {
-                builder.header("Authorization", "Bearer " + apiKey);
-            }
-
             HttpResponse<String> response = HTTP_CLIENT.send(builder.build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
-                JsonNode resJson = objectMapper.readTree(response.body());
-                if (resJson.has("choices") && resJson.get("choices").isArray() && resJson.get("choices").size() > 0) {
-                    JsonNode choice = resJson.get("choices").get(0);
-                    if (choice.has("message") && choice.get("message").has("content")) {
-                        return choice.get("message").get("content").asText();
-                    }
-                }
-            } else {
-                log.warn("AI GenerateText 响应状态码异常: {}, body: {}", response.statusCode(), response.body());
-                throw new RuntimeException("AI 服务响应异常: " + parseErrorResponse(response.statusCode(), response.body()));
+                return extractChatContent(cfg, response.body());
             }
+            log.warn("AI GenerateText 响应状态码异常: {}, body: {}", response.statusCode(), response.body());
+            throw new RuntimeException("AI 服务响应异常: " + parseErrorResponse(response.statusCode(), response.body()));
         } catch (Exception e) {
             log.error("AI GenerateText 请求失败: {}", e.getMessage(), e);
             throw new RuntimeException("AI 生成失败: " + e.getMessage(), e);
         }
-        return "";
     }
 }
