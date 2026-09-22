@@ -4,7 +4,7 @@ import { GithubHeatmap } from "@/components/profile/github-heatmap"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { SettingsIcon, BookOpenIcon, VideoIcon, SparklesIcon, TrophyIcon } from "lucide-react"
+import { SettingsIcon } from "lucide-react"
 
 export default function ProfilePage() {
   return (
@@ -27,12 +27,9 @@ export default function ProfilePage() {
                 @linz
               </span>
             </div>
-            <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
-              开源语言研习者 · 专注 FSRS 记忆间隔模型与多模态语料采摘
-            </p>
-            <div className="mt-2.5 flex items-center gap-3 text-xs font-mono text-muted-foreground">
+            <div className="mt-2 flex items-center gap-2.5 text-xs font-mono text-muted-foreground">
               <span>本地离线优先</span>
-              <span>•</span>
+              <span className="text-muted-foreground/40">·</span>
               <span>加入于 2026 年 3 月</span>
             </div>
           </div>

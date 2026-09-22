@@ -1,4 +1,5 @@
 import { AppSidebar } from "@/components/app-sidebar"
+import { AiConfigBootstrap } from "@/components/ai-config-bootstrap"
 import { CommandPalette } from "@/components/command-palette"
 import { DynamicBreadcrumb } from "@/components/dynamic-breadcrumb"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -35,6 +36,7 @@ export default function DashboardLayout({
           </div>
         </header>
         <CommandPalette />
+        <AiConfigBootstrap />
         <main className="flex min-h-0 flex-1 flex-col">{children}</main>
       </SidebarInset>
     </SidebarProvider>

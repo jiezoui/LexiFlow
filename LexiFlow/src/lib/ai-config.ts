@@ -1,6 +1,12 @@
 /**
  * AI 助理与模型供应商配置管理 (Local-First 优先设计，借鉴 Chatbox 架构)
+ *
+ * 本地 localStorage 仍是运行时读取的快路径（阅读器、闪卡等模块同步读取），
+ * 但配置的权威副本保存在后端账号下：设置页会从服务端拉取并回写本地，
+ * 换设备登录同一账号即可恢复，后端调用 AI 时也能直接使用已保存的凭据。
  */
+
+import { aiApi, type AiAccountConfig, type AiConfigSavePayload } from "@/lib/api-client"
 
 export type AiProviderId =
   | "deepseek"
@@ -199,6 +205,58 @@ export function saveAiSettings(settings: AiSettings): void {
   } catch (e) {
     console.error("保存 AI 配置失败:", e)
   }
+}
+
+/** 把后端返回的账号配置合并进本地缓存，保持两处一致 */
+export function applyServerAiConfig(account: AiAccountConfig): AiSettings {
+  const settings = getAiSettings()
+  settings.activeProvider = (account.activeProvider as AiProviderId) || settings.activeProvider
+  settings.temperature = account.temperature ?? settings.temperature
+  settings.enableReadingAi = account.enableReadingAi ?? settings.enableReadingAi
+  settings.enableFlashcardAi = account.enableFlashcardAi ?? settings.enableFlashcardAi
+
+  for (const entry of account.providers ?? []) {
+    const pid = entry.provider as AiProviderId
+    if (!(pid in AI_PROVIDER_PRESETS)) continue
+    settings.providers[pid] = {
+      apiKey: entry.apiKey ?? "",
+      apiHost: entry.apiHost || AI_PROVIDER_PRESETS[pid].defaultHost,
+      selectedModel: entry.selectedModel || AI_PROVIDER_PRESETS[pid].defaultModel,
+      customModels: entry.customModels ?? [],
+    }
+  }
+
+  saveAiSettings(settings)
+  return settings
+}
+
+/** 把本地配置转成后端保存请求 */
+export function toSavePayload(settings: AiSettings): AiConfigSavePayload {
+  return {
+    activeProvider: settings.activeProvider,
+    temperature: settings.temperature,
+    enableReadingAi: settings.enableReadingAi,
+    enableFlashcardAi: settings.enableFlashcardAi,
+    providers: (Object.keys(settings.providers) as AiProviderId[]).map((pid) => ({
+      provider: pid,
+      apiKey: settings.providers[pid].apiKey,
+      apiHost: settings.providers[pid].apiHost,
+      selectedModel: settings.providers[pid].selectedModel,
+      customModels: settings.providers[pid].customModels,
+    })),
+  }
+}
+
+/** 从账号读取权威配置并同步到本地 */
+export async function loadAiSettingsFromServer(): Promise<AiSettings> {
+  const account = await aiApi.getConfig()
+  return applyServerAiConfig(account)
+}
+
+/** 把当前本地配置持久化到账号 */
+export async function saveAiSettingsToServer(settings: AiSettings): Promise<AiSettings> {
+  const account = await aiApi.saveConfig(toSavePayload(settings))
+  return applyServerAiConfig(account)
 }
 
 export function getActiveAiConfig(): {

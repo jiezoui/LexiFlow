@@ -164,6 +164,34 @@
   --sidebar-ring: #D4D4D8;
 }
 
+/*
+ * 认证页右栏固定浅色作用域。
+ * 登录界面是「左黑右白」的固定配色，不跟随全局明暗切换，
+ * 但深色模式下 .dark 会把变量整体翻黑，因此这里在右栏重新声明一套浅色值覆盖回去。
+ * 自定义属性沿元素树继承，声明在更近的祖先上即可胜出，无需 !important。
+ */
+.auth-light {
+  --background: #FFFFFF;
+  --foreground: #09090B;
+  --card: #FFFFFF;
+  --card-foreground: #09090B;
+  --popover: #FFFFFF;
+  --popover-foreground: #09090B;
+  --primary: #09090B;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F4F4F5;
+  --secondary-foreground: #09090B;
+  --muted: #F4F4F5;
+  --muted-foreground: #71717A;
+  --accent: #F4F4F5;
+  --accent-foreground: #09090B;
+  --destructive: #EF4444;
+  --destructive-foreground: #FFFFFF;
+  --border: #E4E4E7;
+  --input: #E4E4E7;
+  --ring: #09090B;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
