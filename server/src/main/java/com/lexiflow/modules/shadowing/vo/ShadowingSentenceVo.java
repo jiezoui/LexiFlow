@@ -21,7 +21,7 @@ public class ShadowingSentenceVo {
     @Schema(description = "跟读句 ID", example = "1")
     private Long id;
 
-    @Schema(description = "题源类型: BBC / CARD / CUSTOM", example = "BBC")
+    @Schema(description = "题源类型: BBC / CARD / CUSTOM / MEDIA", example = "BBC")
     private String sourceType;
 
     @Schema(description = "题源标题")

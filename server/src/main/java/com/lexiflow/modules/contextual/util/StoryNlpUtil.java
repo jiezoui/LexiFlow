@@ -20,6 +20,8 @@ public final class StoryNlpUtil {
      * 例如: [[studied|study]], [[pollution|pollution]]
      */
     private static final Pattern MARK_PATTERN = Pattern.compile("\\[\\[([^\\|\\]]+)\\|([^\\|\\]]+)\\]\\]");
+    private static final Pattern TRANSLATION_MARK_PATTERN = Pattern.compile("\\[\\[([^\\]]+)\\]\\]");
+    private static final Pattern LATIN_SUFFIX_AFTER_CHINESE = Pattern.compile("(?<=[\\p{IsHan}])\\s*[a-zA-Z]+$");
 
     /**
      * 简单英文字词切分正则
@@ -41,6 +43,27 @@ public final class StoryNlpUtil {
         }
         matcher.appendTail(sb);
         return sb.toString();
+    }
+
+    /**
+     * 旧文章的译文可能被模型错误地加上英文正文专用的词汇标记。
+     * 只清理标记本身，保留中文译文和原有的段落换行。
+     */
+    public static String cleanTranslation(String translation) {
+        if (!StringUtils.hasText(translation)) {
+            return "";
+        }
+        Matcher matcher = TRANSLATION_MARK_PATTERN.matcher(translation);
+        StringBuilder result = new StringBuilder();
+        while (matcher.find()) {
+            String visible = matcher.group(1).split("\\|", 2)[0].trim();
+            if (visible.codePoints().anyMatch(c -> Character.UnicodeScript.of(c) == Character.UnicodeScript.HAN)) {
+                visible = LATIN_SUFFIX_AFTER_CHINESE.matcher(visible).replaceFirst("");
+            }
+            matcher.appendReplacement(result, Matcher.quoteReplacement(visible));
+        }
+        matcher.appendTail(result);
+        return result.toString();
     }
 
     /**

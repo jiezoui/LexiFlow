@@ -32,6 +32,9 @@ public interface MediaService {
     SubtitleUploadVo uploadSubtitle(String publicId, MultipartFile file, String language,
                                     SubtitleSource source, Long userId);
 
+    /** 将已有的平台字幕短片段重组为句级字幕，保留旧轨道。 */
+    SubtitleUploadVo repairPlatformSentences(String publicId, Long userId);
+
     AsyncJobVo reprocess(String publicId, Long userId);
 
     AsyncJobVo translate(String publicId, Long userId);

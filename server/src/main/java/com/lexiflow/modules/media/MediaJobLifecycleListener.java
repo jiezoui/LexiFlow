@@ -31,11 +31,11 @@ public class MediaJobLifecycleListener implements AsyncJobLifecycleListener {
         AsyncJobStatus status = AsyncJobStatus.valueOf(job.status());
         if (status == AsyncJobStatus.SUCCEEDED) {
             boolean subtitleReady = subtitleIngestionService.hasReadyOriginalTrack(media.getId());
-            media.setStatus(subtitleReady ? MediaStatus.READY.name() : MediaStatus.WAITING_SUBTITLE.name());
+            media.setStatus(subtitleReady ? MediaStatus.READY.name() : MediaStatus.FAILED.name());
             media.setProcessingStage(subtitleReady
                     ? MediaProcessingStage.READY.name()
-                    : MediaProcessingStage.ACQUIRING_SUBTITLE.name());
-            media.setErrorMessage(null);
+                    : MediaProcessingStage.FINALIZING.name());
+            media.setErrorMessage(subtitleReady ? null : "转写任务已结束，但未生成可用字幕。请重试或导入字幕。");
         } else if (status == AsyncJobStatus.FAILED || status == AsyncJobStatus.CANCELLED) {
             media.setStatus(MediaStatus.FAILED.name());
             media.setErrorMessage(job.lastError() == null ? "媒体处理任务已终止" : job.lastError());

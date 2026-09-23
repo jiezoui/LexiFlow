@@ -6,6 +6,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lexiflow.common.exception.BusinessException;
 import com.lexiflow.common.result.ResultCode;
+import com.lexiflow.modules.media.entity.MediaItemEntity;
+import com.lexiflow.modules.media.entity.SubtitleCueEntity;
+import com.lexiflow.modules.media.entity.SubtitleTrackEntity;
+import com.lexiflow.modules.media.mapper.MediaItemMapper;
+import com.lexiflow.modules.media.mapper.SubtitleCueMapper;
+import com.lexiflow.modules.media.mapper.SubtitleTrackMapper;
 import com.lexiflow.modules.shadowing.dto.CreateShadowingSentenceRequest;
 import com.lexiflow.modules.shadowing.dto.ShadowingAttemptRequest;
 import com.lexiflow.modules.shadowing.entity.ShadowingAttemptEntity;
@@ -19,6 +25,7 @@ import com.lexiflow.modules.shadowing.vo.ShadowingStatsVo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,6 +57,9 @@ public class ShadowingServiceImpl implements ShadowingService {
 
     private final ShadowingSentenceMapper sentenceMapper;
     private final ShadowingAttemptMapper attemptMapper;
+    private final MediaItemMapper mediaMapper;
+    private final SubtitleCueMapper cueMapper;
+    private final SubtitleTrackMapper trackMapper;
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -129,6 +139,86 @@ public class ShadowingServiceImpl implements ShadowingService {
                 .build();
         sentenceMapper.insert(entity);
         return toSentenceVo(entity, null);
+    }
+
+    @Override
+    public Map<Long, Long> mediaFavorites(Long userId, String mediaPublicId) {
+        MediaItemEntity media = requireOwnedMedia(userId, mediaPublicId);
+        String prefix = mediaSourcePrefix(userId, media.getId());
+        Map<Long, Long> favorites = new HashMap<>();
+        sentenceMapper.selectList(new LambdaQueryWrapper<ShadowingSentenceEntity>()
+                .eq(ShadowingSentenceEntity::getUserId, userId)
+                .eq(ShadowingSentenceEntity::getSourceType, "MEDIA")
+                .likeRight(ShadowingSentenceEntity::getSourceRef, prefix))
+                .forEach(sentence -> {
+                    try {
+                        Long cueId = Long.valueOf(sentence.getSourceRef().substring(prefix.length()));
+                        favorites.put(cueId, sentence.getId());
+                    } catch (NumberFormatException ignored) {
+                        // 旧数据或异常引用不影响其他收藏。
+                    }
+                });
+        return favorites;
+    }
+
+    @Override
+    @Transactional
+    public ShadowingSentenceVo saveMediaCue(Long userId, String mediaPublicId, Long cueId) {
+        MediaItemEntity media = requireOwnedMedia(userId, mediaPublicId);
+        SubtitleCueEntity cue = cueMapper.selectById(cueId);
+        SubtitleTrackEntity track = cue == null ? null : trackMapper.selectById(cue.getTrackId());
+        if (track == null || !media.getId().equals(track.getMediaItemId())
+                || cue.getSourceText() == null || cue.getSourceText().isBlank()) {
+            throw new BusinessException(ResultCode.NOT_FOUND.getCode(), "该媒体字幕不存在");
+        }
+
+        String sourceRef = mediaSourcePrefix(userId, media.getId()) + cueId;
+        ShadowingSentenceEntity existing = findMediaSentence(userId, sourceRef);
+        if (existing != null) return toSentenceVo(existing, aggregateBySentence(userId).get(existing.getId()));
+
+        LocalDateTime now = LocalDateTime.now();
+        ShadowingSentenceEntity sentence = ShadowingSentenceEntity.builder()
+                .userId(userId)
+                .sourceType("MEDIA")
+                .sourceRef(sourceRef)
+                .sourceTitle(truncate(media.getTitle(), 255))
+                .text(cue.getSourceText().trim())
+                .translation(truncate(cue.getTranslation() == null ? "" : cue.getTranslation().trim(), 512))
+                .cefrLevel(media.getCefrLevel() == null ? "B2" : media.getCefrLevel())
+                .wordCount(countWords(cue.getSourceText()))
+                .tags("PODCAST".equals(media.getPlatform()) ? "播客" : "视频")
+                .sortOrder(0)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+        try {
+            sentenceMapper.insert(sentence);
+        } catch (DuplicateKeyException duplicate) {
+            // 多标签页同时收藏同一句时，唯一键保证幂等。
+            ShadowingSentenceEntity saved = findMediaSentence(userId, sourceRef);
+            if (saved != null) return toSentenceVo(saved, aggregateBySentence(userId).get(saved.getId()));
+            throw duplicate;
+        }
+        return toSentenceVo(sentence, null);
+    }
+
+    private MediaItemEntity requireOwnedMedia(Long userId, String mediaPublicId) {
+        MediaItemEntity media = mediaMapper.selectOne(new LambdaQueryWrapper<MediaItemEntity>()
+                .eq(MediaItemEntity::getPublicId, mediaPublicId)
+                .eq(MediaItemEntity::getUserId, userId));
+        if (media == null) throw new BusinessException(ResultCode.NOT_FOUND.getCode(), "媒体不存在");
+        return media;
+    }
+
+    private String mediaSourcePrefix(Long userId, Long mediaId) {
+        return userId + ":" + mediaId + ":";
+    }
+
+    private ShadowingSentenceEntity findMediaSentence(Long userId, String sourceRef) {
+        return sentenceMapper.selectOne(new LambdaQueryWrapper<ShadowingSentenceEntity>()
+                .eq(ShadowingSentenceEntity::getUserId, userId)
+                .eq(ShadowingSentenceEntity::getSourceType, "MEDIA")
+                .eq(ShadowingSentenceEntity::getSourceRef, sourceRef));
     }
 
     @Override
@@ -583,7 +673,7 @@ public class ShadowingServiceImpl implements ShadowingService {
         if (sourceType == null || sourceType.isBlank()) return "BBC";
         String upper = sourceType.trim().toUpperCase();
         return switch (upper) {
-            case "BBC", "CARD", "CUSTOM" -> upper;
+            case "BBC", "CARD", "CUSTOM", "MEDIA" -> upper;
             default -> "CUSTOM";
         };
     }

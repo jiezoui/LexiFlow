@@ -34,6 +34,8 @@ import com.lexiflow.modules.media.vo.MediaDetailVo;
 import com.lexiflow.modules.media.vo.MediaPlaybackVo;
 import com.lexiflow.modules.media.vo.SubtitleUploadVo;
 import com.lexiflow.modules.media.util.PublicIdGenerator;
+import com.lexiflow.modules.media.util.ParsedSubtitleCue;
+import com.lexiflow.modules.media.util.SubtitleSentenceSegmenter;
 import com.lexiflow.modules.media.util.YouTubeUrlParser;
 import com.lexiflow.modules.translation.service.TranslationTaskService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,6 +46,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -68,6 +71,7 @@ public class MediaServiceImpl implements MediaService {
     public List<MediaDetailVo> list(Long userId) {
         return mediaMapper.selectList(new LambdaQueryWrapper<MediaItemEntity>()
                         .eq(MediaItemEntity::getUserId, userId)
+                        .ne(MediaItemEntity::getPlatform, MediaPlatform.PODCAST.name())
                         .orderByDesc(MediaItemEntity::getUpdatedAt))
                 .stream().map(media -> MediaDetailVo.from(media, latestReadyTrack(media.getId())))
                 .toList();
@@ -193,7 +197,8 @@ public class MediaServiceImpl implements MediaService {
             SubtitleUploadVo result = subtitleIngestionService.ingest(
                     media.getId(), file.getBytes(), language, source
             );
-            if (MediaStatus.WAITING_SUBTITLE.name().equals(media.getStatus())) {
+            if (MediaStatus.WAITING_SUBTITLE.name().equals(media.getStatus())
+                    || MediaStatus.FAILED.name().equals(media.getStatus())) {
                 media.setStatus(MediaStatus.READY.name());
                 media.setProcessingStage(MediaProcessingStage.READY.name());
                 media.setErrorMessage(null);
@@ -209,7 +214,9 @@ public class MediaServiceImpl implements MediaService {
     @Transactional
     public AsyncJobVo reprocess(String publicId, Long userId) {
         MediaItemEntity media = requireOwned(publicId, userId);
-        if (!MediaPlatform.YOUTUBE.name().equals(media.getPlatform()) && media.getSourceStorageKey() == null) {
+        boolean remoteSource = MediaPlatform.YOUTUBE.name().equals(media.getPlatform())
+                || MediaPlatform.PODCAST.name().equals(media.getPlatform());
+        if (!remoteSource && media.getSourceStorageKey() == null) {
             throw new BusinessException(ResultCode.MEDIA_UPLOAD_CONFLICT);
         }
         AsyncJobEntity active = jobMapper.selectByAggregateForUser("MEDIA", media.getId(), userId)
@@ -230,6 +237,13 @@ public class MediaServiceImpl implements MediaService {
             mediaMapper.updateById(media);
             YouTubeUrlParser.ParsedYouTubeUrl parsed = YouTubeUrlParser.parse(media.getSourceUrl());
             return enqueueYouTubeProcess(media, parsed);
+        }
+        if (MediaPlatform.PODCAST.name().equals(media.getPlatform())) {
+            media.setStatus(MediaStatus.PROCESSING.name());
+            media.setProcessingStage(MediaProcessingStage.DOWNLOADING_AUDIO.name());
+            media.setErrorMessage(null);
+            mediaMapper.updateById(media);
+            return enqueuePodcastProcess(media);
         }
 
         media.setStatus(MediaStatus.PROCESSING.name());
@@ -280,6 +294,82 @@ public class MediaServiceImpl implements MediaService {
         } catch (Exception e) {
             log.warn("无法派发 YouTube 媒体处理任务: {}", media.getId(), e);
             return null;
+        }
+    }
+
+    @Override
+    public SubtitleUploadVo repairPlatformSentences(String publicId, Long userId) {
+        MediaItemEntity media = requireOwned(publicId, userId);
+        SubtitleTrackEntity track = latestReadyTrack(media.getId());
+        if (track == null || !SubtitleSource.PLATFORM.name().equals(track.getSource())) {
+            throw new BusinessException("当前媒体没有可修复的平台字幕");
+        }
+        List<SubtitleCueEntity> oldCues = cueMapper.selectList(new LambdaQueryWrapper<SubtitleCueEntity>()
+                .eq(SubtitleCueEntity::getTrackId, track.getId())
+                .orderByAsc(SubtitleCueEntity::getSequenceNo));
+        if (oldCues.isEmpty()) throw new BusinessException("当前字幕为空");
+
+        List<ParsedSubtitleCue> captions = oldCues.stream()
+                .map(cue -> new ParsedSubtitleCue(cue.getStartMs(), cue.getEndMs(), cue.getSourceText()))
+                .toList();
+        List<SubtitleSentenceSegmenter.SentenceCue> sentences = SubtitleSentenceSegmenter.segment(captions);
+        boolean alreadySegmented = sentences.size() == oldCues.size();
+        if (alreadySegmented) {
+            for (int index = 0; index < oldCues.size(); index++) {
+                if (!oldCues.get(index).getSourceText().equals(sentences.get(index).text())) {
+                    alreadySegmented = false;
+                    break;
+                }
+            }
+        }
+        if (alreadySegmented) {
+            return new SubtitleUploadVo(track.getId(), track.getLanguage(), track.getSource(),
+                    track.getFormat(), oldCues.size());
+        }
+
+        StringBuilder srt = new StringBuilder();
+        for (int index = 0; index < oldCues.size(); index++) {
+            SubtitleCueEntity cue = oldCues.get(index);
+            srt.append(index + 1).append('\n')
+                    .append(srtTime(cue.getStartMs())).append(" --> ")
+                    .append(srtTime(cue.getEndMs())).append('\n')
+                    .append(cue.getSourceText().replaceAll("\\s+", " ")).append("\n\n");
+        }
+        return subtitleIngestionService.ingest(media.getId(), srt.toString().getBytes(StandardCharsets.UTF_8),
+                track.getLanguage(), SubtitleSource.PLATFORM, null);
+    }
+
+    private static String srtTime(long millis) {
+        long hours = millis / 3_600_000;
+        long minutes = (millis / 60_000) % 60;
+        long seconds = (millis / 1_000) % 60;
+        return String.format(java.util.Locale.ROOT, "%02d:%02d:%02d,%03d",
+                hours, minutes, seconds, millis % 1_000);
+    }
+
+    private AsyncJobVo enqueuePodcastProcess(MediaItemEntity media) {
+        try {
+            String payload = objectMapper.writeValueAsString(Map.of(
+                    "mediaId", media.getId(),
+                    "mediaPublicId", media.getPublicId(),
+                    "sourceUrl", media.getSourceUrl(),
+                    "maxDurationSeconds", properties.getMaxDurationSeconds()
+            ));
+            return asyncJobService.enqueue(new AsyncJobCommand(
+                    media.getUserId(),
+                    "PODCAST_MEDIA_PROCESS",
+                    JobExecutorType.MEDIA,
+                    "MEDIA",
+                    media.getId(),
+                    AsyncJobStage.DOWNLOADING_AUDIO,
+                    0,
+                    payload,
+                    3,
+                    "media:" + media.getId() + ":podcast-reprocess:" + PublicIdGenerator.next()
+            ));
+        } catch (Exception e) {
+            log.warn("无法派发播客媒体处理任务: {}", media.getId(), e);
+            throw new IllegalStateException("无法创建播客重处理任务", e);
         }
     }
 

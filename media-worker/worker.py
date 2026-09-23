@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import ipaddress
 import json
 import logging
 import os
@@ -13,6 +14,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -50,6 +52,10 @@ CONFIG = Config()
 SESSION = requests.Session()
 SESSION.headers.update({"X-Worker-Token": CONFIG.token})
 _WHISPER_MODEL: Any = None
+
+
+class NonRetryableMediaError(RuntimeError):
+    pass
 
 
 def api(method: str, path: str, **kwargs: Any) -> Any:
@@ -119,6 +125,85 @@ def download_source(source_path: str, target: Path) -> None:
             for block in response.iter_content(chunk_size=1024 * 1024):
                 if block:
                     output.write(block)
+
+
+def validate_public_media_url(value: str) -> None:
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username:
+        raise RuntimeError("podcast audio URL must use public HTTP or HTTPS")
+    try:
+        ipaddress.ip_address(parsed.hostname)
+        hostname_is_literal = True
+    except ValueError:
+        hostname_is_literal = False
+    docker_desktop_proxy = ipaddress.ip_network("198.18.0.0/15")
+    for result in socket.getaddrinfo(parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM):
+        address = ipaddress.ip_address(result[4][0])
+        synthetic_proxy = not hostname_is_literal and address in docker_desktop_proxy
+        if not address.is_global and not synthetic_proxy:
+            raise RuntimeError("podcast audio URL resolves to a private or local address")
+
+
+def download_remote_source(source_url: str, target: Path, max_bytes: int = 250 * 1024 * 1024) -> None:
+    current = source_url
+    for _ in range(4):
+        validate_public_media_url(current)
+        with requests.get(
+            current,
+            stream=True,
+            timeout=(10, 600),
+            allow_redirects=False,
+            headers={"User-Agent": "LexiFlow/1.0 Podcast Media Worker"},
+        ) as response:
+            if 300 <= response.status_code < 400:
+                location = response.headers.get("location")
+                if not location:
+                    raise RuntimeError("podcast audio redirect has no location")
+                current = urljoin(current, location)
+                continue
+            response.raise_for_status()
+            expected = int(response.headers.get("content-length") or 0)
+            if expected > max_bytes:
+                raise RuntimeError("podcast audio exceeds the 250 MB processing limit")
+            written = 0
+            with target.open("wb") as output:
+                for block in response.iter_content(chunk_size=1024 * 1024):
+                    if not block:
+                        continue
+                    written += len(block)
+                    if written > max_bytes:
+                        raise RuntimeError("podcast audio exceeds the 250 MB processing limit")
+                    output.write(block)
+            if written == 0:
+                raise RuntimeError("podcast audio download returned an empty file")
+            return
+    raise RuntimeError("podcast audio redirected too many times")
+
+
+def audio_peak_db(path: Path) -> float:
+    result = subprocess.run(
+        [
+            CONFIG.ffmpeg,
+            "-hide_banner",
+            "-nostats",
+            "-i",
+            str(path),
+            "-af",
+            "volumedetect",
+            "-f",
+            "null",
+            "-",
+        ],
+        check=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+    )
+    match = re.search(r"max_volume:\s*(-?inf|-?\d+(?:\.\d+)?)\s*dB", result.stderr)
+    if not match or match.group(1) == "-inf":
+        return float("-inf")
+    return float(match.group(1))
 
 
 def probe(path: Path) -> dict[str, Any]:
@@ -279,6 +364,46 @@ def transcribe(
     source: Path, target: Path, token_target: Path, job_id: int | None = None
 ) -> str:
     model = ensure_whisper_model()
+    def write_segments(segments: Any, total_sec: float) -> tuple[int, list[dict[str, Any]]]:
+        cue_tokens: list[dict[str, Any]] = []
+        last_report_time = 0.0
+        sequence = 0
+        with target.open("w", encoding="utf-8", newline="\n") as output:
+            for segment in segments:
+                text = segment.text.strip()
+                if not text:
+                    continue
+                sequence += 1
+                output.write(f"{sequence}\n")
+                output.write(f"{srt_timestamp(segment.start)} --> {srt_timestamp(segment.end)}\n")
+                output.write(text + "\n\n")
+                words = []
+                for word in segment.words or []:
+                    token = (word.word or "").strip()
+                    if not token or word.start is None or word.end is None:
+                        continue
+                    words.append(
+                        {
+                            "text": token,
+                            "startMs": max(0, round(word.start * 1000)),
+                            "endMs": max(0, round(word.end * 1000)),
+                        }
+                    )
+                if words:
+                    cue_tokens.append({"sequenceNo": sequence, "tokens": words})
+
+                now = time.time()
+                if job_id and (now - last_report_time >= 1.2):
+                    last_report_time = now
+                    curr_sec = min(segment.end, total_sec)
+                    pct = min(95, 70 + int((curr_sec / total_sec) * 25))
+                    detail = f"已转写 {sequence} 句 ({format_mm_ss(curr_sec)} / {format_mm_ss(total_sec)})"
+                    try:
+                        progress(job_id, "TRANSCRIBING", pct, detail=detail)
+                    except Exception as e:
+                        LOG.debug("transcription progress report failed: %s", e)
+        return sequence, cue_tokens
+
     segments, info = model.transcribe(
         str(source),
         language=CONFIG.whisper_language,
@@ -287,45 +412,22 @@ def transcribe(
         beam_size=CONFIG.whisper_beam_size,
     )
     total_sec = max(getattr(info, "duration", 0.0) or 0.0, 1.0)
-    cue_tokens: list[dict[str, Any]] = []
-    last_report_time = 0.0
-    with target.open("w", encoding="utf-8", newline="\n") as output:
-        sequence = 0
-        for segment in segments:
-            text = segment.text.strip()
-            if not text:
-                continue
-            sequence += 1
-            output.write(f"{sequence}\n")
-            output.write(f"{srt_timestamp(segment.start)} --> {srt_timestamp(segment.end)}\n")
-            output.write(text + "\n\n")
-            words = []
-            for word in segment.words or []:
-                token = (word.word or "").strip()
-                if not token or word.start is None or word.end is None:
-                    continue
-                words.append(
-                    {
-                        "text": token,
-                        "startMs": max(0, round(word.start * 1000)),
-                        "endMs": max(0, round(word.end * 1000)),
-                    }
-                )
-            if words:
-                cue_tokens.append({"sequenceNo": sequence, "tokens": words})
-
-            now = time.time()
-            if job_id and (now - last_report_time >= 1.2):
-                last_report_time = now
-                curr_sec = min(segment.end, total_sec)
-                pct = min(95, 70 + int((curr_sec / total_sec) * 25))
-                detail = f"已转写 {sequence} 句 ({format_mm_ss(curr_sec)} / {format_mm_ss(total_sec)})"
-                try:
-                    progress(job_id, "TRANSCRIBING", pct, detail=detail)
-                except Exception as e:
-                    LOG.debug("transcription progress report failed: %s", e)
-    if not target.exists() or target.stat().st_size == 0:
-        raise RuntimeError("Whisper returned no subtitle cues")
+    sequence, cue_tokens = write_segments(segments, total_sec)
+    if sequence == 0:
+        LOG.warning("VAD produced no speech; retrying transcription without VAD")
+        fallback_segments, fallback_info = model.transcribe(
+            str(source),
+            language=CONFIG.whisper_language or getattr(info, "language", None),
+            vad_filter=False,
+            word_timestamps=True,
+            beam_size=CONFIG.whisper_beam_size,
+        )
+        sequence, cue_tokens = write_segments(fallback_segments, total_sec)
+        info = fallback_info
+    if sequence == 0:
+        raise NonRetryableMediaError(
+            "SOURCE_AUDIO_UNAVAILABLE: 原始音频没有可识别的声音，请更换单集或 RSS 源"
+        )
     token_target.write_text(
         json.dumps(cue_tokens, ensure_ascii=False, separators=(",", ":")),
         encoding="utf-8",
@@ -622,6 +724,73 @@ def handle_youtube(job: dict[str, Any]) -> None:
         heartbeat.join(timeout=2)
 
 
+def handle_podcast(job: dict[str, Any]) -> None:
+    job_id = int(job["id"])
+    media_id = int(job["aggregateId"])
+    payload = json.loads(job.get("payload") or "{}")
+    source_url = payload.get("sourceUrl") or ""
+    max_duration_seconds = int(payload.get("maxDurationSeconds") or 14_400)
+    stop_heartbeat = threading.Event()
+    heartbeat = threading.Thread(
+        target=heartbeat_loop, args=(job_id, stop_heartbeat), daemon=True
+    )
+    heartbeat.start()
+    try:
+        with tempfile.TemporaryDirectory(prefix=f"lexiflow-podcast-job-{job_id}-") as task_dir:
+            task = Path(task_dir)
+            audio_file = task / "podcast.audio"
+            progress(job_id, "DOWNLOADING_AUDIO", 8, detail="正在获取播客音频")
+            download_remote_source(source_url, audio_file)
+
+            progress(job_id, "PROBING", 18, detail="正在检测音频信息")
+            source_probe = probe(audio_file)
+            metadata = probe_payload(source_probe)
+            if metadata["durationMs"] > max_duration_seconds * 1000:
+                raise RuntimeError("podcast duration exceeds configured limit")
+            if first_stream(source_probe, "audio") is None:
+                raise RuntimeError("podcast enclosure does not contain an audio stream")
+            peak_db = audio_peak_db(audio_file)
+            LOG.info("podcast media job %s source peak volume %.1f dB", job_id, peak_db)
+            if peak_db < -70:
+                raise NonRetryableMediaError(
+                    "SOURCE_AUDIO_UNAVAILABLE: 原始音频是静音文件，请更换单集或 RSS 源"
+                )
+            api("POST", f"/internal/media/{media_id}/probe", json=metadata)
+
+            progress(job_id, "DOWNLOADING_MODEL", 30, detail="正在准备语音识别模型")
+            ensure_whisper_model()
+            progress(job_id, "TRANSCRIBING", 35, detail="正在生成逐句精听文本")
+            subtitle = task / "podcast.srt"
+            tokens = task / "podcast.tokens.json"
+            language = transcribe(audio_file, subtitle, tokens, job_id=job_id)
+            upload_subtitle(media_id, subtitle, language, "ASR", tokens)
+
+            progress(job_id, "FINALIZING", 98, detail="正在整理精听文本")
+            api(
+                "POST",
+                f"/internal/jobs/{job_id}/complete",
+                json={"workerId": CONFIG.worker_id, "resultRef": f"media:{media_id}"},
+            )
+            LOG.info("completed podcast media job %s for media %s", job_id, media_id)
+    except Exception as exc:
+        LOG.exception("podcast media job %s failed", job_id)
+        try:
+            api(
+                "POST",
+                f"/internal/jobs/{job_id}/fail",
+                json={
+                    "workerId": CONFIG.worker_id,
+                    "retryable": not isinstance(exc, NonRetryableMediaError),
+                    "error": str(exc)[:8000],
+                },
+            )
+        except Exception:
+            LOG.exception("could not report failure for podcast job %s", job_id)
+    finally:
+        stop_heartbeat.set()
+        heartbeat.join(timeout=2)
+
+
 def main() -> None:
     if CONFIG.token == "change-me-in-production":
         LOG.warning("worker is using the development token; change it outside local development")
@@ -638,6 +807,8 @@ def main() -> None:
                     handle(job)
                 elif job_type == "YOUTUBE_MEDIA_PROCESS":
                     handle_youtube(job)
+                elif job_type == "PODCAST_MEDIA_PROCESS":
+                    handle_podcast(job)
                 else:
                     job_id = job["id"]
                     LOG.error("rejecting unsupported media job %s of type %s", job_id, job_type)

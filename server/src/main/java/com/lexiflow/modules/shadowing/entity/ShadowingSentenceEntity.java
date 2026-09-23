@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
 /**
  * 影子跟读句库实体 (shadowing_sentence)
  *
- * <p>统一承载三类语料：BBC 外刊精选、生词本语境例句、用户自定义导入。
+ * <p>统一承载 BBC 外刊精选、生词本例句、用户自定义与媒体收藏语料。
  * {@code userId} 为 {@code null} 表示系统内置公共句库。</p>
  */
 @Data
@@ -29,7 +29,7 @@ public class ShadowingSentenceEntity {
     /** 归属用户 ID；NULL = 系统内置公共句 */
     private Long userId;
 
-    /** 题源类型: BBC / CARD / CUSTOM */
+    /** 题源类型: BBC / CARD / CUSTOM / MEDIA */
     private String sourceType;
 
     /** 题源标题 */

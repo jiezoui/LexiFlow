@@ -19,6 +19,7 @@ import com.lexiflow.modules.media.util.Hashing;
 import com.lexiflow.modules.media.util.ParsedSubtitle;
 import com.lexiflow.modules.media.util.ParsedSubtitleCue;
 import com.lexiflow.modules.media.util.SubtitleParser;
+import com.lexiflow.modules.media.util.SubtitleSentenceSegmenter;
 import com.lexiflow.modules.media.vo.SubtitleUploadVo;
 import com.lexiflow.modules.translation.event.SubtitleTrackReadyEvent;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -52,6 +54,8 @@ public class SubtitleIngestionServiceImpl implements SubtitleIngestionService {
         String normalizedLanguage = normalizeLanguage(language);
         ParsedSubtitle parsed = SubtitleParser.parse(content, properties.getMaxSubtitleCues());
         Map<Integer, String> tokensBySequence = parseTimedTokens(timedTokens, parsed);
+        List<SubtitleSentenceSegmenter.SentenceCue> sentences = source == SubtitleSource.PLATFORM
+                ? SubtitleSentenceSegmenter.segment(parsed.cues()) : List.of();
         Integer latestVersion = trackMapper.selectList(
                         new LambdaQueryWrapper<SubtitleTrackEntity>()
                                 .eq(SubtitleTrackEntity::getMediaItemId, mediaItemId)
@@ -77,19 +81,35 @@ public class SubtitleIngestionServiceImpl implements SubtitleIngestionService {
         trackMapper.insert(track);
 
         int sequence = 1;
-        for (ParsedSubtitleCue parsedCue : parsed.cues()) {
-            int cueSequence = sequence++;
-            cueMapper.insert(SubtitleCueEntity.builder()
-                    .trackId(track.getId())
-                    .sequenceNo(cueSequence)
-                    .startMs(parsedCue.startMs())
-                    .endMs(parsedCue.endMs())
-                    .sourceText(parsedCue.text())
-                    .tokens(tokensBySequence.get(cueSequence))
-                    .tokenVersion(1)
-                    .createdAt(now)
-                    .updatedAt(now)
-                    .build());
+        if (source == SubtitleSource.PLATFORM) {
+            for (SubtitleSentenceSegmenter.SentenceCue sentence : sentences) {
+                cueMapper.insert(SubtitleCueEntity.builder()
+                        .trackId(track.getId())
+                        .sequenceNo(sequence++)
+                        .startMs(sentence.startMs())
+                        .endMs(sentence.endMs())
+                        .sourceText(sentence.text())
+                        .tokens(objectMapper.valueToTree(sentence.tokens()).toString())
+                        .tokenVersion(1)
+                        .createdAt(now)
+                        .updatedAt(now)
+                        .build());
+            }
+        } else {
+            for (ParsedSubtitleCue parsedCue : parsed.cues()) {
+                int cueSequence = sequence++;
+                cueMapper.insert(SubtitleCueEntity.builder()
+                        .trackId(track.getId())
+                        .sequenceNo(cueSequence)
+                        .startMs(parsedCue.startMs())
+                        .endMs(parsedCue.endMs())
+                        .sourceText(parsedCue.text())
+                        .tokens(tokensBySequence.get(cueSequence))
+                        .tokenVersion(1)
+                        .createdAt(now)
+                        .updatedAt(now)
+                        .build());
+            }
         }
         var media = mediaMapper.selectById(mediaItemId);
         if (media == null) {
@@ -97,7 +117,7 @@ public class SubtitleIngestionServiceImpl implements SubtitleIngestionService {
         }
         eventPublisher.publishEvent(new SubtitleTrackReadyEvent(track.getId(), media.getUserId()));
         return new SubtitleUploadVo(track.getId(), normalizedLanguage, source.name(),
-                parsed.format(), parsed.cues().size());
+                parsed.format(), sequence - 1);
     }
 
     private Map<Integer, String> parseTimedTokens(byte[] content, ParsedSubtitle subtitle) {

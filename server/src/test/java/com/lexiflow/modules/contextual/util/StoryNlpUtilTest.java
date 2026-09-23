@@ -19,6 +19,14 @@ class StoryNlpUtilTest {
     }
 
     @Test
+    void shouldCleanVocabularyHintsFromChineseTranslation() {
+        String translation = "她进行了一次[[冒险|adventure]]，并[[承认admit]]了错误。\n\n第二段保留。";
+
+        assertThat(StoryNlpUtil.cleanTranslation(translation))
+                .isEqualTo("她进行了一次冒险，并承认了错误。\n\n第二段保留。");
+    }
+
+    @Test
     void shouldCountMarkedOccurrences() {
         String content = "Yesterday, she [[studied|study]] hard. Later, she [[studied|study]] more to overcome [[obstacles|obstacle]].";
 

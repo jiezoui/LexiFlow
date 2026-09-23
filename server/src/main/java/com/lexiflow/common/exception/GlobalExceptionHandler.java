@@ -40,6 +40,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public Result<Void> handleException(Exception e) {
         log.error("系统未知未捕获异常: ", e);
-        return Result.error(ResultCode.INTERNAL_ERROR.getCode(), "服务器繁忙，请稍后再试: " + e.getMessage());
+        return Result.error(ResultCode.INTERNAL_ERROR.getCode(), "服务器繁忙，请稍后再试");
     }
 }

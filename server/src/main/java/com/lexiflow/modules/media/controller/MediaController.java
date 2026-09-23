@@ -109,6 +109,13 @@ public class MediaController {
         return Result.success(mediaService.reprocess(mediaId, UserContext.requireCurrentUserId()));
     }
 
+    @Operation(summary = "修复平台字幕的断句，不重新下载媒体")
+    @PostMapping("/{mediaId}/repair-platform-sentences")
+    public Result<SubtitleUploadVo> repairPlatformSentences(@PathVariable String mediaId) {
+        return Result.success(mediaService.repairPlatformSentences(
+                mediaId, UserContext.requireCurrentUserId()));
+    }
+
     @Operation(summary = "开始或重试当前字幕轨道的中文翻译")
     @PostMapping("/{mediaId}/translation")
     public Result<AsyncJobVo> translate(@PathVariable String mediaId) {

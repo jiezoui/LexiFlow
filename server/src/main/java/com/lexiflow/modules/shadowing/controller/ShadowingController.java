@@ -43,14 +43,14 @@ public class ShadowingController {
 
     @Operation(
             summary = "获取跟读句库",
-            description = "返回系统内置的 BBC 外刊精选句与当前用户导入的自定义句，并附带该用户对每句的"
+            description = "返回系统内置句、用户导入句和媒体收藏句，并附带该用户对每句的"
                     + "练习次数、历史最高分、最近得分与掌握状态（未练/练习中/已掌握）",
             security = @SecurityRequirement(name = "BearerAuth")
     )
     @ApiResponses({@ApiResponse(responseCode = "200", description = "成功返回跟读句列表")})
     @GetMapping("/sentences")
     public Result<List<ShadowingSentenceVo>> listSentences(
-            @Parameter(description = "题源类型过滤：BBC / CARD / CUSTOM，留空或 ALL 表示全部", example = "BBC")
+            @Parameter(description = "题源类型过滤：BBC / CARD / CUSTOM / MEDIA，留空或 ALL 表示全部", example = "BBC")
             @RequestParam(name = "sourceType", required = false) String sourceType,
             @Parameter(description = "最多返回条数", example = "100")
             @RequestParam(name = "limit", required = false) Integer limit
@@ -72,9 +72,23 @@ public class ShadowingController {
         return Result.success("跟读句导入成功", shadowingService.createSentence(userId, request));
     }
 
+    @GetMapping("/media-sentences/{mediaId}")
+    public Result<Map<Long, Long>> mediaFavorites(@PathVariable("mediaId") String mediaId) {
+        return Result.success(shadowingService.mediaFavorites(UserContext.requireCurrentUserId(), mediaId));
+    }
+
+    @PostMapping("/media-sentences/{mediaId}/{cueId}")
+    public Result<ShadowingSentenceVo> saveMediaCue(
+            @PathVariable("mediaId") String mediaId,
+            @PathVariable("cueId") Long cueId
+    ) {
+        return Result.success("已收藏到影子跟读", shadowingService.saveMediaCue(
+                UserContext.requireCurrentUserId(), mediaId, cueId));
+    }
+
     @Operation(
-            summary = "删除自定义跟读句",
-            description = "仅允许删除本人导入的自定义句；系统内置句库受保护",
+            summary = "删除个人跟读句",
+            description = "仅允许删除本人导入或收藏的句子；系统内置句库受保护",
             security = @SecurityRequirement(name = "BearerAuth")
     )
     @DeleteMapping("/sentences/{id}")

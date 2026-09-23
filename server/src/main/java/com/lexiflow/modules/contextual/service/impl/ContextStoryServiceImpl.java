@@ -146,7 +146,7 @@ public class ContextStoryServiceImpl implements ContextStoryService {
                 .targetLevel(targetLevel)
                 .contentMarked(finalMarkedContent)
                 .contentClean(finalCleanContent)
-                .translationCn(parsed.translationCn)
+                .translationCn(StoryNlpUtil.cleanTranslation(parsed.translationCn))
                 .wordCount(finalWordCount)
                 .targetWordsCount(targetWords.size())
                 .oovRate(oovRate)
@@ -264,7 +264,7 @@ public class ContextStoryServiceImpl implements ContextStoryService {
                 .targetLevel(story.getTargetLevel())
                 .contentMarked(story.getContentMarked())
                 .contentClean(story.getContentClean())
-                .translationCn(story.getTranslationCn())
+                .translationCn(StoryNlpUtil.cleanTranslation(story.getTranslationCn()))
                 .wordCount(story.getWordCount())
                 .targetWordsCount(story.getTargetWordsCount())
                 .oovRate(story.getOovRate())
@@ -424,6 +424,8 @@ public class ContextStoryServiceImpl implements ContextStoryService {
                 3. The surface form is the inflected word used in the sentence, and the dictionary lemma is the base form provided in the target list.
                 4. The story MUST be natural, grammatically flawless, and logically consistent.
                 5. Do not write a boring vocabulary list; build a captivating narrative.
+                6. Vocabulary markers belong ONLY in contentMarked. translationCn must be fluent, natural Chinese prose with no [[...]] markers, English lemmas, or vocabulary glosses.
+                7. Translate the FINAL English story faithfully, preserving its characters, events, and paragraph boundaries. Separate matching paragraphs with two newline characters.
                 """;
     }
 
@@ -441,7 +443,7 @@ public class ContextStoryServiceImpl implements ContextStoryService {
                 REQUIREMENTS:
                 1. Length: 250 - 350 words.
                 2. Wrap every single occurrence of the target vocabulary with [[surface|lemma]].
-                3. Provide an accurate and fluent paragraph-by-paragraph Chinese translation.
+                3. Provide an accurate and fluent paragraph-by-paragraph Chinese translation of contentMarked. Translate the visible English words, not the marker metadata; never copy [[...]] tags into translationCn.
                 4. Output STRICT JSON format as follows:
                 {
                   "title": "Creative Story Title",
@@ -469,6 +471,7 @@ public class ContextStoryServiceImpl implements ContextStoryService {
                 1. Preserve the original narrative storyline and characters.
                 2. Naturally integrate the missing vocabulary wrapped with [[surface|lemma]].
                 3. Ensure all target vocabulary (%s) are present.
+                4. Regenerate translationCn from the rewritten English story. Use natural Chinese with the same paragraph breaks, and no [[...]] markers or English lemma hints.
                 4. Return STRICT JSON:
                 {
                   "title": "Story Title",

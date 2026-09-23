@@ -3,6 +3,8 @@ package com.lexiflow.modules.media.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.lexiflow.modules.media.entity.MediaItemEntity;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -12,6 +14,25 @@ import java.util.List;
 
 @Mapper
 public interface MediaItemMapper extends BaseMapper<MediaItemEntity> {
+
+    @Insert("""
+            INSERT INTO media_item (
+                public_id, user_id, platform, external_id, source_url, title, creator,
+                cover_url, duration_ms, playback_type, mime_type, language, status,
+                processing_stage, created_at, updated_at
+            ) VALUES (
+                #{publicId}, #{userId}, #{platform}, #{externalId}, #{sourceUrl},
+                #{title}, #{creator}, #{coverUrl}, #{durationMs}, #{playbackType},
+                #{mimeType}, #{language}, #{status}, #{processingStage},
+                #{createdAt}, #{updatedAt}
+            )
+            ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
+            """)
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertOrGetPodcast(MediaItemEntity media);
+
+    @Select("SELECT * FROM media_item WHERE id = #{id} FOR UPDATE")
+    MediaItemEntity selectAnyByIdForUpdate(@Param("id") Long id);
 
     @Select("""
             SELECT * FROM media_item

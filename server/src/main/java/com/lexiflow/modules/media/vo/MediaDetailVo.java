@@ -41,6 +41,7 @@ public record MediaDetailVo(
             case "YOUTUBE_IFRAME" -> media.getExternalId() == null ? null
                     : "https://www.youtube-nocookie.com/embed/" + media.getExternalId()
                     + "?enablejsapi=1&playsinline=1&rel=0";
+            case "HTML5_AUDIO_REMOTE" -> media.getSourceUrl();
             default -> media.getStorageKey() == null ? null
                     : "/api/media/" + media.getPublicId() + "/stream";
         };

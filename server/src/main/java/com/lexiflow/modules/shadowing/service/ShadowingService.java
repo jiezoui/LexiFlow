@@ -7,6 +7,7 @@ import com.lexiflow.modules.shadowing.vo.ShadowingSentenceVo;
 import com.lexiflow.modules.shadowing.vo.ShadowingStatsVo;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 影子跟读业务接口。
@@ -26,7 +27,13 @@ public interface ShadowingService {
     /** 导入用户自定义跟读句。 */
     ShadowingSentenceVo createSentence(Long userId, CreateShadowingSentenceRequest request);
 
-    /** 删除用户自定义跟读句（仅限本人创建）。 */
+    /** 当前媒体中已收藏的字幕 ID 与跟读句 ID。 */
+    Map<Long, Long> mediaFavorites(Long userId, String mediaPublicId);
+
+    /** 收藏媒体字幕到个人跟读句库，重复收藏返回原记录。 */
+    ShadowingSentenceVo saveMediaCue(Long userId, String mediaPublicId, Long cueId);
+
+    /** 删除个人跟读句（仅限本人导入或收藏）。 */
     void deleteSentence(Long userId, Long sentenceId);
 
     /** 记录一次跟读评测结果，并计入当日打卡统计。 */
