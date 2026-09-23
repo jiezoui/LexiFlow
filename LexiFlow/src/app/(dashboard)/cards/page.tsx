@@ -1239,9 +1239,6 @@ export default function CardsPage() {
               {/* 卡片顶栏元数据 */}
               <div className="flex items-center justify-between gap-3 border-b border-border/60 pb-3">
                 <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-primary/10 text-primary">
-                    {currentReviewCard.source || "WORDBOOK"}
-                  </span>
                   <span className="text-xs font-mono text-muted-foreground">
                     {isFlipped ? "卡片背面 · 释义解析" : "卡片正面 · 记忆主动提取"}
                   </span>
@@ -1321,19 +1318,9 @@ export default function CardsPage() {
                       <span>{currentReviewCard.definitionCn}</span>
                     </div>
 
-                    {currentReviewCard.definitionEn && (
-                      <p className="mt-1 text-xs sm:text-sm text-muted-foreground italic max-w-lg">
-                        &ldquo;{currentReviewCard.definitionEn}&rdquo;
-                      </p>
-                    )}
-
                     {currentReviewCard.contextSentence && (
                       <div className="mt-2.5 text-left p-3 sm:p-3.5 rounded-xl bg-muted/40 border border-border/60 transition-all hover:border-primary/40 max-h-[95px] sm:max-h-[110px] overflow-y-auto">
-                        <div className="flex items-center justify-between gap-2 mb-1.5">
-                          <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-mono text-muted-foreground uppercase tracking-wider">
-                            <SparklesIcon className="size-3 text-primary" />
-                            <span>Context · 原生语境快照</span>
-                          </div>
+                        <div className="flex justify-end mb-1.5">
                           <button
                             type="button"
                             onClick={(e) => {
@@ -1635,36 +1622,17 @@ export default function CardsPage() {
             <div className="flex items-center justify-between text-xs font-mono text-muted-foreground">
               <span>第 {learnIndex + 1} / {learnQueue.length} 个新词</span>
 
-              {learnRewindOffset < 0 ? (
+              {learnRewindOffset < 0 && (
                 <span className="text-amber-500 dark:text-amber-400 font-bold flex items-center gap-1">
                   <span>⏪ 回顾已学词模式 (前 {Math.abs(learnRewindOffset)} 词 · 上限 2 词)</span>
                 </span>
-              ) : (
-                <span className="text-primary font-bold">新词初识编码阶段 (Encoding)</span>
               )}
             </div>
 
             {/* 新词大卡片 */}
             <div className="relative w-full rounded-3xl border border-border/80 bg-gradient-to-b from-card via-card/95 to-card/90 p-3.5 sm:p-4 md:p-5 shadow-lg flex flex-col justify-between">
               {/* 卡片顶栏 */}
-              <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-2">
-                <div className="flex items-center gap-2">
-                  {learnRewindOffset < 0 ? (
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                      REWIND · 已学回顾 (前 {Math.abs(learnRewindOffset)} 词)
-                    </span>
-                  ) : (
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                      NEW WORD
-                    </span>
-                  )}
-                  {displayingLearnCard.tags && (
-                    <span className="text-[10px] font-mono text-muted-foreground">
-                      #{displayingLearnCard.tags}
-                    </span>
-                  )}
-                </div>
-
+              <div className="flex items-center justify-end gap-2 border-b border-border/60 pb-2">
                 {/* 顶栏右侧：小喇叭 + 每组词量选择 + 上一个回退功能 */}
                 <div className="flex items-center gap-2">
                   {/* 小喇叭原声音频 */}
@@ -1809,21 +1777,11 @@ export default function CardsPage() {
                         {displayingLearnCard.definitionCn}
                       </span>
                     </div>
-
-                    {displayingLearnCard.definitionEn && (
-                      <span className="text-xs sm:text-sm text-muted-foreground italic truncate max-w-sm">
-                        &ldquo;{displayingLearnCard.definitionEn}&rdquo;
-                      </span>
-                    )}
                   </div>
 
                   {displayingLearnCard.sampleSentence && (
                     <div className="mt-1.5 text-left p-2.5 sm:p-3 rounded-xl bg-muted/40 border border-border/60 transition-all hover:border-primary/40 shadow-2xs max-h-[72px] sm:max-h-[82px] overflow-y-auto">
-                      <div className="flex items-center justify-between gap-2 mb-1">
-                        <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-mono font-bold tracking-wider text-primary uppercase">
-                          <SparklesIcon className="size-3.5" />
-                          <span>Context Sentence · 语境真题例句</span>
-                        </div>
+                      <div className="flex justify-end mb-1">
                         <button
                           type="button"
                           onClick={() => playSentenceAudio(displayingLearnCard.sampleSentence!)}

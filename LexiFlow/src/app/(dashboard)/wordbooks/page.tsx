@@ -427,12 +427,6 @@ function WordbooksPageContent() {
                     <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
                       {book.category}
                     </span>
-                    {isPrimary && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">
-                        <SparklesIcon className="size-2.5 fill-amber-500 text-amber-500" />
-                        当前主研习 · TOP 1
-                      </span>
-                    )}
                   </div>
 
                   <div className="flex items-center gap-1">

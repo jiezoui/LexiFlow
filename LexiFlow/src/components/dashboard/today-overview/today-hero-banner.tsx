@@ -70,10 +70,10 @@ export function TodayHeroBanner({
           </div>
         </div>
 
-        {/* 右侧：3D 语言粒子球体展示区（显著提高高度至 350-370px，气势磅礴，粒子舒展） */}
-        <div className="lg:col-span-7 xl:col-span-7 relative flex items-center justify-center min-h-[280px] sm:min-h-[320px] lg:min-h-[360px] h-[320px] sm:h-[350px] lg:h-[370px] overflow-visible z-30 lg:-ml-2 xl:-ml-3">
+        {/* 右侧：3D 语言粒子球体展示区（向右推近边界，使右侧文字 transform 紧贴卡片边框仅留少许呼吸间距） */}
+        <div className="lg:col-span-7 xl:col-span-7 relative flex items-center justify-center min-h-[280px] sm:min-h-[320px] lg:min-h-[360px] h-[320px] sm:h-[350px] lg:h-[370px] overflow-visible z-30">
           {/* 原装 3D 语言粒子球体（独立模块，优先级顶层） */}
-          <LanguageGlobe className="w-full h-full" />
+          <LanguageGlobe className="w-full h-full" translateX="75px" />
         </div>
       </div>
 

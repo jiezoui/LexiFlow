@@ -10,6 +10,7 @@ interface LanguageGlobeProps {
   style?: React.CSSProperties;
   showComparison?: boolean;
   comparisonOpacity?: number;
+  translateX?: string | number;
 }
 
 export const LanguageGlobe: React.FC<LanguageGlobeProps> = ({
@@ -17,16 +18,19 @@ export const LanguageGlobe: React.FC<LanguageGlobeProps> = ({
   style,
   showComparison = false,
   comparisonOpacity = 0.5,
+  translateX = '70px',
 }) => {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(0.38);
 
+  const txValue = typeof translateX === 'number' ? `${translateX}px` : translateX;
+
   // Benchmark canvas resolution
   const BENCHMARK_WIDTH = 1774;
   const BENCHMARK_HEIGHT = 887;
 
-  // Responsive scaling to fit wrapper container: scaled up (+34%) and shifted left for prominent presence
+  // Responsive scaling to fit wrapper container: scaled up (+34%) and shifted right towards boundary
   useEffect(() => {
     const handleResize = () => {
       const el = wrapperRef.current;
@@ -73,14 +77,14 @@ export const LanguageGlobe: React.FC<LanguageGlobeProps> = ({
         ...style,
       }}
     >
-      {/* Scaled Benchmark Container: 居中微偏左平移 (translateX -25px)，完全解除裁剪，曲线全景舒展 */}
+      {/* Scaled Benchmark Container: 居中偏右平移 (translateX)，使右侧关键词 transform 紧贴卡片边界仅留呼吸距离 */}
       <div
         ref={containerRef}
         style={{
           width: `${BENCHMARK_WIDTH}px`,
           height: `${BENCHMARK_HEIGHT}px`,
           position: 'relative',
-          transform: `scale(${scale}) translateX(-25px)`,
+          transform: `scale(${scale}) translateX(${txValue})`,
           transformOrigin: 'center center',
           backgroundColor: 'transparent',
           boxShadow: 'none',
