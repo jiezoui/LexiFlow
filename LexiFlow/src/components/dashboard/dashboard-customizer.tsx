@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
+import { usePathname, useRouter } from "next/navigation"
 import {
   DndContext,
   pointerWithin,
@@ -28,7 +29,6 @@ import {
 import { cn } from "@/lib/utils"
 import { HeroMissionCard } from "@/components/dashboard/hero-mission-card"
 import { RecentCaptures } from "@/components/dashboard/recent-captures"
-import { QuickActionDock } from "@/components/dashboard/quick-action-dock"
 import { DailyCuratedQuote } from "@/components/dashboard/daily-curated-quote"
 import { LearningVelocityCompositeChart } from "@/components/dashboard/learning-velocity-composite"
 import { FsrsRetentionChart } from "@/components/dashboard/fsrs-retention-chart"
@@ -54,7 +54,6 @@ const defaultBlocks: Block[] = [
   { id: "cognitive-load", label: "14 天认知负荷与复习通量", size: "lg", component: <CognitiveLoadChart /> },
   { id: "corpus-donut", label: "语境切片来源分布", size: "sm", component: <CorpusDonutChart /> },
   { id: "recent-captures", label: "语境快照流", size: "full", component: <RecentCaptures /> },
-  { id: "quick-actions", label: "快捷心流操作台", size: "full", component: <QuickActionDock /> },
 ]
 
 const sizeClass: Record<WidgetSize, string> = {
@@ -63,8 +62,7 @@ const sizeClass: Record<WidgetSize, string> = {
   full: "col-span-12",
 }
 
-const STORAGE_ORDER_KEY = "lexiflow-dashboard-order-v6"
-const STORAGE_MODE_KEY = "lexiflow-dashboard-mode"
+const STORAGE_ORDER_KEY = "lexiflow-dashboard-order-v7"
 
 // Null strategy: let CSS Grid handle layout
 const nullStrategy = () => null
@@ -109,7 +107,9 @@ function SortableWidget({
 }
 
 export function DashboardCustomizer() {
-  const [mode, setMode] = useState<"zen" | "analytics">("zen")
+  const pathname = usePathname()
+  const router = useRouter()
+  const mode = pathname === "/dashboard/analytics" ? "analytics" : "zen"
   const [editing, setEditing] = useState(false)
   const [blocks, setBlocks] = useState(() => {
     if (typeof window === "undefined") return defaultBlocks
@@ -130,21 +130,8 @@ export function DashboardCustomizer() {
   })
   const [activeId, setActiveId] = useState<string | null>(null)
 
-  // Load saved mode preference
-  useEffect(() => {
-    try {
-      const savedMode = localStorage.getItem(STORAGE_MODE_KEY)
-      if (savedMode === "zen" || savedMode === "analytics") {
-        setMode(savedMode)
-      }
-    } catch {}
-  }, [])
-
   const handleModeChange = (newMode: "zen" | "analytics") => {
-    setMode(newMode)
-    try {
-      localStorage.setItem(STORAGE_MODE_KEY, newMode)
-    } catch {}
+    router.push(newMode === "analytics" ? "/dashboard/analytics" : "/dashboard")
   }
 
   const sensors = useSensors(
@@ -266,11 +253,6 @@ export function DashboardCustomizer() {
 
           {/* Single High-Impact Curated Context Sentence */}
           <DailyCuratedQuote />
-
-          {/* Quick Action Dock */}
-          <div className="pt-2">
-            <QuickActionDock />
-          </div>
         </div>
       ) : (
         /* ──────── 2. 全景数据模式 (Analytics Mode) ──────── */

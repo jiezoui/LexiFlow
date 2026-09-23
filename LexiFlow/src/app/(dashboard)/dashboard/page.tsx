@@ -1,5 +1,5 @@
-import { DashboardCustomizer } from "@/components/dashboard/dashboard-customizer"
+import { TodayOverview } from "@/components/dashboard/today-overview/today-overview"
 
 export default function Page() {
-  return <DashboardCustomizer />
+  return <TodayOverview />
 }

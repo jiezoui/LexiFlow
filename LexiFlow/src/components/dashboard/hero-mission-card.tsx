@@ -12,12 +12,25 @@ import {
 } from "lucide-react"
 import { wordbookApi, type Wordbook, type WordbookStatusCounts } from "@/lib/api-client"
 
+function getSavedDailyTarget(): number {
+  if (typeof window === "undefined") return 20
+  try {
+    const value = Number(localStorage.getItem("lexiflow_daily_target"))
+    return value > 0 ? value : 20
+  } catch {
+    return 20
+  }
+}
+
 export function HeroMissionCard({ minimal = false }: { minimal?: boolean }) {
+  const [today] = useState(() => new Date())
   const [activeBook, setActiveBook] = useState<Wordbook | null>(null)
   const [counts, setCounts] = useState<WordbookStatusCounts | null>(null)
-  const [dailyTarget, setDailyTarget] = useState<number>(20)
+  const [dailyTarget, setDailyTarget] = useState<number>(getSavedDailyTarget)
   const [showTargetModal, setShowTargetModal] = useState<boolean>(false)
-  const [customTargetInput, setCustomTargetInput] = useState<string>("20")
+  const [customTargetInput, setCustomTargetInput] = useState<string>(() =>
+    String(getSavedDailyTarget())
+  )
 
   // 从 localStorage 获取当前主词书 ID 与每日目标
   const fetchActiveWordbookData = useCallback(async () => {
@@ -25,38 +38,38 @@ export function HeroMissionCard({ minimal = false }: { minimal?: boolean }) {
       const savedPrimaryId = localStorage.getItem("lexiflow_primary_wordbook_id")
       const bookId = savedPrimaryId ? Number(savedPrimaryId) : 1
 
-      const savedTarget = localStorage.getItem("lexiflow_daily_target")
-      if (savedTarget) {
-        const num = Number(savedTarget)
-        if (num > 0) {
-          setDailyTarget(num)
-          setCustomTargetInput(String(num))
-        }
-      }
-
       const [bookData, countData] = await Promise.all([
         wordbookApi.getDetail(bookId).catch(() => null),
         wordbookApi.getStatusCounts(bookId).catch(() => null),
       ])
-
-      if (bookData) setActiveBook(bookData)
-      if (countData) setCounts(countData)
+      return { bookData, countData }
     } catch (err) {
       console.warn("Failed to fetch active wordbook overview:", err)
+      return { bookData: null, countData: null }
     }
   }, [])
 
   useEffect(() => {
-    fetchActiveWordbookData()
+    let cancelled = false
+    const refreshActiveWordbookData = () => {
+      void fetchActiveWordbookData().then(({ bookData, countData }) => {
+        if (cancelled) return
+        if (bookData) setActiveBook(bookData)
+        if (countData) setCounts(countData)
+      })
+    }
 
-    const handleUpdate = () => fetchActiveWordbookData()
-    const handleFocus = () => fetchActiveWordbookData()
+    refreshActiveWordbookData()
+
+    const handleUpdate = () => refreshActiveWordbookData()
+    const handleFocus = () => refreshActiveWordbookData()
 
     window.addEventListener("lexiflow_wordbook_updated", handleUpdate)
     window.addEventListener("focus", handleFocus)
     window.addEventListener("storage", handleUpdate)
 
     return () => {
+      cancelled = true
       window.removeEventListener("lexiflow_wordbook_updated", handleUpdate)
       window.removeEventListener("focus", handleFocus)
       window.removeEventListener("storage", handleUpdate)
@@ -96,7 +109,7 @@ export function HeroMissionCard({ minimal = false }: { minimal?: boolean }) {
   // 预计完成日期计算
   const remainingUnmastered = Math.max(0, totalWords - masteredWords)
   const daysNeeded = dailyTarget > 0 ? Math.ceil(remainingUnmastered / dailyTarget) : 0
-  const targetDateObj = new Date(Date.now() + daysNeeded * 86400000)
+  const targetDateObj = new Date(today.getTime() + daysNeeded * 86400000)
   const targetDateStr = daysNeeded === 0 ? "今日已全通" : `${targetDateObj.getMonth() + 1}月${targetDateObj.getDate()}日`
 
   return (

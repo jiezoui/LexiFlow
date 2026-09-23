@@ -5,18 +5,20 @@ import Link from "next/link"
 import { Volume2Icon, ArrowRightIcon, SparklesIcon, VideoIcon } from "lucide-react"
 import { wordbookApi } from "@/lib/api-client"
 
+interface CuratedWord {
+  lemma: string
+  phonetic: string
+  sentence: string
+  translation: string
+  bookTitle: string
+  audioUrl?: string
+}
+
 export function DailyCuratedQuote() {
   const [isPlaying, setIsPlaying] = useState(false)
-  const [curatedWord, setCuratedWord] = useState<{
-    lemma: string
-    phonetic: string
-    sentence: string
-    translation: string
-    bookTitle: string
-    audioUrl?: string
-  } | null>(null)
+  const [curatedWord, setCuratedWord] = useState<CuratedWord | null>(null)
 
-  const fetchQuoteFromActiveBook = useCallback(async () => {
+  const fetchQuoteFromActiveBook = useCallback(async (): Promise<CuratedWord | null> => {
     try {
       const savedPrimaryId = localStorage.getItem("lexiflow_primary_wordbook_id")
       const bookId = savedPrimaryId ? Number(savedPrimaryId) : 1
@@ -29,26 +31,35 @@ export function DailyCuratedQuote() {
       const list = viewRes?.records || []
       const matched = list.find((w) => w.sampleSentence && w.sampleSentence.trim().length > 0)
       if (matched && book) {
-        setCuratedWord({
+        return {
           lemma: matched.lemma,
           phonetic: matched.phoneticUs || matched.phoneticUk || "",
           sentence: matched.sampleSentence!,
           translation: matched.sampleTranslation || "暂无翻译",
           bookTitle: book.title,
           audioUrl: matched.audioUs,
-        })
+        }
       }
     } catch {}
+    return null
   }, [])
 
   useEffect(() => {
-    fetchQuoteFromActiveBook()
+    let cancelled = false
+    const refreshQuote = () => {
+      void fetchQuoteFromActiveBook().then((quote) => {
+        if (!cancelled && quote) setCuratedWord(quote)
+      })
+    }
 
-    const handleUpdate = () => fetchQuoteFromActiveBook()
+    refreshQuote()
+
+    const handleUpdate = () => refreshQuote()
     window.addEventListener("lexiflow_wordbook_updated", handleUpdate)
     window.addEventListener("storage", handleUpdate)
 
     return () => {
+      cancelled = true
       window.removeEventListener("lexiflow_wordbook_updated", handleUpdate)
       window.removeEventListener("storage", handleUpdate)
     }
