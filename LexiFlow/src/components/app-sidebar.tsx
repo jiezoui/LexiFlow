@@ -1,96 +1,85 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 import Link from "next/link"
 import { NavMain } from "@/components/nav-main"
-import { NavSecondary } from "@/components/nav-secondary"
 import { NavUser } from "@/components/nav-user"
+import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader } from "@/components/ui/sidebar"
+import { vocabApi } from "@/lib/api-client"
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar"
-import {
-  LayoutDashboardIcon,
+  BarChart3Icon,
   BookOpenIcon,
   BookmarkCheckIcon,
-  VideoIcon,
-  HeadphonesIcon,
-  BookMarkedIcon,
-  SettingsIcon,
-  LifeBuoyIcon,
-  SparklesIcon,
   BrainIcon,
-  MicIcon,
+  HeadphonesIcon,
+  LayoutDashboardIcon,
+  PodcastIcon,
+  SparklesIcon,
+  VideoIcon,
 } from "lucide-react"
 
-const data = {
-  user: {
-    name: "Lin Z.",
-    email: "lin@lexiflow.local",
-    avatar: "/avatars/user.jpg",
-  },
-  navCore: [
-    { title: "今日概览", url: "/dashboard", icon: <LayoutDashboardIcon className="size-4" /> },
-    { title: "闪卡复习", url: "/cards", icon: <BrainIcon className="size-4" />, badge: "FSRS" },
-    { title: "词书库", url: "/wordbooks", icon: <BookOpenIcon className="size-4" /> },
-    { title: "生词本", url: "/vocab", icon: <BookmarkCheckIcon className="size-4" />, badge: 84 },
-  ],
-  navPractice: [
-    { title: "影子跟读", url: "/practice/shadowing", icon: <MicIcon className="size-4" />, badge: "AI评测" },
-  ],
-  navContext: [
-    { title: "语境文章", url: "/reading/story", icon: <SparklesIcon className="size-4" />, badge: "AI" },
-    { title: "视频精听", url: "/videos", icon: <VideoIcon className="size-4" /> },
-    { title: "播客精听", url: "/podcasts", icon: <HeadphonesIcon className="size-4" /> },
-    { title: "阅读库", url: "/reading", icon: <BookMarkedIcon className="size-4" /> },
-  ],
-  navSecondary: [
-    { title: "系统设置", url: "/settings", icon: <SettingsIcon /> },
-    { title: "帮助与反馈", url: "/support", icon: <LifeBuoyIcon /> },
-  ],
+const user = {
+  name: "Lin Z.",
+  email: "lin@lexiflow.local",
+  avatar: "/avatars/user.jpg",
 }
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
+  const [vocabCount, setVocabCount] = React.useState<number | undefined>()
+
+  React.useEffect(() => {
+    let mounted = true
+    const refreshCount = () => {
+      void vocabApi.getOverview()
+        .then((overview) => {
+          if (mounted) setVocabCount(overview.totalWords)
+        })
+        .catch(() => {
+          if (mounted) setVocabCount(undefined)
+        })
+    }
+
+    refreshCount()
+    window.addEventListener("lexiflow_wordbook_updated", refreshCount)
+    window.addEventListener("focus", refreshCount)
+    return () => {
+      mounted = false
+      window.removeEventListener("lexiflow_wordbook_updated", refreshCount)
+      window.removeEventListener("focus", refreshCount)
+    }
+  }, [])
+
+  const items = [
+    { title: "今日概览", url: "/dashboard", icon: <LayoutDashboardIcon /> },
+    { title: "闪卡复习", url: "/cards", icon: <BrainIcon /> },
+    { title: "词书库", url: "/wordbooks", icon: <BookOpenIcon /> },
+    { title: "生词本", url: "/vocab", icon: <BookmarkCheckIcon />, badge: vocabCount },
+    { title: "语境文章", url: "/reading/story", icon: <SparklesIcon /> },
+    { title: "视频精听", url: "/videos", icon: <VideoIcon /> },
+    { title: "影子跟读", url: "/practice/shadowing", icon: <HeadphonesIcon /> },
+    { title: "播客订阅", url: "/podcasts", icon: <PodcastIcon /> },
+    { title: "数据统计", url: "/dashboard/analytics", icon: <BarChart3Icon /> },
+  ]
+
   return (
-    <Sidebar variant="inset" {...props} className="border-r border-border bg-sidebar/95 backdrop-blur-md">
-      <SidebarHeader className="pt-4 pb-2">
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" render={<Link href="/dashboard" />} className="hover:bg-secondary transition-colors">
-              <div className="relative flex aspect-square size-8 items-center justify-center rounded-xl overflow-hidden shadow-xs border border-border/40 bg-background">
-                <img src="/logo.png" alt="LexiFlow Logo" className="size-full object-cover" />
-              </div>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <div className="flex items-center gap-1.5">
-                  <span className="truncate font-extrabold tracking-tight text-[15px] text-foreground">
-                    语脉 · LexiFlow
-                  </span>
-                  <span className="rounded border border-border bg-secondary px-1.5 py-0.2 font-mono text-[9px] font-bold text-foreground">
-                    BETA
-                  </span>
-                </div>
-                <span className="truncate text-[11px] text-muted-foreground">
-                  多模态语境研习
-                </span>
-              </div>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+    <Sidebar variant="inset" {...props} className="border-r border-sidebar-border bg-sidebar">
+      <SidebarHeader className="px-5 pb-4 pt-5">
+        <Link href="/dashboard" className="flex items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring">
+          <Image src="/logo.png" alt="语脉 Logo" width={36} height={36} className="size-9 rounded-lg object-cover" />
+          <span className="truncate text-[15px] font-bold tracking-tight text-sidebar-foreground">语脉 · LexiFlow</span>
+        </Link>
       </SidebarHeader>
-
-      <SidebarContent className="px-1">
-        <NavMain items={data.navCore} label="研习主线" />
-        <NavMain items={data.navPractice} label="AI 算法工坊" />
-        <NavMain items={data.navContext} label="真实语境" />
+      <SidebarContent className="px-3 pt-1">
+        <NavMain items={items} />
+        <div className="mt-auto px-4 pb-4 pt-6 text-muted-foreground/70">
+          <div className="mb-4 h-px w-12 bg-sidebar-border" />
+          <p className="text-xs leading-[1.5]">语言，<br />让你看见更大的世界。</p>
+          <p className="mt-2 text-[10px]">A more fluent you.</p>
+        </div>
       </SidebarContent>
-
-      <SidebarFooter className="border-t border-border pt-2 pb-3">
-        <NavUser user={data.user} />
+      <SidebarFooter className="border-t border-sidebar-border px-3 py-4">
+        <NavUser user={user} />
       </SidebarFooter>
     </Sidebar>
   )

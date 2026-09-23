@@ -14,9 +14,11 @@ import {
 import { Button } from "@/components/ui/button"
 import { contextStoryApi, type ContextStory } from "@/lib/api-client"
 import { ContextStoryGeneratorModal } from "@/components/reading/context-story-generator-modal"
+import { usePrimeBreadcrumbTitle } from "@/components/breadcrumb-title-context"
 
 export default function ContextStoryListPage() {
   const router = useRouter()
+  const primeBreadcrumbTitle = usePrimeBreadcrumbTitle()
   const [stories, setStories] = useState<ContextStory[]>([])
   const [loading, setLoading] = useState<boolean>(true)
   const [total, setTotal] = useState<number>(0)
@@ -101,7 +103,11 @@ export default function ContextStoryListPage() {
             {stories.map((st) => (
               <div
                 key={st.publicId}
-                onClick={() => router.push(`/reading/story/${st.publicId}`)}
+                onClick={() => {
+                  const pathname = `/reading/story/${st.publicId}`
+                  primeBreadcrumbTitle(pathname, st.title)
+                  router.push(pathname)
+                }}
                 className="group flex flex-col justify-between rounded-2xl border border-border bg-card p-4 shadow-2xs hover:border-primary/40 hover:bg-secondary/20 transition-all cursor-pointer"
               >
                 <div>
@@ -146,7 +152,9 @@ export default function ContextStoryListPage() {
         onClose={() => setGeneratorOpen(false)}
         onSuccess={(story) => {
           setGeneratorOpen(false)
-          router.push(`/reading/story/${story.publicId}`)
+          const pathname = `/reading/story/${story.publicId}`
+          primeBreadcrumbTitle(pathname, story.title)
+          router.push(pathname)
         }}
       />
     </div>

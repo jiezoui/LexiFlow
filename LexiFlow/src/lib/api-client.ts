@@ -118,6 +118,37 @@ export interface MediaAsyncJob {
   lastError: string | null
 }
 
+export interface PodcastFeed {
+  id: string
+  feedUrl: string
+  title: string
+  author: string | null
+  coverUrl: string | null
+  description: string | null
+  episodeCount: number
+  lastUpdated: string | null
+}
+
+export interface PodcastEpisode {
+  id: string
+  showId: string
+  showTitle: string
+  author: string | null
+  title: string
+  description: string | null
+  audioUrl: string
+  sourcePageUrl: string | null
+  coverUrl: string | null
+  durationSeconds: number | null
+  publishedAt: string | null
+  mediaId: string | null
+  mediaStatus: "DISCOVERED" | "PROCESSING" | "WAITING_SUBTITLE" | "READY" | "FAILED" | string
+  processingStage: string | null
+  mediaErrorMessage: string | null
+  lastPositionSeconds: number
+  completed: boolean
+}
+
 export interface DictEntry {
   id: number
   lemma: string
@@ -454,7 +485,8 @@ export const clearToken = (): void => {
 
 async function request<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  timeoutMs = 8000
 ): Promise<T> {
   const token = getToken()
   const headers: Record<string, string> = {
@@ -469,7 +501,7 @@ async function request<T>(
   }
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 8000)
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
   let response: Response
   try {
@@ -480,7 +512,7 @@ async function request<T>(
     })
   } catch (err: unknown) {
     if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(`网络请求超时 (8s): ${endpoint}`)
+      throw new Error(`网络请求超时 (${Math.round(timeoutMs / 1000)}s): ${endpoint}`)
     }
     throw err
   } finally {
@@ -834,6 +866,31 @@ export const mediaApi = {
       `/api/media/uploads/${encodeURIComponent(uploadId)}/complete`,
       { method: "POST", signal }
     ),
+}
+
+// 10. 播客 RSS 订阅与按需精听
+export const podcastApi = {
+  listSubscriptions: () => request<PodcastFeed[]>("/api/podcasts/subscriptions"),
+  subscribe: (feedUrl: string) =>
+    request<PodcastFeed>("/api/podcasts/subscriptions", {
+      method: "POST",
+      body: JSON.stringify({ feedUrl }),
+    }, 25000),
+  refresh: (feedId: string) =>
+    request<PodcastFeed>(`/api/podcasts/subscriptions/${encodeURIComponent(feedId)}/refresh`, {
+      method: "POST",
+    }),
+  unsubscribe: (feedId: string) =>
+    request<void>(`/api/podcasts/subscriptions/${encodeURIComponent(feedId)}`, {
+      method: "DELETE",
+    }),
+  listEpisodes: () => request<PodcastEpisode[]>("/api/podcasts/episodes"),
+  getEpisode: (episodeId: string) =>
+    request<PodcastEpisode>(`/api/podcasts/episodes/${encodeURIComponent(episodeId)}`),
+  prepare: (episodeId: string) =>
+    request<MediaItem>(`/api/podcasts/episodes/${encodeURIComponent(episodeId)}/prepare`, {
+      method: "POST",
+    }),
 }
 
 // 08. AI 助理与模型网关 API
@@ -1204,7 +1261,7 @@ export const speechApi = {
 
 export interface ShadowingSentence {
   id: number
-  sourceType: "BBC" | "CARD" | "CUSTOM"
+  sourceType: "BBC" | "CARD" | "CUSTOM" | "MEDIA"
   sourceTitle: string
   text: string
   translation: string
@@ -1285,6 +1342,14 @@ export const shadowingApi = {
     request<ShadowingSentence[]>(
       `/api/shadowing/sentences${toQuery({ sourceType: params?.sourceType, limit: params?.limit })}`
     ),
+
+  mediaFavorites: (mediaId: string) =>
+    request<Record<string, number>>(`/api/shadowing/media-sentences/${encodeURIComponent(mediaId)}`),
+
+  saveMediaCue: (mediaId: string, cueId: number) =>
+    request<ShadowingSentence>(`/api/shadowing/media-sentences/${encodeURIComponent(mediaId)}/${cueId}`, {
+      method: "POST",
+    }),
 
   /** 导入自定义跟读句 */
   createSentence: (data: {
@@ -1436,7 +1501,7 @@ export const channelApi = {
   importOpml: async (file: File) => {
     const formData = new FormData()
     formData.append("file", file)
-    const token = typeof window !== "undefined" ? localStorage.getItem("lexiflow_auth_token") : null
+    const token = getToken()
     const res = await fetch("http://localhost:8080/api/channels/import-opml", {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : {},

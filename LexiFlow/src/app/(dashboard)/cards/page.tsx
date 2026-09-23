@@ -37,6 +37,10 @@ import { KeystrokeCardPanel } from "@/components/practice/keystroke-card-panel"
 
 type StudyMode = "REVIEW" | "LEARN"
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
+}
+
 export default function CardsPage() {
   const [activeMode, setActiveMode] = useState<StudyMode>("REVIEW")
 
@@ -260,8 +264,8 @@ export default function CardsPage() {
       setTimeout(() => setLastFeedback(null), 3500)
       setShowClearModal(false)
       await loadAllQueues(learnBatchSize)
-    } catch (err: any) {
-      alert(`清空闪卡失败: ${err.message || "服务异常"}`)
+    } catch (err: unknown) {
+      alert(`清空闪卡失败: ${getErrorMessage(err, "服务异常")}`)
     } finally {
       setClearingCards(false)
     }
@@ -428,8 +432,8 @@ export default function CardsPage() {
       } else {
         await loadAllQueues()
       }
-    } catch (err: any) {
-      alert(`评分提交失败: ${err.message || "服务异常"}`)
+    } catch (err: unknown) {
+      alert(`评分提交失败: ${getErrorMessage(err, "服务异常")}`)
     } finally {
       setSubmitting(false)
     }
@@ -549,8 +553,8 @@ export default function CardsPage() {
           loadAllQueues(learnBatchSize)
         }
       }, 750)
-    } catch (err: any) {
-      alert(`考核提交失败: ${err.message || "服务异常"}`)
+    } catch (err: unknown) {
+      alert(`考核提交失败: ${getErrorMessage(err, "服务异常")}`)
     } finally {
       setSubmitting(false)
     }
@@ -578,8 +582,8 @@ export default function CardsPage() {
           loadAllQueues(learnBatchSize)
         }
       }, 750)
-    } catch (err: any) {
-      alert(`操作失败: ${err.message || "服务异常"}`)
+    } catch (err: unknown) {
+      alert(`操作失败: ${getErrorMessage(err, "服务异常")}`)
     } finally {
       setSubmitting(false)
     }
@@ -664,8 +668,8 @@ export default function CardsPage() {
         setIsLearnGroupCompleted(true)
         reviewApi.getTodaySummary().then(setTodaySummary).catch(() => {})
       }
-    } catch (err: any) {
-      alert(`新词提交失败: ${err.message || "服务异常"}`)
+    } catch (err: unknown) {
+      alert(`新词提交失败: ${getErrorMessage(err, "服务异常")}`)
     } finally {
       setSubmitting(false)
     }
@@ -769,8 +773,8 @@ export default function CardsPage() {
         setIsLearnGroupCompleted(true)
         reviewApi.getTodaySummary().then(setTodaySummary).catch(() => {})
       }
-    } catch (err: any) {
-      alert(`斩词操作失败: ${err.message || "服务异常"}`)
+    } catch (err: unknown) {
+      alert(`斩词操作失败: ${getErrorMessage(err, "服务异常")}`)
     } finally {
       setSubmitting(false)
     }
@@ -1058,6 +1062,7 @@ export default function CardsPage() {
         /* ==================== 模式 X：阶段强化 · 单词默写工作区 (归属复习强化，卡内聚合状态防滚动) ==================== */
         <div className="w-full">
           <KeystrokeCardPanel
+            key={`${challengeSession.sourceType}-${challengeSession.cards[challengeSession.currentIndex].cardId}`}
             card={challengeSession.cards[challengeSession.currentIndex]}
             currentIndex={challengeSession.currentIndex}
             totalCards={challengeSession.cards.length}

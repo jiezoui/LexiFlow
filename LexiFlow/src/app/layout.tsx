@@ -1,19 +1,10 @@
 import type { Metadata } from "next";
-import { Manrope, DM_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import "@fontsource-variable/manrope/wght.css";
+import "@fontsource/dm-mono/latin-400.css";
+import "@fontsource/dm-mono/latin-500.css";
 import "./globals.css";
-
-const manrope = Manrope({
-  variable: "--font-sans",
-  subsets: ["latin"],
-});
-
-const dmMono = DM_Mono({
-  variable: "--font-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
-});
 
 export const metadata: Metadata = {
   title: "语脉 · LexiFlow — 多模态语境智能学习平台",
@@ -32,7 +23,7 @@ export default function RootLayout({
   return (
     <html
       lang="zh-CN"
-      className={`${manrope.variable} ${dmMono.variable} h-full antialiased font-sans`}
+      className="h-full antialiased font-sans"
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col selection:bg-accent selection:text-foreground">

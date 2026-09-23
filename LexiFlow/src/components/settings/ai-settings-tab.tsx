@@ -40,6 +40,10 @@ import {
 } from "@/lib/ai-config"
 import { aiApi, type AiTestConnectionResult } from "@/lib/api-client"
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
+}
+
 export function AiSettingsTab() {
   const [settings, setSettings] = React.useState<AiSettings>(getDefaultAiSettings())
   const [showKey, setShowKey] = React.useState(false)
@@ -118,12 +122,12 @@ export function AiSettingsTab() {
         model: currentProviderConfig.selectedModel,
       })
       setTestResult(res)
-    } catch (e: any) {
+    } catch (e: unknown) {
       setTestResult({
         success: false,
         latencyMs: 0,
         model: currentProviderConfig.selectedModel,
-        message: e?.message || "网络请求异常，无法连接代理后端",
+        message: getErrorMessage(e, "网络请求异常，无法连接代理后端"),
       })
     } finally {
       setTesting(false)
@@ -144,8 +148,8 @@ export function AiSettingsTab() {
       } else {
         alert("未检索到模型列表，请确认 Base URL 与 API Key 是否支持 /models 规范。")
       }
-    } catch (e: any) {
-      alert("拉取模型失败: " + (e?.message || "网络错误"))
+    } catch (e: unknown) {
+      alert("拉取模型失败: " + getErrorMessage(e, "网络错误"))
     } finally {
       setFetchingModels(false)
     }

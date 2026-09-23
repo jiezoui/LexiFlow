@@ -533,10 +533,8 @@ export function VideoLibraryPage() {
             void loadMedia(false)
           }
         }}
-        mediaItems={mediaItems}
         activeCreatorFilter={activeCreatorFilter}
         onSelectCreatorFilter={setActiveCreatorFilter}
-        onOpenYouTubeImport={() => setIsYouTubeDialogOpen(true)}
         onMediaImported={() => {
           void loadMedia(false)
           void loadSubscriptionsCount()

@@ -6,6 +6,7 @@ import { contextStoryApi, type ContextStoryDetail } from "@/lib/api-client"
 import { ContextStoryReader } from "@/components/reading/context-story-reader"
 import { Loader2Icon, AlertCircleIcon, ArrowLeftIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useBreadcrumbTitle } from "@/components/breadcrumb-title-context"
 
 export default function StoryDetailPage({
   params,
@@ -15,23 +16,42 @@ export default function StoryDetailPage({
   const { id } = use(params)
   const router = useRouter()
 
-  const [story, setStory] = useState<ContextStoryDetail | null>(null)
-  const [loading, setLoading] = useState<boolean>(true)
-  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<{
+    id: string
+    story: ContextStoryDetail | null
+    error: string | null
+  } | null>(null)
+  const isCurrentResult = result?.id === id
+  const story = isCurrentResult ? result.story : null
+  const error = isCurrentResult ? result.error : null
+  const loading = !isCurrentResult
+
+  useBreadcrumbTitle(story?.title)
 
   useEffect(() => {
-      setLoading(true)
+    let cancelled = false
+
     contextStoryApi
       .getDetail(id)
       .then((res) => {
-        setStory(res)
-        setError(null)
+        if (!cancelled) {
+          setResult({ id, story: res, error: null })
+        }
       })
       .catch((err) => {
         console.error("加载语境文章失败:", err)
-        setError(err instanceof Error ? err.message : "文章不存在或加载失败")
+        if (!cancelled) {
+          setResult({
+            id,
+            story: null,
+            error: err instanceof Error ? err.message : "文章不存在或加载失败",
+          })
+        }
       })
-      .finally(() => setLoading(false))
+
+    return () => {
+      cancelled = true
+    }
   }, [id])
 
   if (loading) {
@@ -53,12 +73,12 @@ export default function StoryDetailPage({
           <h3 className="text-base font-bold text-foreground">无法加载文章</h3>
           <p className="text-xs text-muted-foreground mt-1">{error || "文章未找到"}</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => router.push("/reading")} className="gap-2">
-          <ArrowLeftIcon className="size-4" /> 返回外刊与故事阅读
+        <Button variant="outline" size="sm" onClick={() => router.push("/reading/story")} className="gap-2">
+          <ArrowLeftIcon className="size-4" /> 返回语境文章列表
         </Button>
       </div>
     )
   }
 
-  return <ContextStoryReader story={story} onBack={() => router.push("/reading")} />
+  return <ContextStoryReader story={story} onBack={() => router.push("/reading/story")} />
 }

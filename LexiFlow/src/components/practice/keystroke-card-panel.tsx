@@ -71,7 +71,7 @@ export function KeystrokeCardPanel({
   } | null>(null)
 
   // 毫秒级击键动力学遥测采集器
-  const cardStartTimeRef = useRef<number>(Date.now())
+  const cardStartTimeRef = useRef<number>(0)
   const firstKeyTimeRef = useRef<number | null>(null)
   const keyTimestampsRef = useRef<number[]>([])
   const backspacesCountRef = useRef<number>(0)
@@ -87,21 +87,11 @@ export function KeystrokeCardPanel({
 
   // 卡片切换时重置所有遥测数据并自动聚焦输入框
   useEffect(() => {
-    setTypedValue("")
-    setRevealedHintChars(0)
-    setIsErrorShake(false)
-    setEvaluatedResult(null)
-
-    cardStartTimeRef.current = Date.now()
+    cardStartTimeRef.current = performance.now()
     firstKeyTimeRef.current = null
     keyTimestampsRef.current = []
     backspacesCountRef.current = 0
     hintsCountRef.current = 0
-
-    setLiveRtMs(0)
-    setLiveWpm(0)
-    setLiveBackspaces(0)
-    setLiveHesitationLabel("等待输入")
 
     const timer = setTimeout(() => {
       inputRef.current?.focus()
@@ -126,7 +116,7 @@ export function KeystrokeCardPanel({
   const evaluateKeystrokeDynamics = useCallback(
     (input: string) => {
       const cleanInput = sanitizeLettersOnly(input)
-      const now = Date.now()
+      const now = performance.now()
       const rtMs = firstKeyTimeRef.current
         ? firstKeyTimeRef.current - cardStartTimeRef.current
         : now - cardStartTimeRef.current
@@ -208,7 +198,7 @@ export function KeystrokeCardPanel({
 
   // 处理按键录入与动力学采集
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    const now = Date.now()
+    const now = e.timeStamp
 
     // 记录首次敲击反应时间 (RT)
     if (firstKeyTimeRef.current === null && e.key.length === 1) {
@@ -284,7 +274,8 @@ export function KeystrokeCardPanel({
     // 触发 FSRS 自动回写
     await onComplete(evaluation.rating, {
       reactionTimeMs: evaluation.rtMs,
-      typingDurationMs: Date.now() - (firstKeyTimeRef.current || cardStartTimeRef.current),
+      typingDurationMs:
+        performance.now() - (firstKeyTimeRef.current || cardStartTimeRef.current),
       backspaces: evaluation.backspaces,
       hints: evaluation.hints,
       ikdStd: evaluation.ikdStd,

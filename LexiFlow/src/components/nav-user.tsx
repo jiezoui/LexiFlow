@@ -21,7 +21,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { ChevronsUpDownIcon, SparklesIcon, BadgeCheckIcon, LogOutIcon, UsersIcon, SettingsIcon, LifeBuoyIcon } from "lucide-react"
+import { SparklesIcon, BadgeCheckIcon, LogOutIcon, UsersIcon, SettingsIcon, LifeBuoyIcon } from "lucide-react"
 
 export function NavUser({
   user,
@@ -40,7 +40,7 @@ export function NavUser({
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <SidebarMenuButton size="lg" className="aria-expanded:bg-muted" />
+              <SidebarMenuButton size="lg" className="h-14 rounded-xl px-2 aria-expanded:bg-sidebar-accent" />
             }
           >
             <Avatar>
@@ -51,7 +51,7 @@ export function NavUser({
               <span className="truncate font-medium">{user.name}</span>
               <span className="truncate text-xs">{user.email}</span>
             </div>
-            <ChevronsUpDownIcon className="ml-auto size-4" />
+            <SettingsIcon className="ml-auto size-4 text-muted-foreground" />
           </DropdownMenuTrigger>
           <DropdownMenuContent
             className="min-w-56 rounded-lg"

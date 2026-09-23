@@ -27,6 +27,7 @@ import {
   ActivityIcon,
   AlertCircleIcon,
   ArrowRightIcon,
+  BookmarkIcon,
   BookOpenIcon,
   CheckCircle2Icon,
   FileTextIcon,
@@ -60,7 +61,15 @@ import {
   type SpeechPhonemeWords,
 } from "@/lib/api-client"
 
-type SourceTab = "BBC" | "CARD" | "CUSTOM"
+type SourceTab = "BBC" | "CARD" | "MEDIA" | "CUSTOM"
+
+async function fetchSentenceLibrary(): Promise<ShadowingSentence[]> {
+  const [all, media] = await Promise.all([
+    shadowingApi.listSentences({ limit: 500 }),
+    shadowingApi.listSentences({ sourceType: "MEDIA", limit: 500 }),
+  ])
+  return [...all.filter((sentence) => sentence.sourceType !== "MEDIA"), ...media]
+}
 
 const SOURCE_META: Record<
   SourceTab,
@@ -75,6 +84,11 @@ const SOURCE_META: Record<
     label: "生词本例句",
     icon: BookOpenIcon,
     description: "来自你正在记忆的生词，跟读同时巩固语境",
+  },
+  MEDIA: {
+    label: "媒体收藏",
+    icon: BookmarkIcon,
+    description: "从视频和播客精听字幕中收藏的句子",
   },
   CUSTOM: {
     label: "上传文本",
@@ -725,7 +739,7 @@ export default function ShadowingPracticePage() {
   const [toast, setToast] = useState<string | null>(null)
 
   const loadSentences = useCallback(async (): Promise<ShadowingSentence[]> => {
-    const list = await shadowingApi.listSentences({ limit: 300 })
+    const list = await fetchSentenceLibrary()
     setSentences(list)
     return list
   }, [])
@@ -758,7 +772,7 @@ export default function ShadowingPracticePage() {
     let cancelled = false
     void (async () => {
       try {
-        const list = await shadowingApi.listSentences({ limit: 300 })
+        const list = await fetchSentenceLibrary()
         if (cancelled) return
         setSentences(list)
         const first = list.find((s) => s.sourceType === "BBC") ?? list[0]
@@ -915,14 +929,14 @@ export default function ShadowingPracticePage() {
     setImporting(false)
   }, [parsedSentences, importing, sentences, uploadedFileName, loadSentences])
 
-  const handleDeleteCustom = useCallback(
+  const handleDeleteSentence = useCallback(
     async (id: number) => {
       try {
         await shadowingApi.deleteSentence(id)
         const list = await loadSentences()
         if (currentId === id) {
           const next =
-            list.find((s) => s.sourceType === "CUSTOM") ??
+            list.find((s) => s.sourceType === activeTab) ??
             list.find((s) => s.sourceType === "BBC")
           setCurrentId(next?.id ?? null)
         }
@@ -930,7 +944,7 @@ export default function ShadowingPracticePage() {
         setSentenceError(err instanceof Error ? err.message : "删除失败")
       }
     },
-    [currentId, loadSentences]
+    [activeTab, currentId, loadSentences]
   )
 
   return (
@@ -1169,11 +1183,11 @@ export default function ShadowingPracticePage() {
                         {item.bestScore !== null ? Math.round(item.bestScore) : mastery.label}
                       </span>
                     </button>
-                    {item.sourceType === "CUSTOM" && isActive && (
+                    {(item.sourceType === "CUSTOM" || item.sourceType === "MEDIA") && isActive && (
                       <button
                         type="button"
-                        onClick={() => void handleDeleteCustom(item.id)}
-                        title="删除该自定义句"
+                        onClick={() => void handleDeleteSentence(item.id)}
+                        title={item.sourceType === "MEDIA" ? "移除媒体收藏" : "删除该自定义句"}
                         className="ml-1 rounded-lg border border-border bg-card p-1.5 text-muted-foreground transition-colors hover:border-rose-500/40 hover:text-rose-600"
                       >
                         <Trash2Icon className="size-3" />
@@ -1209,6 +1223,8 @@ export default function ShadowingPracticePage() {
                 <p className="max-w-sm text-xs text-muted-foreground">
                   {activeTab === "CUSTOM"
                     ? "在上方上传或粘贴英文文本并导入，即可开始跟读练习。"
+                    : activeTab === "MEDIA"
+                      ? "在视频或播客精听页悬浮字幕，点击收藏后会出现在这里。"
                     : "换一个题源，或先在生词本中添加卡片例句。"}
                 </p>
               </div>

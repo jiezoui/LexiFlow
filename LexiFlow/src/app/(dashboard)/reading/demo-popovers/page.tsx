@@ -310,7 +310,7 @@ export default function PopoverDemoShowcasePage() {
                   <span className="font-medium text-foreground">加速，使加快，促进</span>
                 </div>
                 <p className="text-[11px] text-muted-foreground italic font-serif">
-                  "to happen or to make something happen faster or sooner"
+                  &ldquo;to happen or to make something happen faster or sooner&rdquo;
                 </p>
               </div>
 

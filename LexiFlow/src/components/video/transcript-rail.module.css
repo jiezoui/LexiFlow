@@ -1,0 +1,21 @@
+.viewport {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.viewport::-webkit-scrollbar {
+  width: 6px;
+}
+
+.viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.viewport::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+
+.viewport::-webkit-scrollbar-button {
+  display: none;
+}

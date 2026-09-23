@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+const apiBase = (process.env.LEXIFLOW_API_BASE || "http://127.0.0.1:8080").replace(/\/$/, "")
+
 const nextConfig: NextConfig = {
   // Next.js 16 默认只允许 `localhost` 访问开发资源（HMR、客户端 chunk 等），
   // 从 `127.0.0.1` 打开页面时这些请求会被判定为跨源并**静默拦截**，
@@ -26,7 +28,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/api/:path((?!speech(?:/|$)).*)",
-        destination: "http://127.0.0.1:8080/api/:path*",
+        destination: `${apiBase}/api/:path*`,
       },
     ]
   },

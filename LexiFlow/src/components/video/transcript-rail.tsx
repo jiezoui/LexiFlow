@@ -1,13 +1,19 @@
 "use client"
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
-import { CaptionsIcon, LocateFixedIcon } from "lucide-react"
+import { BookmarkIcon, CaptionsIcon, LocateFixedIcon } from "lucide-react"
 import type { MediaCue } from "@/lib/api-client"
+import styles from "./transcript-rail.module.css"
 
 interface TranscriptRailProps {
+  mediaId: string
   cues: MediaCue[]
   activeIndex: number
   onCueSelect: (cue: MediaCue) => void
+  favoriteSentenceIds?: Record<string, number>
+  favoritePendingCueId?: number | null
+  favoriteError?: string
+  onFavoriteToggle?: (cue: MediaCue) => void
   onWordSelect?: (word: string, cue: MediaCue) => void
   selectedWord?: string
   emptyTitle?: string
@@ -57,13 +63,18 @@ function renderClickableWords(
 }
 
 export function TranscriptRail({
+  mediaId,
   cues,
   activeIndex,
   onCueSelect,
+  favoriteSentenceIds = {},
+  favoritePendingCueId = null,
+  favoriteError,
+  onFavoriteToggle,
   onWordSelect,
   selectedWord,
   emptyTitle = "字幕仍在处理中",
-  emptyDescription = "视频可以先播放；识别完成后，这里会自动出现字幕。",
+  emptyDescription = "识别完成后，这里会自动出现字幕。",
 }: TranscriptRailProps) {
   const [manualMode, setManualMode] = useState(false)
   const [topFadeVisible, setTopFadeVisible] = useState(false)
@@ -177,12 +188,11 @@ export function TranscriptRail({
   }, [activeIndex, setFollowTarget])
 
   useLayoutEffect(() => {
-    cueRefs.current.length = cues.length
     followStartedRef.current = false
     targetScrollRef.current = 0
     velocityRef.current = 0
     viewportRef.current?.scrollTo({ top: 0 })
-  }, [cues])
+  }, [mediaId])
 
   useEffect(() => {
     activeIndexRef.current = activeIndex
@@ -218,9 +228,11 @@ export function TranscriptRail({
         <span className="font-mono text-[10px] text-muted-foreground">{cues.length} 句</span>
       </div>
 
+      {favoriteError && <p role="alert" className="border-b border-destructive/20 bg-destructive/5 px-4 py-2 text-xs text-destructive">{favoriteError}</p>}
+
       <div
         ref={viewportRef}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 [scrollbar-gutter:stable]"
+        className={`${styles.viewport} min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3`}
         onScroll={updateFades}
         onWheelCapture={(event) => {
           event.stopPropagation()
@@ -254,12 +266,29 @@ export function TranscriptRail({
                     setFollowTarget(index, true)
                   }
                 }}
-                className={`w-full rounded-xl px-3 py-2.5 text-left transition-[background-color,color] duration-150 ease-out cursor-pointer select-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${index === activeIndex ? "bg-muted/80 text-foreground" : "text-muted-foreground hover:bg-muted/45 hover:text-foreground"}`}
+                className={`group w-full rounded-xl px-3 py-2.5 text-left transition-[background-color,color] duration-150 ease-out cursor-pointer select-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${index === activeIndex ? "bg-muted/80 text-foreground" : "text-muted-foreground hover:bg-muted/45 hover:text-foreground"}`}
                 aria-current={index === activeIndex ? "true" : undefined}
                 aria-label={`${formatTime(cue.startMs / 1000)}，${cue.sourceText}`}
               >
-                <div className="flex items-center justify-between pointer-events-none">
+                <div className="flex min-h-6 items-center justify-between gap-2">
                   <span className="font-mono text-[10px] tabular-nums text-muted-foreground">{formatTime(cue.startMs / 1000)}</span>
+                  {onFavoriteToggle && (
+                    <button
+                      type="button"
+                      disabled={favoritePendingCueId !== null}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onFavoriteToggle(cue)
+                      }}
+                      onKeyDown={(event) => event.stopPropagation()}
+                      aria-label={favoriteSentenceIds[cue.id] ? "取消收藏并从影子跟读移除" : "收藏到影子跟读"}
+                      aria-pressed={Boolean(favoriteSentenceIds[cue.id])}
+                      title={favoriteSentenceIds[cue.id] ? "取消收藏" : "收藏到影子跟读"}
+                      className={`inline-flex size-7 items-center justify-center rounded-md transition-[color,background-color,opacity] duration-150 hover:bg-background focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 ${favoriteSentenceIds[cue.id] ? "text-foreground opacity-100" : "text-muted-foreground opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"}`}
+                    >
+                      <BookmarkIcon className={`size-3.5 ${favoriteSentenceIds[cue.id] ? "fill-current" : ""}`} />
+                    </button>
+                  )}
                 </div>
                 <p className={`mt-1 text-sm leading-relaxed ${index === activeIndex ? "font-semibold" : "font-medium"}`}>
                   {renderClickableWords(cue.sourceText, cue, onWordSelect, selectedWord)}

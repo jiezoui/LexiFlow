@@ -110,7 +110,7 @@ LexiFlow 是一个面向二语习得者的多模态智能研习系统。平台�
      DEFAULT CHARACTER SET utf8mb4
      COLLATE utf8mb4_unicode_ci;
    ```
-2. 后端集成了 Flyway 迁移工具，**无需手动导入初始 SQL**。服务启动时将自动依次执行 `V1` 至 `V8` 脚本建立完整架构。
+2. 后端集成了 Flyway 迁移工具，**无需手动导入初始 SQL**。服务启动时将自动依次执行 `V1` 至 `V9` 脚本建立完整架构。
 3. （可选）如需载入常用词汇与示例数据，可在数据库建好后按需执行 `server/src/main/resources/db/seed.sql`。
 
 ---
@@ -169,7 +169,7 @@ LexiFlow 是一个面向二语习得者的多模态智能研习系统。平台�
 
 #### 选项 B：启动媒体 Worker (`media-worker`)
 
-用于自动对本地上传的视频进行音频剥离与 Whisper ASR 转写：
+用于自动对本地上传的视频和按需进入精听的播客音频进行 Whisper ASR 转写：
 
 - **方式 1：本地 Python 直接运行**
   ```powershell
@@ -211,7 +211,7 @@ LexiFlow 是一个面向二语习得者的多模态智能研习系统。平台�
    - 顶栏同排工具区：导入 YouTube、本地视频大文件分片秒传、`中 / A` 标题双语翻译切换、创作者即时筛选。
    - YouTube 频道免 Key 订阅：直接输入 `@handle`（如 `@TED`、`@BBCLearningEnglish`）或导入 OPML 订阅文件，直连官方公开 Atom/RSS 获取最新 15 篇单集，支持“在库检测”与“一键导入精听”。
 2. **独立播客精听库 (`/podcasts`)**：
-   - 独立专有收录通道，支持公开 RSS 节目源直连抓取（如 VOA Learning English、BBC 6 Minute English）与音频单集快速建档。
+   - 支持公开 RSS 节目源服务端订阅、持久化与更新；点击单集会留在站内进入音频精听工作台，首次进入时按需调用 Whisper 生成逐句双语文本，原始节目链接保留为次级入口。
 3. **AI 影子跟读工坊 (`/practice/shadowing`)**：
    - 采用 CTC 前向-后向算法强行对齐音素，结合发音优度（GOP）模型输出流利度、完整度、发音准确率三维雷达数据与逐词颜色标注。
 4. **FSRS 智能记忆复习 (`/cards`) 与生词本 (`/vocab`)**：

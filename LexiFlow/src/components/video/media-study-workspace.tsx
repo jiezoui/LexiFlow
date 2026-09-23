@@ -1,18 +1,19 @@
 "use client"
 
-import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react"
+import { ChangeEvent, type CSSProperties, useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { ArrowLeftIcon, CaptionsIcon, LanguagesIcon, LoaderCircleIcon, RefreshCwIcon, SparklesIcon, VideoIcon } from "lucide-react"
-import { mediaApi, type MediaCue, type MediaCueTranslation, type MediaItem } from "@/lib/api-client"
+import { AlertCircleIcon, ArrowLeftIcon, CaptionsIcon, ExternalLinkIcon, HeadphonesIcon, LoaderCircleIcon, RefreshCwIcon, VideoIcon } from "lucide-react"
+import { mediaApi, shadowingApi, type MediaCue, type MediaCueTranslation, type MediaItem } from "@/lib/api-client"
 import { MediaPlayer, type MediaPlayerHandle } from "@/components/video/media-player"
 import { TranscriptRail } from "@/components/video/transcript-rail"
 import { YouTubePlayer } from "@/components/video/youtube-player"
 import { VideoWordDrawer } from "@/components/video/video-word-drawer"
+import { PodcastAudioPlayer } from "@/components/podcast/podcast-audio-player"
 
 const statusLabels: Record<string, string> = {
   UPLOADING: "上传中",
-  PROCESSING: "正在处理字幕与视频信息",
-  WAITING_SUBTITLE: "等待字幕",
+  PROCESSING: "转写中",
+  WAITING_SUBTITLE: "准备转写",
   READY: "处理完成",
   FAILED: "处理失败",
 }
@@ -24,6 +25,120 @@ const translationStatusLabels: Record<string, string> = {
   READY: "双语字幕已就绪",
   PARTIAL: "部分译文生成失败",
   FAILED: "中文翻译失败",
+}
+
+const unavailableAudioPrefix = "SOURCE_AUDIO_UNAVAILABLE:"
+
+const processingStageLabels: Record<string, string> = {
+  VALIDATING: "检查媒体",
+  FETCHING_METADATA: "读取媒体信息",
+  UPLOADING: "等待上传完成",
+  PROBING: "分析音频",
+  TRANSCODING: "准备音频",
+  ACQUIRING_SUBTITLE: "查找可用字幕",
+  DOWNLOADING_AUDIO: "获取音频",
+  DOWNLOADING_MODEL: "准备识别模型",
+  TRANSCRIBING: "逐句识别语音",
+  NORMALIZING: "整理字幕",
+  TRANSLATING: "生成中文译文",
+  TOKENIZING: "对齐单词时间",
+  FINALIZING: "即将完成",
+  READY: "处理完成",
+}
+
+function automaticStage(source: string) {
+  if (source === "PODCAST") return "DOWNLOADING_AUDIO"
+  if (source === "YOUTUBE") return "ACQUIRING_SUBTITLE"
+  return "PROBING"
+}
+
+function TranscriptionProgress({ media, isPodcast }: { media: MediaItem; isPodcast: boolean }) {
+  const progress = Math.min(100, Math.max(0, media.processingProgress || 0))
+  const stage = media.processingDetail || processingStageLabels[media.processingStage || ""] || "准备转写"
+
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-12 text-center" aria-live="polite">
+      <div className="w-full max-w-md">
+        <div className="mx-auto flex h-16 items-center justify-center gap-3 font-mono text-sm font-semibold tracking-[0.18em]" aria-hidden="true">
+          <span className="text-muted-foreground/55">AUDIO</span>
+          <span className="text-muted-foreground/35">→</span>
+          <span className="flex items-center text-foreground">
+            {"TEXT".split("").map((letter, index) => (
+              <span
+                key={letter + index}
+                className="transcription-letter"
+                style={{ "--letter-index": index } as CSSProperties}
+              >
+                {letter}
+              </span>
+            ))}
+            <span className="transcription-caret" />
+          </span>
+        </div>
+
+        <h2 className="mt-4 text-lg font-bold tracking-tight text-foreground">
+          正在生成{isPodcast ? "精听文本" : "字幕"}
+        </h2>
+        <p className="mx-auto mt-2 max-w-sm text-xs leading-6 text-muted-foreground">
+          转写完成后即可播放，字幕会自动出现。
+        </p>
+
+        <div className="mx-auto mt-7 max-w-sm text-left">
+          <div className="flex items-center justify-between gap-4 text-xs">
+            <span className="truncate font-medium text-foreground">{stage}</span>
+            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+              {progress > 0 ? `${progress}%` : "排队中"}
+            </span>
+          </div>
+          <div className="mt-3 h-1 overflow-hidden rounded-full bg-muted">
+            {progress > 0 ? (
+              <div className="h-full rounded-full bg-foreground transition-[width] duration-300 ease-out" style={{ width: `${progress}%` }} />
+            ) : (
+              <div className="transcription-progress-indeterminate h-full w-1/4 rounded-full bg-foreground" />
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TranscriptionFailure({
+  media,
+  isPodcast,
+  isRetrying,
+  onRetry,
+}: {
+  media: MediaItem
+  isPodcast: boolean
+  isRetrying: boolean
+  onRetry: () => void
+}) {
+  const sourceUnavailable = media.errorMessage?.startsWith(unavailableAudioPrefix)
+  const message = sourceUnavailable
+    ? media.errorMessage?.slice(unavailableAudioPrefix.length).trim()
+    : media.errorMessage || "转写没有完成，请稍后重试。"
+
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-12 text-center">
+      <div className="max-w-sm">
+        <AlertCircleIcon className="mx-auto size-6 text-muted-foreground" aria-hidden="true" />
+        <h2 className="mt-4 text-base font-bold text-foreground">
+          {sourceUnavailable ? "原始音频不可用" : `${isPodcast ? "精听文本" : "字幕"}生成失败`}
+        </h2>
+        <p className="mt-2 text-xs leading-6 text-muted-foreground">{message}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={isRetrying}
+          className="mt-5 inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-semibold text-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <RefreshCwIcon className={`size-3.5 ${isRetrying ? "animate-spin" : ""}`} />
+          重新检查
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function formatTime(seconds: number) {
@@ -64,7 +179,7 @@ function mergeTranslations(cues: MediaCue[], translations: MediaCueTranslation[]
   })
 }
 
-export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
+export function MediaStudyWorkspace({ mediaId, mode = "video" }: { mediaId: string; mode?: "video" | "podcast" }) {
   const [media, setMedia] = useState<MediaItem | null>(null)
   const [cues, setCues] = useState<MediaCue[]>([])
   const [activeIndex, setActiveIndex] = useState(-1)
@@ -75,6 +190,12 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
   const [isReprocessing, setIsReprocessing] = useState(false)
   const [isUploadingSubtitle, setIsUploadingSubtitle] = useState(false)
   const [refreshNonce, setRefreshNonce] = useState(0)
+  const [favoriteState, setFavoriteState] = useState<{
+    mediaId: string
+    items: Record<string, number>
+    pendingCueId: number | null
+    error: string
+  } | null>(null)
   const [selectedWordTarget, setSelectedWordTarget] = useState<{
     word: string
     cue: MediaCue
@@ -86,6 +207,55 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
   const currentTimeRef = useRef(0)
   const pollTimerRef = useRef<number | null>(null)
   const subtitleInputRef = useRef<HTMLInputElement>(null)
+  const autoTranscriptionMediaRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    void shadowingApi.mediaFavorites(mediaId)
+      .then((items) => {
+        if (active) setFavoriteState({ mediaId, items, pendingCueId: null, error: "" })
+      })
+      .catch((error) => {
+        if (active) setFavoriteState({
+          mediaId,
+          items: {},
+          pendingCueId: null,
+          error: error instanceof Error ? `收藏状态加载失败：${error.message}` : "收藏状态加载失败",
+        })
+      })
+    return () => { active = false }
+  }, [mediaId])
+
+  const toggleFavorite = async (cue: MediaCue) => {
+    if (favoriteState?.mediaId !== mediaId || favoriteState.pendingCueId !== null) return
+    const savedId = favoriteState.items[cue.id]
+    setFavoriteState((current) => current?.mediaId === mediaId
+      ? { ...current, pendingCueId: cue.id, error: "" } : current)
+    try {
+      let sentenceId: number | null
+      if (savedId) {
+        await shadowingApi.deleteSentence(savedId)
+        sentenceId = null
+      } else {
+        sentenceId = (await shadowingApi.saveMediaCue(mediaId, cue.id)).id
+      }
+      setFavoriteState((current) => {
+        if (current?.mediaId !== mediaId) return current
+        const items = { ...current.items }
+        if (sentenceId === null) delete items[cue.id]
+        else items[cue.id] = sentenceId
+        return { ...current, items }
+      })
+    } catch (error) {
+      setFavoriteState((current) => current?.mediaId === mediaId
+        ? { ...current, error: error instanceof Error ? error.message : "收藏操作失败，请重试" }
+        : current)
+    } finally {
+      setFavoriteState((current) => current?.mediaId === mediaId
+        ? { ...current, pendingCueId: null }
+        : current)
+    }
+  }
 
   const handleWordSelect = useCallback((word: string, cue: MediaCue) => {
     setSelectedWordTarget({ word, cue })
@@ -109,7 +279,8 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
       if (initial) setIsLoading(true)
       try {
         const detail = await mediaApi.detail(mediaId)
-        const refreshFullTranscript = initial || ["UPLOADING", "PROCESSING"].includes(detail.status)
+        const refreshFullTranscript = initial || cuesRef.current.length === 0
+          || ["UPLOADING", "PROCESSING"].includes(detail.status)
         const shouldFetchTranslations = ["PENDING", "TRANSLATING", "READY", "PARTIAL"].includes(detail.translationStatus)
         const [transcript, translations] = await Promise.all([
           refreshFullTranscript ? mediaApi.cues(mediaId) : Promise.resolve(cuesRef.current),
@@ -118,16 +289,45 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
         if (!active) return
 
         const nextCues = mergeTranslations(transcript, translations)
+        let visibleDetail = detail
+        const hasNoTranscript = nextCues.length === 0 && detail.subtitleStatus !== "READY"
+        const sourceAudioUnavailable = detail.errorMessage?.startsWith(unavailableAudioPrefix)
+        const canAutomaticallyStart = ["WAITING_SUBTITLE", "FAILED", "READY"].includes(detail.status)
+          && !sourceAudioUnavailable
+        if (initial && hasNoTranscript && canAutomaticallyStart
+          && autoTranscriptionMediaRef.current !== mediaId) {
+          autoTranscriptionMediaRef.current = mediaId
+          try {
+            await mediaApi.reprocess(mediaId)
+            visibleDetail = {
+              ...detail,
+              status: "PROCESSING",
+              processingStage: automaticStage(detail.source),
+              processingProgress: 0,
+              processingDetail: "转写任务已自动开始",
+              errorMessage: null,
+            }
+          } catch (error) {
+            visibleDetail = {
+              ...detail,
+              status: "FAILED",
+              errorMessage: error instanceof Error
+                ? `未能自动开始转写：${error.message}`
+                : "未能自动开始转写，请手动重试。",
+            }
+          }
+        }
         cuesRef.current = nextCues
-        setMedia(detail)
+        setMedia(visibleDetail)
         setCues(nextCues)
         setLoadError("")
         const nextIndex = findActiveCueIndex(nextCues, currentTimeRef.current * 1000)
         activeIndexRef.current = nextIndex
         setActiveIndex(nextIndex)
 
-        if (["UPLOADING", "PROCESSING"].includes(detail.status)
-          || ["PENDING", "TRANSLATING"].includes(detail.translationStatus)) {
+        if ((visibleDetail.status !== "FAILED"
+          && !(visibleDetail.status === "READY" && visibleDetail.subtitleStatus === "READY" && nextCues.length > 0))
+          || ["PENDING", "TRANSLATING"].includes(visibleDetail.translationStatus)) {
           pollTimerRef.current = window.setTimeout(() => void load(false), 3000)
         }
       } catch (error) {
@@ -160,11 +360,22 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
   const handleReprocess = async () => {
     setIsReprocessing(true)
     setPlayerError("")
+    setMedia((current) => current ? {
+      ...current,
+      status: "PROCESSING",
+      processingProgress: 0,
+      processingDetail: "转写任务已开始",
+      errorMessage: null,
+    } : current)
     try {
       await mediaApi.reprocess(mediaId)
       setRefreshNonce((value) => value + 1)
     } catch (error) {
-      setPlayerError(error instanceof Error ? error.message : "无法重新获取字幕。")
+      setMedia((current) => current ? {
+        ...current,
+        status: "FAILED",
+        errorMessage: error instanceof Error ? error.message : "无法重新获取字幕。",
+      } : current)
     } finally {
       setIsReprocessing(false)
     }
@@ -199,57 +410,47 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
   }
 
   if (loadError || !media) {
+    const isPodcastMode = mode === "podcast"
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
-        <VideoIcon className="size-7 text-muted-foreground" />
-        <h1 className="mt-3 text-base font-bold">无法打开这个视频</h1>
-        <p className="mt-1 max-w-md text-sm text-muted-foreground">{loadError || "视频不存在或已经被删除。"}</p>
-        <Link href="/videos" className="mt-5 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted">返回视频库</Link>
+        {isPodcastMode ? <HeadphonesIcon className="size-7 text-muted-foreground" /> : <VideoIcon className="size-7 text-muted-foreground" />}
+        <h1 className="mt-3 text-base font-bold">无法打开这个{isPodcastMode ? "播客" : "视频"}</h1>
+        <p className="mt-1 max-w-md text-sm text-muted-foreground">{loadError || `${isPodcastMode ? "播客" : "视频"}不存在或已经被删除。`}</p>
+        <Link href={isPodcastMode ? "/podcasts" : "/videos"} className="mt-5 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted">返回{isPodcastMode ? "播客" : "视频"}库</Link>
       </div>
     )
   }
 
   const activeCue = activeIndex >= 0 ? cues[activeIndex] : null
+  const isPodcast = mode === "podcast" || media.source === "PODCAST"
+  const transcriptReady = media.status === "READY" && media.subtitleStatus === "READY" && cues.length > 0
+  const transcriptionFailed = media.status === "FAILED"
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div className={`flex min-w-0 max-w-full flex-1 flex-col ${isPodcast ? "overflow-visible lg:min-h-0 lg:overflow-hidden" : "min-h-0 overflow-hidden"}`}>
       <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border px-4 md:px-6">
         <div className="flex min-w-0 items-center gap-3">
-          <Link href="/videos" className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border transition hover:bg-muted active:scale-[0.98]" aria-label="返回视频库">
+          <Link href={isPodcast ? "/podcasts" : "/videos"} className="flex size-9 shrink-0 items-center justify-center rounded-full border border-border transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98]" aria-label={`返回${isPodcast ? "播客" : "视频"}库`}>
             <ArrowLeftIcon className="size-4" />
           </Link>
           <div className="min-w-0">
             <h1 className="truncate text-sm font-bold text-foreground sm:text-base">{media.title}</h1>
             <p className="truncate text-[11px] text-muted-foreground">
-              {media.source === "YOUTUBE" ? "YouTube" : "本地视频"} · {media.durationSeconds === null ? (media.source === "YOUTUBE" ? "在线播放" : "时长检测中") : formatTime(media.durationSeconds)} · {statusLabels[media.status] || media.status}
+              {isPodcast ? (media.creator || "播客") : media.source === "YOUTUBE" ? "YouTube" : "本地视频"} · {media.durationSeconds === null ? (media.source === "YOUTUBE" || isPodcast ? "在线播放" : "时长检测中") : formatTime(media.durationSeconds)} · {statusLabels[media.status] || media.status}
             </p>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
-          {media.status === "PROCESSING" && (
-            <div className="flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/10 px-3 py-1 text-primary shadow-xs">
-              <LoaderCircleIcon className="size-3.5 animate-spin shrink-0" />
-              <div className="flex items-center gap-1.5 font-medium">
-                <span>{media.processingDetail || "正在获取与转写字幕..."}</span>
-                {media.processingProgress != null && media.processingProgress > 0 && (
-                  <span className="font-mono text-[10px] font-bold rounded-sm bg-primary/20 px-1 py-0.5">
-                    {media.processingProgress}%
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {(media.status === "WAITING_SUBTITLE" || media.status === "FAILED" || media.status === "READY") && (
+        <div className="hidden shrink-0 items-center gap-2 text-[11px] text-muted-foreground md:flex">
+          {(media.status === "WAITING_SUBTITLE" || media.status === "FAILED") && (
             <button
               type="button"
               onClick={() => void handleReprocess()}
               disabled={isReprocessing}
               className="flex h-8 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-2.5 font-semibold text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
-              title="自动探测 YouTube 原生字幕或调用 Whisper 转写"
+              title={isPodcast ? "重新调用 Whisper 生成播客精听文本" : "自动探测 YouTube 原生字幕或调用 Whisper 转写"}
             >
               <RefreshCwIcon className={`size-3.5 ${isReprocessing ? "animate-spin" : ""}`} />
-              <span>{media.status === "READY" ? "重新转写字幕" : "获取/转写字幕"}</span>
+              <span>重试转写</span>
             </button>
           )}
 
@@ -274,12 +475,25 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
             </>
           )}
 
-          {media.translationStatus === "TRANSLATING" || media.translationStatus === "PENDING" ? (
+          {isPodcast && media.sourceUrl && (
+            <a
+              href={media.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="hidden h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 font-semibold text-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex"
+              title="打开原始音频"
+            >
+              <ExternalLinkIcon className="size-3.5" />
+              <span>原始音频</span>
+            </a>
+          )}
+
+          {media.status === "READY" && (media.translationStatus === "TRANSLATING" || media.translationStatus === "PENDING") ? (
             <div className="flex items-center gap-1.5 text-primary">
               <LoaderCircleIcon className="size-3.5 animate-spin" aria-hidden="true" />
               <span>{translationStatusLabels[media.translationStatus]} · {media.translationProgress}%</span>
             </div>
-          ) : media.translationStatus === "FAILED" || media.translationStatus === "PARTIAL" ? (
+          ) : media.status === "READY" && (media.translationStatus === "FAILED" || media.translationStatus === "PARTIAL") ? (
             <button
               type="button"
               onClick={() => void retryTranslation()}
@@ -290,7 +504,7 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
               <RefreshCwIcon className={`size-3.5 ${isRetryingTranslation ? "animate-spin" : ""}`} />
               <span>重试翻译</span>
             </button>
-          ) : media.translationStatus === "READY" ? (
+          ) : media.status === "READY" && media.translationStatus === "READY" ? (
             <button
               type="button"
               onClick={() => void retryTranslation()}
@@ -301,18 +515,33 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
               <RefreshCwIcon className={`size-3.5 ${isRetryingTranslation ? "animate-spin" : ""}`} />
               <span>双语就绪 · AI重译</span>
             </button>
-          ) : (
-            <div className="flex items-center gap-1.5">
-              <LanguagesIcon className="size-3.5" aria-hidden="true" />
-              <span>{translationStatusLabels[media.translationStatus] || media.translationStatus}</span>
-            </div>
-          )}
+          ) : null}
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-px bg-border lg:grid-cols-[minmax(0,1fr)_380px] lg:grid-rows-1">
-        <main className="relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-background p-3 md:p-5">
-          {media.playback.type === "YOUTUBE_IFRAME" && media.playback.externalId ? (
+      <div className={isPodcast
+        ? "grid min-h-0 min-w-0 max-w-full flex-1 gap-px overflow-y-auto overflow-x-hidden bg-border lg:grid-cols-[minmax(0,1fr)_380px] lg:grid-rows-1 lg:overflow-hidden"
+        : "grid min-h-0 flex-1 grid-rows-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-px bg-border lg:grid-cols-[minmax(0,1fr)_380px] lg:grid-rows-1"
+      }>
+        <main className={`relative flex min-h-0 min-w-0 max-w-full justify-center bg-background p-3 md:p-5 ${isPodcast ? "items-start overflow-visible lg:items-center lg:overflow-hidden" : "items-center overflow-hidden"}`}>
+          {!transcriptReady ? (
+            <div className="flex aspect-video w-full max-w-5xl flex-col items-center justify-center rounded-2xl bg-zinc-950 px-6 text-center text-zinc-300">
+              {transcriptionFailed ? <AlertCircleIcon className="size-7 text-zinc-500" /> : <LoaderCircleIcon className="size-7 animate-spin text-zinc-400" />}
+              <p className="mt-3 text-sm font-semibold">{transcriptionFailed ? "字幕生成失败" : "字幕生成完成后即可播放"}</p>
+            </div>
+          ) : isPodcast && media.playback.url ? (
+            <PodcastAudioPlayer
+              ref={playerRef}
+              src={media.playback.url}
+              title={media.title}
+              creator={media.creator}
+              coverUrl={media.coverUrl}
+              activeCue={activeCue}
+              onPlaybackTime={updateActiveCue}
+              onReady={handlePlayerReady}
+              onError={setPlayerError}
+            />
+          ) : media.playback.type === "YOUTUBE_IFRAME" && media.playback.externalId ? (
             <YouTubePlayer
               ref={playerRef}
               videoId={media.playback.externalId}
@@ -334,7 +563,7 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
             />
           ) : (
             <div className="flex aspect-video w-full max-w-5xl flex-col items-center justify-center rounded-2xl bg-zinc-950 text-center text-zinc-300">
-              <VideoIcon className="size-8 text-zinc-500" />
+              {isPodcast ? <HeadphonesIcon className="size-8 text-zinc-500" /> : <VideoIcon className="size-8 text-zinc-500" />}
               <p className="mt-3 text-sm font-semibold">播放文件尚未准备好</p>
               <p className="mt-1 text-xs text-zinc-500">页面会自动刷新处理状态。</p>
             </div>
@@ -343,73 +572,39 @@ export function MediaStudyWorkspace({ mediaId }: { mediaId: string }) {
           {playerError && (
             <div role="alert" className="absolute bottom-4 left-1/2 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg bg-zinc-900/92 px-3 py-2 text-center text-xs text-zinc-200 shadow-lg">
               <span>{playerError}</span>
-              {media.source === "YOUTUBE" && media.sourceUrl && (
+              {(media.source === "YOUTUBE" || isPodcast) && media.sourceUrl && (
                 <a href={media.sourceUrl} target="_blank" rel="noreferrer" className="shrink-0 font-semibold text-white underline underline-offset-2">
-                  前往 YouTube
+                  {isPodcast ? "打开原始音频" : "前往 YouTube"}
                 </a>
               )}
             </div>
           )}
         </main>
 
-        <div className="relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-background">
-          {media.status === "PROCESSING" && cues.length === 0 ? (
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-6 text-center">
-              <div className="relative flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <LoaderCircleIcon className="size-8 animate-spin" />
-                <div className="absolute -bottom-1 -right-1 flex size-5 items-center justify-center rounded-full bg-background shadow-xs">
-                  <SparklesIcon className="size-3 text-amber-500" />
-                </div>
-              </div>
-
-              <h2 className="mt-4 text-base font-bold text-foreground">
-                正在通过 AI Whisper 转写字幕
-              </h2>
-              <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
-                采用 faster-whisper 引擎进行高精度逐句切分与词级时间戳识别。
-              </p>
-
-              {/* 实时进度卡片 */}
-              <div className="mt-5 w-full max-w-xs rounded-xl border border-border/80 bg-muted/40 p-4 text-left shadow-xs">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium text-foreground truncate max-w-[200px]" title={media.processingDetail || "准备模型与音频..."}>
-                    {media.processingDetail || "准备模型与音频..."}
-                  </span>
-                  <span className="font-mono font-bold text-primary shrink-0 ml-2">
-                    {media.processingProgress || 0}%
-                  </span>
-                </div>
-
-                {/* 进度条 */}
-                <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-border/60">
-                  <div
-                    className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
-                    style={{ width: `${Math.max(5, media.processingProgress || 0)}%` }}
-                  />
-                </div>
-
-                <div className="mt-3 flex items-center justify-between border-t border-border/40 pt-2.5 text-[11px] text-muted-foreground">
-                  <span>当前阶段</span>
-                  <span className="font-medium text-foreground">
-                    {media.processingStage === "TRANSCRIBING" ? "逐句转写中" : (media.processingStage || "分析中")}
-                  </span>
-                </div>
-              </div>
-
-              <div className="mt-6 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <CaptionsIcon className="size-3.5 text-primary/70" />
-                <span>转写完成后将自动呈现双语精听与词汇研读工作台</span>
-              </div>
-            </div>
+        <div className={`relative flex min-w-0 flex-col overflow-hidden bg-background ${isPodcast ? "min-h-[55vh] lg:min-h-0" : "min-h-0"}`}>
+          {transcriptionFailed ? (
+            <TranscriptionFailure
+              media={media}
+              isPodcast={isPodcast}
+              isRetrying={isReprocessing}
+              onRetry={() => void handleReprocess()}
+            />
+          ) : !transcriptReady ? (
+            <TranscriptionProgress media={media} isPodcast={isPodcast} />
           ) : (
             <TranscriptRail
+              mediaId={mediaId}
               cues={cues}
               activeIndex={activeIndex}
               onCueSelect={(cue) => playerRef.current?.seekTo(cue.startMs / 1000)}
+              favoriteSentenceIds={favoriteState?.mediaId === mediaId ? favoriteState.items : undefined}
+              favoritePendingCueId={favoriteState?.mediaId === mediaId ? favoriteState.pendingCueId : null}
+              favoriteError={favoriteState?.mediaId === mediaId ? favoriteState.error : undefined}
+              onFavoriteToggle={favoriteState?.mediaId === mediaId ? (cue) => void toggleFavorite(cue) : undefined}
               onWordSelect={handleWordSelect}
               selectedWord={selectedWordTarget?.word}
-              emptyTitle={media.source === "YOUTUBE" ? "尚未导入字幕" : undefined}
-              emptyDescription={media.source === "YOUTUBE" ? "导入 SRT 或 VTT 英文字幕后，会自动生成中文翻译并启用字幕跟随。" : undefined}
+              emptyTitle={isPodcast ? "精听文本正在准备" : media.source === "YOUTUBE" ? "尚未导入字幕" : undefined}
+              emptyDescription={isPodcast ? "识别完成后，这里会自动出现逐句文本。" : media.source === "YOUTUBE" ? "导入 SRT 或 VTT 英文字幕后，会自动生成中文翻译并启用字幕跟随。" : undefined}
             />
           )}
 

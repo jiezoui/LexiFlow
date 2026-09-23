@@ -76,6 +76,10 @@ const DOMAIN_MAP: Record<string, string> = {
 // 客户端会话级别解析缓存，避免阅读同一篇文章重复查词的重复网络开销，实现 0ms 秒开
 const aiSessionCache = new Map<string, AiExplainResult>()
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
+}
+
 function isThinkingNoise(text?: string | null): boolean {
   if (!text) return false
   const lower = text.toLowerCase()
@@ -318,7 +322,7 @@ export function WordLookupPopover({
       if (res.sentenceTranslation && !contextTrans) {
         setContextTrans(res.sentenceTranslation.trim())
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       setAiResult({
         word,
         contextMeaning: "AI 解析服务暂时不可用",
@@ -326,7 +330,7 @@ export function WordLookupPopover({
         collocations: [],
         examTips: "",
         mnemonics: "",
-        rawAnswer: e?.message || "请检查网络或在「设置 -> AI 模型」中测试 API Key 连通性",
+        rawAnswer: getErrorMessage(e, "请检查网络或在「设置 -> AI 模型」中测试 API Key 连通性"),
       })
     } finally {
       setAiLoading(false)
@@ -674,7 +678,7 @@ export function WordLookupPopover({
             </div>
 
             <div className="text-xs text-muted-foreground leading-relaxed italic bg-muted/40 p-2.5 rounded-xl border border-border/40 max-h-24 overflow-y-auto">
-              "{word}"
+              &ldquo;{word}&rdquo;
             </div>
 
             <div className="text-xs sm:text-sm font-medium leading-relaxed text-foreground min-h-[44px] flex items-center">

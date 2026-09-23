@@ -19,6 +19,7 @@ import {
   contextStoryApi,
 } from "@/lib/api-client"
 import { WordLookupPopover } from "@/components/reading/word-lookup-popover"
+import { cleanStoryTranslation } from "@/lib/story-translation"
 
 interface ContextStoryReaderProps {
   story: ContextStoryDetail
@@ -100,6 +101,12 @@ export function ContextStoryReader({ story, onBack }: ContextStoryReaderProps) {
       }
     })
   }, [story.contentMarked, story.contentClean])
+  const translationParagraphs = useMemo(
+    () => cleanStoryTranslation(story.translationCn || "")
+      .split(/\n\s*\n/).map((paragraph) => paragraph.trim()).filter(Boolean),
+    [story.translationCn]
+  )
+  const hasAlignedTranslation = translationParagraphs.length === parsedParagraphs.length
 
   // 提取单句上下文
   const extractSentence = (fullText: string, word: string) => {
@@ -126,7 +133,7 @@ export function ContextStoryReader({ story, onBack }: ContextStoryReaderProps) {
     if (!clean || clean.length < 1) return
     const rect = e.currentTarget.getBoundingClientRect()
     const sentence = extractSentence(paragraphText, clean)
-    const pTranslation = story.translationCn?.split(/\n\s*\n/)[paragraphIndex]?.trim() || ""
+    const pTranslation = hasAlignedTranslation ? translationParagraphs[paragraphIndex] : ""
     setLookupTarget({
       word: clean,
       sentence,
@@ -147,7 +154,7 @@ export function ContextStoryReader({ story, onBack }: ContextStoryReaderProps) {
     e.stopPropagation()
     const rect = e.currentTarget.getBoundingClientRect()
     const sentence = extractSentence(paragraphText, surface || lemma)
-    const pTranslation = story.translationCn?.split(/\n\s*\n/)[paragraphIndex]?.trim() || ""
+    const pTranslation = hasAlignedTranslation ? translationParagraphs[paragraphIndex] : ""
 
     setLookupTarget({
       word: lemma || surface,
@@ -287,9 +294,6 @@ export function ContextStoryReader({ story, onBack }: ContextStoryReaderProps) {
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
             {story.title}
           </h1>
-          <p className="mt-1.5 text-xs text-muted-foreground font-mono">
-            {story.topic} · 目标难度 {story.targetLevel} · 点击正文任意单词查词
-          </p>
         </header>
 
         {/* 文章段落：全词可点击，目标词淡雅标记 */}
@@ -342,14 +346,19 @@ export function ContextStoryReader({ story, onBack }: ContextStoryReaderProps) {
                 })}
               </p>
 
-              {/* 中文翻译对照：无外框无多余标签，直接自然排布在英文段落下方 */}
-              {showTranslation && story.translationCn && (
-                <p className="text-sm font-sans text-muted-foreground/80 leading-relaxed pt-0.5 select-text">
-                  {story.translationCn.split(/\n\s*\n/)[pIdx] || ""}
+              {/* 中文参考译文与英文正文分开呈现 */}
+              {showTranslation && hasAlignedTranslation && translationParagraphs[pIdx] && (
+                <p className="rounded-lg bg-muted/50 px-4 py-3 text-sm font-sans text-muted-foreground leading-relaxed select-text">
+                  {translationParagraphs[pIdx]}
                 </p>
               )}
             </div>
           ))}
+          {showTranslation && !hasAlignedTranslation && translationParagraphs.length > 0 && (
+            <div className="rounded-lg bg-muted/50 px-4 py-3 text-sm font-sans text-muted-foreground leading-relaxed select-text">
+              {translationParagraphs.map((paragraph, index) => <p key={index} className="mb-2 last:mb-0">{paragraph}</p>)}
+            </div>
+          )}
         </div>
       </article>
 
