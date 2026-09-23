@@ -1,19 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
-  CheckIcon,
-  ChevronRightIcon,
-  ExternalLinkIcon,
-  FileTextIcon,
   Loader2Icon,
   PlusIcon,
   RadioIcon,
-  RefreshCwIcon,
   SlidersHorizontalIcon,
-  Trash2Icon,
   TvIcon,
-  UploadIcon,
   XIcon,
 } from "lucide-react"
 import {
@@ -23,17 +16,15 @@ import {
 import {
   channelApi,
   type ChannelSubscription,
-  type MediaItem,
 } from "@/lib/api-client"
 import { ChannelFeedModal } from "@/components/video/channel-feed-modal"
+import { ChannelSubscriptionDialog } from "@/components/video/channel-subscription-dialog"
 
 interface ChannelSubscriptionDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  mediaItems: MediaItem[]
   activeCreatorFilter: string | null
   onSelectCreatorFilter: (creator: string | null) => void
-  onOpenYouTubeImport: () => void
   onMediaImported?: () => void
   isTitleTransEnabled?: boolean
   titleTranslations?: Record<string, string>
@@ -71,30 +62,18 @@ function ChannelAvatar({
   )
 }
 
-const RECOMMENDED_CHANNELS = [
-  { handle: "@TED", name: "TED" },
-  { handle: "@BBCLearningEnglish", name: "BBC Learning English" },
-  { handle: "@hubermanlab", name: "Huberman Lab" },
-  { handle: "@vox", name: "Vox" },
-  { handle: "@Kurzgesagt", name: "Kurzgesagt" },
-]
-
 export function ChannelSubscriptionDrawer({
   open,
   onOpenChange,
-  mediaItems,
   activeCreatorFilter,
   onSelectCreatorFilter,
-  onOpenYouTubeImport,
   onMediaImported,
   isTitleTransEnabled,
   titleTranslations,
 }: ChannelSubscriptionDrawerProps) {
   const [subscriptions, setSubscriptions] = useState<ChannelSubscription[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  const [isManageMode, setIsManageMode] = useState(false)
-  const [isAddingChannel, setIsAddingChannel] = useState(false)
-  const [channelInput, setChannelInput] = useState("")
+  const [dialogMode, setDialogMode] = useState<"add" | "manage" | null>(null)
   const [isSubscribing, setIsSubscribing] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionNotice, setActionNotice] = useState<string | null>(null)
@@ -103,8 +82,6 @@ export function ChannelSubscriptionDrawer({
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null)
   const [isFeedModalOpen, setIsFeedModalOpen] = useState(false)
 
-  // OPML file input
-  const opmlInputRef = useRef<HTMLInputElement>(null)
   const [isImportingOpml, setIsImportingOpml] = useState(false)
 
   const loadSubscriptions = useCallback(async () => {
@@ -127,9 +104,14 @@ export function ChannelSubscriptionDrawer({
     }
   }, [open, loadSubscriptions])
 
-  const handleSubscribe = async (inputToUse?: string) => {
-    const raw = (inputToUse || channelInput).trim()
-    if (!raw) return
+  const openDialog = (mode: "add" | "manage") => {
+    onOpenChange(false)
+    setDialogMode(mode)
+  }
+
+  const handleSubscribe = async (inputToUse: string) => {
+    const raw = inputToUse.trim()
+    if (!raw) return false
     setIsSubscribing(true)
     setActionError(null)
     setActionNotice(null)
@@ -139,22 +121,23 @@ export function ChannelSubscriptionDrawer({
         const filtered = prev.filter((s) => s.channelId !== created.channelId)
         return [created, ...filtered]
       })
-      setChannelInput("")
-      setIsAddingChannel(false)
       setActionNotice(`已关注创作者: ${created.channelName}`)
       setTimeout(() => setActionNotice(null), 3000)
+      return true
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "关注频道失败")
+      return false
     } finally {
       setIsSubscribing(false)
     }
   }
 
-  const handleUnsubscribe = async (channelId: string, e: React.MouseEvent) => {
-    e.stopPropagation()
+  const handleUnsubscribe = async (channelId: string) => {
+    setActionError(null)
     try {
       await channelApi.unsubscribe(channelId)
       setSubscriptions((prev) => prev.filter((s) => s.channelId !== channelId))
+      setActionNotice("已取消订阅")
       if (activeCreatorFilter && subscriptions.find((s) => s.channelId === channelId)?.channelName.toLowerCase() === activeCreatorFilter.toLowerCase()) {
         onSelectCreatorFilter(null)
       }
@@ -179,9 +162,7 @@ export function ChannelSubscriptionDrawer({
     }
   }
 
-  const handleOpmlFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const handleOpmlImport = async (file: File) => {
     setIsImportingOpml(true)
     setActionError(null)
     try {
@@ -193,7 +174,6 @@ export function ChannelSubscriptionDrawer({
       setActionError(err instanceof Error ? err.message : "OPML 导入失败")
     } finally {
       setIsImportingOpml(false)
-      if (opmlInputRef.current) opmlInputRef.current.value = ""
     }
   }
 
@@ -206,158 +186,22 @@ export function ChannelSubscriptionDrawer({
           className="w-full sm:max-w-md p-0 flex flex-col bg-background text-foreground border-l border-border shadow-2xl"
         >
           {/* Header */}
-          <div className="px-5 pt-6 pb-4 border-b border-border bg-muted/30">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base font-bold tracking-tight text-foreground">
-                    订阅频道
-                  </h2>
-                  <span className="rounded-full bg-foreground px-2 py-0.5 text-[10px] font-bold text-background">
-                    {subscriptions.length}
-                  </span>
-                </div>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  跟踪关注的 YouTube 创作者及专栏更新
-                </p>
-              </div>
-
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setIsAddingChannel(!isAddingChannel)}
-                  className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition cursor-pointer border ${
-                    isAddingChannel
-                      ? "bg-foreground text-background border-foreground"
-                      : "text-muted-foreground border-border hover:text-foreground hover:bg-muted"
-                  }`}
-                  title="添加频道"
-                >
-                  <PlusIcon className="size-3.5" />
-                  <span>添加</span>
-                </button>
-
-                {subscriptions.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setIsManageMode(!isManageMode)}
-                    className={`flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition cursor-pointer border ${
-                      isManageMode
-                        ? "bg-destructive text-destructive-foreground border-destructive"
-                        : "text-muted-foreground border-border hover:text-foreground hover:bg-muted"
-                    }`}
-                    title="管理关注"
-                  >
-                    <SlidersHorizontalIcon className="size-3.5" />
-                    <span>{isManageMode ? "完成" : "管理"}</span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => onOpenChange(false)}
-                  className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
-                  aria-label="关闭抽屉"
-                >
-                  <XIcon className="size-4.5" />
-                </button>
-              </div>
+          <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="whitespace-nowrap text-base font-bold tracking-tight">订阅频道</h2>
+              <span className="rounded-full bg-foreground px-2 py-0.5 text-[10px] font-bold text-background">{subscriptions.length}</span>
             </div>
-
-            {/* Notification / Error banner */}
-            {actionNotice && (
-              <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-950/40 border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-300">
-                <CheckIcon className="size-3.5 shrink-0" />
-                <span className="truncate">{actionNotice}</span>
-              </div>
-            )}
-            {actionError && (
-              <div className="mt-3 flex items-center justify-between rounded-lg bg-destructive/10 border border-destructive/30 px-3 py-1.5 text-xs text-destructive">
-                <span className="truncate">{actionError}</span>
-                <button
-                  type="button"
-                  onClick={() => setActionError(null)}
-                  className="p-0.5 hover:opacity-75 cursor-pointer"
-                >
-                  <XIcon className="size-3.5" />
-                </button>
-              </div>
-            )}
-
-            {/* Add Channel Expandable Area */}
-            {isAddingChannel && (
-              <div className="mt-3 p-3 rounded-xl border border-border bg-card space-y-2.5">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={channelInput}
-                    onChange={(e) => setChannelInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") void handleSubscribe()
-                    }}
-                    placeholder="输入 @handle 或频道链接 (如 @TED)"
-                    disabled={isSubscribing}
-                    className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-hidden focus:ring-1 focus:ring-foreground"
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void handleSubscribe()}
-                    disabled={isSubscribing || !channelInput.trim()}
-                    className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition cursor-pointer disabled:opacity-50"
-                  >
-                    {isSubscribing ? (
-                      <Loader2Icon className="size-3.5 animate-spin" />
-                    ) : (
-                      <span>关注</span>
-                    )}
-                  </button>
-                </div>
-
-                {/* Quick Recommendation Chips */}
-                <div>
-                  <p className="text-[11px] text-muted-foreground mb-1.5">快速关注精选英语频道：</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {RECOMMENDED_CHANNELS.map((ch) => (
-                      <button
-                        key={ch.handle}
-                        type="button"
-                        onClick={() => void handleSubscribe(ch.handle)}
-                        disabled={isSubscribing}
-                        className="rounded-md border border-border bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-foreground hover:bg-muted hover:border-foreground/30 transition cursor-pointer disabled:opacity-50"
-                      >
-                        {ch.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* OPML batch import button */}
-                <div className="pt-2 border-t border-border flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span>支持从 YouTube 导出文件批量导入：</span>
-                  <input
-                    ref={opmlInputRef}
-                    type="file"
-                    accept=".opml,.xml"
-                    onChange={(e) => void handleOpmlFileChange(e)}
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => opmlInputRef.current?.click()}
-                    disabled={isImportingOpml}
-                    className="flex items-center gap-1 text-xs text-foreground font-medium hover:underline cursor-pointer disabled:opacity-50"
-                  >
-                    {isImportingOpml ? (
-                      <Loader2Icon className="size-3 animate-spin" />
-                    ) : (
-                      <UploadIcon className="size-3" />
-                    )}
-                    <span>OPML 导入</span>
-                  </button>
-                </div>
-              </div>
-            )}
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button type="button" onClick={() => openDialog("add")} className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border px-2.5 text-xs font-medium transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="添加频道">
+                <PlusIcon className="size-3.5 shrink-0 max-[360px]:hidden" /><span>添加</span>
+              </button>
+              <button type="button" onClick={() => openDialog("manage")} className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border px-2.5 text-xs font-medium transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="管理频道">
+                <SlidersHorizontalIcon className="size-3.5 shrink-0 max-[360px]:hidden" /><span>管理</span>
+              </button>
+              <button type="button" onClick={() => onOpenChange(false)} className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="关闭侧栏">
+                <XIcon className="size-4" />
+              </button>
+            </div>
           </div>
 
           {/* Subscribed Channels List */}
@@ -378,7 +222,7 @@ export function ChannelSubscriptionDrawer({
                 </p>
                 <button
                   type="button"
-                  onClick={() => setIsAddingChannel(true)}
+                  onClick={() => openDialog("add")}
                   className="mt-4 flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition cursor-pointer"
                 >
                   <PlusIcon className="size-3.5" />
@@ -401,9 +245,9 @@ export function ChannelSubscriptionDrawer({
                     }`}
                   >
                     {/* Left: Avatar & Info */}
-                    <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
                       <ChannelAvatar avatarUrl={sub.avatarUrl} name={sub.channelName} />
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
                           <h4 className="text-xs font-semibold text-foreground truncate">
                             {sub.channelName}
@@ -414,29 +258,12 @@ export function ChannelSubscriptionDrawer({
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground">
-                          {sub.channelHandle && (
-                            <span className="font-mono">{sub.channelHandle}</span>
-                          )}
-                          <span>·</span>
-                          <span>{sub.importedCount} 个已在库</span>
-                        </div>
+                        {sub.channelHandle && <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{sub.channelHandle}</p>}
                       </div>
                     </div>
 
                     {/* Right: Actions */}
-                    <div className="flex items-center gap-1 shrink-0 ml-2">
-                      {isManageMode ? (
-                        <button
-                          type="button"
-                          onClick={(e) => void handleUnsubscribe(sub.channelId, e)}
-                          className="rounded-lg p-1.5 text-destructive hover:bg-destructive/10 transition cursor-pointer"
-                          title="取消关注"
-                        >
-                          <Trash2Icon className="size-4" />
-                        </button>
-                      ) : (
-                        <>
+                    <div className="ml-2 flex shrink-0 items-center gap-1">
                           <button
                             type="button"
                             onClick={(e) => handleFilterCreator(sub.channelName, e)}
@@ -458,8 +285,6 @@ export function ChannelSubscriptionDrawer({
                             <RadioIcon className="size-3" />
                             <span>动态</span>
                           </button>
-                        </>
-                      )}
                     </div>
                   </div>
                 )
@@ -467,22 +292,22 @@ export function ChannelSubscriptionDrawer({
             )}
           </div>
 
-          {/* Drawer Footer */}
-          <div className="p-4 border-t border-border bg-muted/20 flex items-center justify-between text-xs text-muted-foreground">
-            <span>官方 Atom/RSS 直连，免登录免配额</span>
-            <button
-              type="button"
-              onClick={() => {
-                onOpenChange(false)
-                onOpenYouTubeImport()
-              }}
-              className="text-foreground font-medium hover:underline cursor-pointer"
-            >
-              直接导入视频单集
-            </button>
-          </div>
         </SheetContent>
       </Sheet>
+
+      <ChannelSubscriptionDialog
+        key={dialogMode ?? "closed"}
+        mode={dialogMode}
+        onOpenChange={(nextOpen) => { if (!nextOpen) setDialogMode(null) }}
+        subscriptions={subscriptions}
+        onSubscribe={handleSubscribe}
+        onUnsubscribe={handleUnsubscribe}
+        onImportOpml={handleOpmlImport}
+        isSubscribing={isSubscribing}
+        isImportingOpml={isImportingOpml}
+        error={actionError}
+        notice={actionNotice}
+      />
 
       {/* Channel Feed Modal for dynamic video discovery */}
       <ChannelFeedModal

@@ -1,352 +1,163 @@
 "use client"
 
-import { useState, useRef } from "react"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  HeadphonesIcon,
-  RssIcon,
-  UploadIcon,
-  LoaderCircleIcon,
-  XIcon,
-  CheckIcon,
-} from "lucide-react"
-import type { PodcastEpisode, PodcastShow } from "./podcast-types"
+import { useMemo, useState } from "react"
+import { CheckIcon, LoaderCircleIcon, PlusIcon, RssIcon, SearchIcon, XIcon } from "lucide-react"
+import { podcastApi, type PodcastFeed } from "@/lib/api-client"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import podcastCatalog from "@/data/podcast-discovery.json"
 
 interface PodcastImportDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSuccess?: (show: PodcastShow, episodes: PodcastEpisode[]) => void
+  onSuccess?: (show: PodcastFeed) => void
+  subscriptions: PodcastFeed[]
 }
 
-const PRESET_FEEDS = [
-  {
-    name: "VOA 慢速英语综合播客",
-    tag: "公共领域 · 适合基础精听",
-    url: "https://learningenglish.voanews.com/podcast/?zoneId=1689",
-  },
-  {
-    name: "TED Talks Daily 原声演讲",
-    tag: "前沿观点 · 真实原声听力",
-    url: "https://feeds.feedburner.com/TEDTalks_audio",
-  },
-]
+const PODCAST_CATEGORIES = ["全部", "英语学习", "商业", "科技", "科学", "心理", "新闻", "文化"] as const
 
-export function PodcastImportDialog({
-  open,
-  onOpenChange,
-  onSuccess,
-}: PodcastImportDialogProps) {
-  const [tab, setTab] = useState<"url" | "file">("url")
+export function PodcastImportDialog({ open, onOpenChange, onSuccess, subscriptions }: PodcastImportDialogProps) {
   const [url, setUrl] = useState("")
-  const [enableAsr, setEnableAsr] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState("")
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [category, setCategory] = useState<(typeof PODCAST_CATEGORIES)[number]>("全部")
+  const [newlySubscribedUrls, setNewlySubscribedUrls] = useState<string[]>([])
+  const subscribedUrls = useMemo(() =>
+    new Set([...subscriptions.map((show) => show.feedUrl), ...newlySubscribedUrls]),
+  [subscriptions, newlySubscribedUrls])
+  const results = useMemo(() => {
+    const normalized = searchQuery.trim().toLocaleLowerCase()
+    return podcastCatalog.items.filter((show) =>
+      (category === "全部" || show.category === category) &&
+      (!normalized || `${show.title} ${show.author} ${show.description} ${show.latestTitle}`.toLocaleLowerCase().includes(normalized)))
+  }, [category, searchQuery])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const trimmed = url.trim()
-    if (!trimmed) return
-
+  const subscribe = async (feedUrl: string) => {
     setIsSubmitting(true)
     setErrorMessage("")
-
     try {
-      // 1. Call our local Next.js RSS Proxy
-      const res = await fetch(`/api/podcast/rss?url=${encodeURIComponent(trimmed)}`)
-      const payload = await res.json()
-
-      if (!res.ok || payload.code !== 200 || !payload.data?.show) {
-        throw new Error(payload.message || "RSS 源解析失败，请检查链接有效性")
-      }
-
-      const show: PodcastShow = payload.data.show
-      const episodes: PodcastEpisode[] = payload.data.episodes || []
-
-      // 2. Persist Show to localStorage
-      try {
-        const storedShows = localStorage.getItem("lexiflow_podcast_shows")
-        const showList: PodcastShow[] = storedShows ? JSON.parse(storedShows) : []
-        const existsShowIdx = showList.findIndex((s) => s.id === show.id || s.feedUrl === show.feedUrl)
-        if (existsShowIdx >= 0) {
-          showList[existsShowIdx] = show
-        } else {
-          showList.unshift(show)
-        }
-        localStorage.setItem("lexiflow_podcast_shows", JSON.stringify(showList))
-
-        // Persist Episodes to localStorage
-        const storedEpisodes = localStorage.getItem("lexiflow_podcast_episodes")
-        const episodeList: PodcastEpisode[] = storedEpisodes ? JSON.parse(storedEpisodes) : []
-        
-        // Merge episodes by guid
-        for (const ep of episodes) {
-          if (!episodeList.some((existing) => existing.guid === ep.guid)) {
-            episodeList.unshift(ep)
-          }
-        }
-        localStorage.setItem("lexiflow_podcast_episodes", JSON.stringify(episodeList))
-      } catch {}
-
+      const show = await podcastApi.subscribe(feedUrl)
+      setNewlySubscribedUrls((previous) => [...previous, feedUrl])
       setUrl("")
-      onOpenChange(false)
-      if (onSuccess) onSuccess(show, episodes)
-    } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : "播客解析失败，请检查 RSS 地址或稍后重试。"
-      )
+      onSuccess?.(show)
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "没有读到这个播客，请检查 RSS 地址后重试。")
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const trimmed = url.trim()
+    if (!trimmed) return
 
-    setIsSubmitting(true)
-    setErrorMessage("")
-
-    try {
-      const showId = "local-audio-show"
-      const fakeShow: PodcastShow = {
-        id: showId,
-        feedUrl: "local://audio",
-        title: "本地音频播客",
-        author: "用户导入",
-        description: "由用户本地上传的音频节目",
-        episodeCount: 1,
-      }
-
-      const newEpisode: PodcastEpisode = {
-        id: "ep-local-" + Date.now(),
-        guid: "local-" + file.name + "-" + file.size,
-        showId,
-        showTitle: "本地音频",
-        title: file.name.replace(/\.[^/.]+$/, ""),
-        author: "本地导入",
-        audioUrl: URL.createObjectURL(file),
-        durationSeconds: 1200,
-        pubDate: "今天",
-        status: "READY",
-        hasBilingualTranscript: true,
-        wpm: 140,
-        level: "B1",
-      }
-
-      try {
-        const storedShows = localStorage.getItem("lexiflow_podcast_shows")
-        const showList: PodcastShow[] = storedShows ? JSON.parse(storedShows) : []
-        if (!showList.some((s) => s.id === showId)) showList.unshift(fakeShow)
-        localStorage.setItem("lexiflow_podcast_shows", JSON.stringify(showList))
-
-        const storedEpisodes = localStorage.getItem("lexiflow_podcast_episodes")
-        const episodeList: PodcastEpisode[] = storedEpisodes ? JSON.parse(storedEpisodes) : []
-        episodeList.unshift(newEpisode)
-        localStorage.setItem("lexiflow_podcast_episodes", JSON.stringify(episodeList))
-      } catch {}
-
-      onOpenChange(false)
-      if (onSuccess) onSuccess(fakeShow, [newEpisode])
-    } catch {
-      setErrorMessage("音频文件处理失败")
-    } finally {
-      setIsSubmitting(false)
-      if (fileInputRef.current) fileInputRef.current.value = ""
-    }
+    await subscribe(trimmed)
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="sm:max-w-lg p-0 overflow-hidden bg-background text-foreground border border-border shadow-2xl rounded-2xl"
+        className="flex max-h-[min(90dvh,52rem)] flex-col overflow-hidden rounded-2xl border border-border bg-background p-0 text-foreground shadow-2xl sm:max-w-2xl"
       >
-        <DialogHeader className="px-5 pt-5 pb-3 border-b border-border">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="flex size-7 items-center justify-center rounded-lg bg-muted text-foreground border border-border">
-                <HeadphonesIcon className="size-4" />
+        <DialogHeader className="border-b border-border px-5 pb-4 pt-5">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-muted text-foreground">
+                <RssIcon className="size-4" />
               </div>
-              <DialogTitle className="text-base font-bold text-foreground">
-                收录播客节目
-              </DialogTitle>
+              <div className="min-w-0 text-left">
+                <DialogTitle className="text-base font-bold text-foreground">发现并订阅播客</DialogTitle>
+                <p className="mt-0.5 text-xs text-muted-foreground">选择领域或搜索节目，一键同步节目单</p>
+              </div>
             </div>
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+              className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="关闭添加播客"
             >
               <XIcon className="size-4" />
             </button>
           </div>
-
-          {/* Sub-tabs: Link vs Local Audio */}
-          <div className="mt-3 flex rounded-lg bg-muted p-0.5 text-xs font-medium border border-border">
-            <button
-              type="button"
-              onClick={() => setTab("url")}
-              className={`flex-1 flex items-center justify-center gap-1.5 rounded-md py-1 transition cursor-pointer ${
-                tab === "url"
-                  ? "bg-background text-foreground shadow-xs font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <RssIcon className="size-3.5" />
-              <span>RSS 订阅源 / 音频链接</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("file")}
-              className={`flex-1 flex items-center justify-center gap-1.5 rounded-md py-1 transition cursor-pointer ${
-                tab === "file"
-                  ? "bg-background text-foreground shadow-xs font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <UploadIcon className="size-3.5" />
-              <span>本地音频文件</span>
-            </button>
-          </div>
         </DialogHeader>
 
-        <div className="p-5">
-          {tab === "url" ? (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-foreground mb-1.5">
-                  播客 RSS 地址或单集直链
-                </label>
-                <input
-                  type="text"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://... (输入 RSS XML 或播客源链接)"
-                  className="w-full h-10 px-3 rounded-xl border border-border bg-background text-xs sm:text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-foreground transition"
-                  autoFocus
-                  disabled={isSubmitting}
-                />
-              </div>
-
-              {/* Quick Selectors for Verified Feeds */}
-              <div>
-                <span className="block text-[11px] font-medium text-muted-foreground mb-1.5">
-                  推荐公版与官方英语学习源（点击直接填入）
-                </span>
-                <div className="grid grid-cols-1 gap-2">
-                  {PRESET_FEEDS.map((feed) => (
-                    <div
-                      key={feed.name}
-                      onClick={() => setUrl(feed.url)}
-                      className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition ${
-                        url === feed.url
-                          ? "border-foreground bg-muted text-foreground"
-                          : "border-border bg-card hover:bg-muted/60 text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      <div className="min-w-0">
-                        <span className="block font-semibold text-foreground truncate">
-                          {feed.name}
-                        </span>
-                        <span className="block text-[11px] text-muted-foreground mt-0.5">
-                          {feed.tag}
-                        </span>
-                      </div>
-                      {url === feed.url ? (
-                        <CheckIcon className="size-4 shrink-0 text-foreground ml-2" />
-                      ) : (
-                        <span className="text-[11px] text-muted-foreground shrink-0 underline ml-2">
-                          填入
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between rounded-xl border border-border bg-card p-3">
-                <div className="space-y-0.5">
-                  <span className="text-xs font-medium text-foreground block">
-                    Whisper 语音自动分句与转写
-                  </span>
-                  <span className="text-[11px] text-muted-foreground block">
-                    无官方文本时自动提取音频并切分为 2~8 秒精听句子
-                  </span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={enableAsr}
-                  onChange={(e) => setEnableAsr(e.target.checked)}
-                  className="size-4 rounded border-border accent-foreground cursor-pointer"
-                />
-              </div>
-
-              {errorMessage && (
-                <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                  {errorMessage}
-                </div>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-1">
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex items-center gap-2 border-b border-border px-5 py-3">
+            <SearchIcon className="size-4 shrink-0 text-muted-foreground" />
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="搜索播客名称或主题"
+              aria-label="搜索播客"
+              className="h-8 w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+            />
+            {searchQuery && <button type="button" onClick={() => setSearchQuery("")} aria-label="清空播客搜索" className="rounded-md p-1 text-muted-foreground hover:bg-muted"><XIcon className="size-3.5" /></button>}
+          </div>
+          <div className="grid min-h-0 flex-1 grid-cols-[7rem_minmax(0,1fr)] sm:grid-cols-[10rem_minmax(0,1fr)]">
+            <nav aria-label="播客领域" className="flex flex-col gap-0.5 border-r border-border bg-muted/30 p-2 sm:p-3">
+              {PODCAST_CATEGORIES.map((item) => (
                 <button
+                  key={item}
                   type="button"
-                  onClick={() => onOpenChange(false)}
-                  className="px-3.5 py-2 text-xs font-medium rounded-xl border border-border text-foreground hover:bg-muted transition cursor-pointer"
+                  aria-pressed={category === item}
+                  onClick={() => { setCategory(item); setSearchQuery("") }}
+                  className={`rounded-lg px-2.5 py-2 text-left text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${category === item ? "bg-foreground font-semibold text-background" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
                 >
-                  取消
+                  {item}
                 </button>
-                <button
-                  type="submit"
-                  disabled={!url.trim() || isSubmitting}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-foreground text-background hover:opacity-90 disabled:opacity-40 transition cursor-pointer"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <LoaderCircleIcon className="size-3.5 animate-spin" />
-                      <span>正在拉取与解析...</span>
-                    </>
-                  ) : (
-                    <span>解析并收录</span>
-                  )}
-                </button>
-              </div>
-            </form>
-          ) : (
-            <div className="space-y-4">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac"
-                onChange={handleFileChange}
-                className="sr-only"
-              />
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-border rounded-xl bg-card hover:bg-muted/50 cursor-pointer transition text-center"
-              >
-                <UploadIcon className="size-8 text-muted-foreground mb-2" />
-                <span className="text-xs font-semibold text-foreground">
-                  点击选择本地播客音频文件
-                </span>
-                <span className="text-[11px] text-muted-foreground mt-1">
-                  支持 MP3, M4A, AAC, WAV 等格式
-                </span>
-              </div>
-
-              {isSubmitting && (
-                <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                  <LoaderCircleIcon className="size-4 animate-spin" />
-                  <span>正在处理本地音频与切句...</span>
-                </div>
-              )}
+              ))}
+            </nav>
+            <div className="min-h-52 max-h-96 overflow-y-auto p-2 sm:p-3">
+              <p className="px-2 pb-2 text-[11px] text-muted-foreground">精选播客 · {results.length}</p>
+              {results.length === 0 ? (
+                <p className="px-3 py-8 text-center text-xs text-muted-foreground">本地目录里没有匹配节目，仍可在下方输入 RSS 地址。</p>
+              ) : results.map((show) => {
+                const subscribed = subscribedUrls.has(show.feedUrl)
+                return (
+                  <div key={show.id} className="flex items-start gap-3 rounded-lg px-2 py-3 hover:bg-muted/50">
+                    <img src={show.image} alt={`${show.title} 播客封面`} loading="lazy" className="size-11 shrink-0 rounded-xl object-cover" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-semibold text-foreground">{show.title}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{show.author}{show.episodeCount > 0 ? ` · ${show.episodeCount} 期` : ""}</p>
+                      {show.description && <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{show.description}</p>}
+                      {show.latestTitle && <p className="mt-1 truncate text-[11px] text-muted-foreground/80">最近更新：{show.latestTitle}</p>}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void subscribe(show.feedUrl)}
+                      disabled={subscribed || isSubmitting}
+                      aria-label={subscribed ? `已订阅 ${show.title}` : `订阅 ${show.title}`}
+                      className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border text-foreground transition hover:bg-foreground hover:text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-45"
+                    >
+                      {subscribed ? <CheckIcon className="size-4" /> : <PlusIcon className="size-4" />}
+                    </button>
+                  </div>
+                )
+              })}
             </div>
-          )}
+          </div>
         </div>
+        <form onSubmit={handleSubmit} className="space-y-2 border-t border-border p-4 sm:p-5">
+          <label htmlFor="podcast-feed-url" className="block text-xs font-semibold text-foreground">已有 RSS 地址？直接订阅</label>
+          <div className="flex gap-2">
+            <input
+              id="podcast-feed-url"
+              type="url"
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+              placeholder="https://example.com/podcast/feed.xml"
+              className="h-10 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-xs text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              disabled={isSubmitting}
+            />
+            <button type="submit" disabled={!url.trim() || isSubmitting} className="rounded-xl bg-foreground px-3 text-xs font-semibold text-background hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40">
+              {isSubmitting ? <LoaderCircleIcon className="size-4 animate-spin" /> : "订阅"}
+            </button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">订阅只同步节目单；选择单集精听时才会生成逐句文本。</p>
+          {errorMessage && <p role="alert" className="text-xs text-destructive">{errorMessage}</p>}
+        </form>
       </DialogContent>
     </Dialog>
   )
