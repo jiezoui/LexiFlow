@@ -1,35 +1,36 @@
 package com.lexiflow.infra.security;
 
+import com.lexiflow.common.exception.BusinessException;
+import com.lexiflow.common.result.ResultCode;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 /**
- * 用户上下文工具，方便在业务层和控制层获取当前登录的用户信息
+ * 当前登录用户的上下文读取工具。
  */
 public final class UserContext {
 
     private UserContext() {}
 
-    /**
-     * 获取当前登录用户的 ID
-     * 如果未认证或为匿名用户，返回 null
-     */
+    /** 读取当前登录用户 ID；未登录返回 null，供允许匿名的场景使用 */
     public static Long getCurrentUserId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication != null && authentication.getPrincipal() instanceof Long) {
-            return (Long) authentication.getPrincipal();
+        if (authentication != null && authentication.getPrincipal() instanceof Long userId) {
+            return userId;
         }
         return null;
     }
 
     /**
-     * 获取当前登录用户 ID，如果未登录则抛出异常或返回默认测试ID
+     * 读取当前登录用户 ID；未登录直接抛 401。
+     *
+     * 之前此处在未登录时兜底返回测试用户 1，导致不携带令牌也能读写该账号的
+     * 生词本、复习记录与统计等私有数据，登录形同虚设。改为显式拒绝。
      */
     public static Long requireCurrentUserId() {
         Long userId = getCurrentUserId();
         if (userId == null) {
-            // 兼容开发与游客模式（默认测试用户ID 1）
-            return 1L;
+            throw new BusinessException(ResultCode.UNAUTHORIZED.getCode(), "登录状态已失效，请重新登录");
         }
         return userId;
     }

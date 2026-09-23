@@ -1,4 +1,5 @@
 import { AppSidebar } from "@/components/app-sidebar"
+import { AiConfigBootstrap } from "@/components/ai-config-bootstrap"
 import { CommandPalette } from "@/components/command-palette"
 import { DynamicBreadcrumb } from "@/components/dynamic-breadcrumb"
 import { BreadcrumbTitleProvider } from "@/components/breadcrumb-title-context"
@@ -37,6 +38,7 @@ export default function DashboardLayout({
             </div>
           </header>
           <CommandPalette />
+          <AiConfigBootstrap />
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</div>
         </BreadcrumbTitleProvider>
       </SidebarInset>

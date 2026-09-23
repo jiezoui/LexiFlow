@@ -1,215 +1,300 @@
 "use client"
 
-import { useState, useMemo } from "react"
-import { FlameIcon, TrophyIcon, SparklesIcon, CheckCircle2Icon } from "lucide-react"
+import * as React from "react"
+import { Loader2Icon, TriangleAlertIcon } from "lucide-react"
+import { statsApi, type HeatmapCalendar, type HeatmapDay } from "@/lib/api-client"
 
-// Generate 52 weeks (364 days) of realistic review contribution data
-function generateYearContributionData() {
-  const data: { date: string; count: number; level: number }[] = []
-  const today = new Date(2026, 8, 11) // 2026-09-11
+/** 网格按「周一」为第一行排布，与左侧的 周一/周三/周五 标签对齐 */
+const WEEKDAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
-  for (let i = 363; i >= 0; i--) {
-    const d = new Date(today)
-    d.setDate(today.getDate() - i)
-    const dateStr = d.toISOString().split("T")[0]
+const CELL_SIZE = 14
+const CELL_GAP = 4
 
-    // Simulate review distribution with recent active streak
-    let count = 0
-    let level = 0
-    if (i < 14) {
-      // Current active streak (last 12-14 days)
-      count = Math.floor(Math.random() * 25) + 8
-    } else if (Math.random() > 0.35) {
-      count = Math.floor(Math.random() * 32)
-    }
-
-    if (count > 20) level = 4
-    else if (count > 12) level = 3
-    else if (count > 5) level = 2
-    else if (count > 0) level = 1
-
-    data.push({ date: dateStr, count, level })
-  }
-  return data
+/** 把 YYYY-MM-DD 解析为本地日期，避免 new Date(str) 按 UTC 解析导致的整体偏移一天 */
+function parseLocalDate(value: string): Date {
+  const [y, m, d] = value.split("-").map(Number)
+  return new Date(y, (m ?? 1) - 1, d ?? 1)
 }
 
-const months = ["10月", "11月", "12月", "1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月"]
+interface WeekCell {
+  day: HeatmapDay | null
+}
+
+/**
+ * 把「1月1日 ~ 12月31日」的日均摊进周一到周日的 7 行矩阵。
+ * 开头按元旦是星期几补空格，结尾补齐最后一周，保证列数与星期标签严格对应。
+ */
+function buildWeeks(days: HeatmapDay[]): WeekCell[][] {
+  if (days.length === 0) return []
+
+  const firstWeekday = (parseLocalDate(days[0].date).getDay() + 6) % 7 // 周一=0
+  const slots: WeekCell[] = []
+
+  for (let i = 0; i < firstWeekday; i++) {
+    slots.push({ day: null })
+  }
+  days.forEach((day) => slots.push({ day }))
+  while (slots.length % 7 !== 0) {
+    slots.push({ day: null })
+  }
+
+  const weeks: WeekCell[][] = []
+  for (let i = 0; i < slots.length; i += 7) {
+    weeks.push(slots.slice(i, i + 7))
+  }
+  return weeks
+}
+
+/** 每个月份标签落在它首次出现的周列上 */
+function buildMonthLabels(weeks: WeekCell[][]): { label: string; column: number }[] {
+  const labels: { label: string; column: number }[] = []
+  let lastMonth = -1
+
+  weeks.forEach((week, columnIndex) => {
+    const firstDay = week.find((cell) => cell.day)?.day
+    if (!firstDay) return
+
+    const month = parseLocalDate(firstDay.date).getMonth()
+    if (month !== lastMonth) {
+      labels.push({ label: `${month + 1}月`, column: columnIndex })
+      lastMonth = month
+    }
+  })
+
+  return labels
+}
+
+/** GitHub 贡献图同款绿色梯度，明暗两套主题各取一组 */
+function getCellClass(level: number): string {
+  switch (level) {
+    case 1:
+      return "bg-[#9be9a8] dark:bg-[#0e4429] hover:ring-1 hover:ring-black/40 dark:hover:ring-white/60"
+    case 2:
+      return "bg-[#40c463] dark:bg-[#006d32] hover:ring-1 hover:ring-black/40 dark:hover:ring-white/60"
+    case 3:
+      return "bg-[#30a14e] dark:bg-[#26a641] hover:ring-1 hover:ring-black/40 dark:hover:ring-white/60"
+    case 4:
+      return "bg-[#216e39] dark:bg-[#39d353] hover:ring-1 hover:ring-black/40 dark:hover:ring-white/60"
+    default:
+      return "bg-[#ebedf0] dark:bg-[#161b22]"
+  }
+}
 
 export function GithubHeatmap() {
-  const yearData = useMemo(() => generateYearContributionData(), [])
-  const [hoveredDay, setHoveredDay] = useState<{ date: string; count: number } | null>(null)
-  const [selectedYear, setSelectedYear] = useState("2026")
+  const [calendar, setCalendar] = React.useState<HeatmapCalendar | null>(null)
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+  const [selectedYear, setSelectedYear] = React.useState<number | null>(null)
+  const [hoveredDay, setHoveredDay] = React.useState<HeatmapDay | null>(null)
 
-  const totalReviews = useMemo(
-    () => yearData.reduce((sum, item) => sum + item.count, 0),
-    [yearData]
-  )
+  // 记录当前查看的年份，供静默刷新复用，避免后台刷新把用户切到的年份重置回默认
+  const activeYearRef = React.useRef<number | undefined>(undefined)
 
-  // GitHub contribution color classes (supporting both classic GitHub emerald and dark mode)
-  const getCellColor = (level: number) => {
-    switch (level) {
-      case 1:
-        return "bg-[#9be9a8] dark:bg-[#0e4429] hover:ring-1 hover:ring-black dark:hover:ring-white"
-      case 2:
-        return "bg-[#40c463] dark:bg-[#006d32] hover:ring-1 hover:ring-black dark:hover:ring-white"
-      case 3:
-        return "bg-[#30a14e] dark:bg-[#26a641] hover:ring-1 hover:ring-black dark:hover:ring-white"
-      case 4:
-        return "bg-[#216e39] dark:bg-[#39d353] hover:ring-1 hover:ring-black dark:hover:ring-white"
-      default:
-        return "bg-[#ebedf0] dark:bg-[#161b22] hover:bg-zinc-200 dark:hover:bg-zinc-800"
+  const loadYear = React.useCallback(async (year?: number, options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false
+    if (!silent) {
+      setLoading(true)
+      setError(null)
     }
-  }
+    try {
+      const data = await statsApi.getHeatmap(year)
+      setCalendar(data)
+      setSelectedYear(data.year)
+      activeYearRef.current = data.year
+      setError(null)
+    } catch (e) {
+      // 静默刷新失败时保留原有图表，不把已经显示的年度数据擦掉
+      if (!silent) {
+        setError(e instanceof Error ? e.message : "研习数据加载失败")
+        setCalendar(null)
+      }
+    } finally {
+      if (!silent) setLoading(false)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    loadYear()
+  }, [loadYear])
+
+  /**
+   * 实时同步：复习、采词等行为发生在其它标签页或其它模块时，
+   * 页面本身不会重新挂载，因此这里在窗口重新获得焦点、标签页切回前台时静默重取一次。
+   * 静默刷新不显示骨架屏，避免正在看的图表闪烁。
+   */
+  React.useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "hidden") return
+      void loadYear(activeYearRef.current, { silent: true })
+    }
+    window.addEventListener("focus", refresh)
+    document.addEventListener("visibilitychange", refresh)
+    return () => {
+      window.removeEventListener("focus", refresh)
+      document.removeEventListener("visibilitychange", refresh)
+    }
+  }, [loadYear])
+
+  const weeks = React.useMemo(
+    () => buildWeeks(calendar?.days ?? []),
+    [calendar?.days]
+  )
+  const monthLabels = React.useMemo(() => buildMonthLabels(weeks), [weeks])
+
+  const availableYears = calendar?.availableYears ?? []
+  const gridWidth = weeks.length * CELL_SIZE + Math.max(0, weeks.length - 1) * CELL_GAP
 
   return (
     <div className="rounded-3xl border border-border bg-card p-6 sm:p-8 shadow-sm">
       {/* ── 1. Header Row (GitHub style) ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-border">
-        <div>
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-bold tracking-tight text-foreground">
-              {totalReviews.toLocaleString()} 次记忆复习与语境采词
-            </h3>
-            <span className="rounded-full border border-border bg-secondary px-2.5 py-0.5 text-xs font-mono text-muted-foreground">
-              年度贡献图
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            记录你过去一年的真实记忆反馈、词书背诵与视频字幕采词足迹。
-          </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border">
+        <div className="flex items-center gap-2">
+          <h3 className="text-lg font-bold tracking-tight text-foreground">
+            {loading && !calendar ? (
+              <span className="inline-block h-6 w-56 animate-pulse rounded bg-muted align-middle" />
+            ) : (
+              `${(calendar?.totalCount ?? 0).toLocaleString()} 次记忆复习与语境采词`
+            )}
+          </h3>
+          <span className="rounded-full border border-border bg-secondary px-2.5 py-0.5 text-xs font-mono text-muted-foreground">
+            年度贡献图
+          </span>
         </div>
 
-        {/* Year Selector Pills */}
-        <div className="inline-flex items-center rounded-xl border border-border bg-secondary p-1 text-xs font-mono">
-          <button
-            onClick={() => setSelectedYear("2026")}
-            className={`px-3 py-1 rounded-lg font-semibold transition-all ${
-              selectedYear === "2026"
-                ? "bg-card text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            2026
-          </button>
-          <button
-            onClick={() => setSelectedYear("2025")}
-            className={`px-3 py-1 rounded-lg font-semibold transition-all ${
-              selectedYear === "2025"
-                ? "bg-card text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            2025
-          </button>
-        </div>
+        {/* Year Selector Pills — 年份来自账号真实产生过记录的年份 */}
+        {availableYears.length > 0 && (
+          <div className="inline-flex items-center rounded-xl border border-border bg-secondary p-1 text-xs font-mono">
+            {availableYears.map((year) => (
+              <button
+                key={year}
+                onClick={() => year !== selectedYear && loadYear(year)}
+                disabled={loading}
+                className={`px-3 py-1 rounded-lg font-semibold transition-all cursor-pointer disabled:cursor-wait ${
+                  selectedYear === year
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {year}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ── 2. GitHub 52-Week Matrix ── */}
-      <div className="mt-6 overflow-x-auto pb-2">
-        <div className="min-w-[720px]">
-          {/* Month Labels along the top */}
-          <div className="grid grid-cols-12 text-[11px] font-mono text-muted-foreground pl-7 pb-2">
-            {months.map((m, idx) => (
-              <span key={idx}>{m}</span>
-            ))}
+      <div className="mt-5 overflow-x-auto pb-2">
+        {error ? (
+          <div className="flex items-center justify-center gap-2 py-16 text-xs text-muted-foreground">
+            <TriangleAlertIcon className="size-4 text-amber-500" />
+            <span>{error}</span>
           </div>
-
-          {/* Calendar Grid with Day of Week labels on left */}
-          <div className="flex gap-2 items-start">
-            {/* Weekdays */}
-            <div className="flex flex-col justify-between text-[9px] font-mono text-muted-foreground pt-1 h-[94px] w-6 shrink-0 select-none">
-              <span>周一</span>
-              <span>周三</span>
-              <span>周五</span>
-            </div>
-
-            {/* 52 Columns Grid */}
-            <div className="grid grid-flow-col grid-rows-7 gap-[3px] flex-1">
-              {yearData.map((item, idx) => (
-                <div
-                  key={idx}
-                  onMouseEnter={() => setHoveredDay({ date: item.date, count: item.count })}
-                  onMouseLeave={() => setHoveredDay(null)}
-                  className={`size-[11px] rounded-[2.5px] cursor-pointer transition-transform duration-100 ${getCellColor(
-                    item.level
-                  )} hover:scale-125 z-0 hover:z-10`}
-                  title={`${item.date}: ${item.count} 次研习反馈`}
-                />
+        ) : loading && !calendar ? (
+          <div className="flex items-center justify-center gap-2 py-16 text-xs text-muted-foreground">
+            <Loader2Icon className="size-4 animate-spin" />
+            <span>正在读取研习足迹…</span>
+          </div>
+        ) : (
+          /* 内容宽度由格子决定，用 w-max + mx-auto 让整块在卡片内水平居中 */
+          <div className="mx-auto w-max">
+            {/* Month Labels：按各月落在的周列对齐，而不是均分整行 */}
+            <div className="relative h-4 mb-1.5 text-xs font-mono text-muted-foreground" style={{ width: gridWidth }}>
+              {monthLabels.map(({ label, column }) => (
+                <span
+                  key={label}
+                  className="absolute top-0 whitespace-nowrap"
+                  style={{ left: column * (CELL_SIZE + CELL_GAP) }}
+                >
+                  {label}
+                </span>
               ))}
             </div>
-          </div>
 
-          {/* Bottom Tooltip & Legend */}
-          <div className="mt-4 flex items-center justify-between text-xs font-mono text-muted-foreground pt-2 border-t border-border">
-            <div className="min-h-[18px]">
-              {hoveredDay ? (
-                <span className="font-semibold text-foreground">
-                  {hoveredDay.date} · <strong>{hoveredDay.count} 次</strong> FSRS 记忆反馈与语境采词
-                </span>
-              ) : (
-                <span>悬停方格查看每日研习明细</span>
-              )}
-            </div>
+            <div className="flex items-start gap-2">
+              {/* Weekdays：周一为第一行，只标注隔行的 周一/周三/周五/周日 */}
+              <div
+                className="flex w-8 shrink-0 select-none flex-col text-[10px] font-mono text-muted-foreground"
+                style={{ height: 7 * CELL_SIZE + 6 * CELL_GAP }}
+              >
+                {WEEKDAY_LABELS.map((label, index) => (
+                  <span
+                    key={label}
+                    className="flex items-center leading-none"
+                    style={{ height: CELL_SIZE, marginBottom: index === 6 ? 0 : CELL_GAP }}
+                  >
+                    {index % 2 === 0 ? label : ""}
+                  </span>
+                ))}
+              </div>
 
-            <div className="flex items-center gap-1.5 text-[10px]">
-              <span>少</span>
-              <span className="size-2.5 rounded-[2px] bg-[#ebedf0] dark:bg-[#161b22]" />
-              <span className="size-2.5 rounded-[2px] bg-[#9be9a8] dark:bg-[#0e4429]" />
-              <span className="size-2.5 rounded-[2px] bg-[#40c463] dark:bg-[#006d32]" />
-              <span className="size-2.5 rounded-[2px] bg-[#30a14e] dark:bg-[#26a641]" />
-              <span className="size-2.5 rounded-[2px] bg-[#216e39] dark:bg-[#39d353]" />
-              <span>多</span>
+              {/* 7 行 × N 周的矩阵 */}
+              <div
+                className="grid grid-rows-7 grid-flow-col"
+                style={{ gap: CELL_GAP, gridAutoColumns: CELL_SIZE }}
+              >
+                {weeks.flatMap((week, weekIndex) =>
+                  week.map((cell, dayIndex) => {
+                    if (!cell.day) {
+                      return (
+                        <div
+                          key={`blank-${weekIndex}-${dayIndex}`}
+                          style={{ width: CELL_SIZE, height: CELL_SIZE }}
+                        />
+                      )
+                    }
+                    const day = cell.day
+                    return (
+                      <div
+                        key={day.date}
+                        onMouseEnter={() => setHoveredDay(day)}
+                        onMouseLeave={() => setHoveredDay(null)}
+                        style={{ width: CELL_SIZE, height: CELL_SIZE }}
+                        className={`rounded-[3px] cursor-pointer transition-transform duration-100 ${getCellClass(
+                          day.level
+                        )} hover:scale-125 z-0 hover:z-10`}
+                        title={`${day.date}: 复习 ${day.reviewCount} 次 · 采词 ${day.collectedCount} 个`}
+                      />
+                    )
+                  })
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* ── 3. GitHub Profile Style Highlights Cards ── */}
-      <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-4 pt-6 border-t border-border">
-        <div className="rounded-2xl border border-border bg-secondary/50 p-4">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
-            <FlameIcon className="size-3.5 text-foreground" />
-            当前连续研习
+      {/* ── 3. 悬停明细与色阶图例 ──
+          放在横向滚动区之外，窄屏下左右滚动日历格时这一行始终可见 */}
+      {!error && calendar && (
+        <div className="mt-4 flex flex-col gap-2 text-xs font-mono text-muted-foreground pt-3 border-t border-border sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-h-[18px]">
+            {hoveredDay ? (
+              <span className="font-semibold text-foreground">
+                {hoveredDay.date} · 复习 <strong>{hoveredDay.reviewCount}</strong> 次 · 采词{" "}
+                <strong>{hoveredDay.collectedCount}</strong> 个
+                {hoveredDay.durationMinutes > 0 && <> · 研习 {hoveredDay.durationMinutes} 分钟</>}
+              </span>
+            ) : calendar.activeDays > 0 ? (
+              <span>
+                悬停方格查看每日研习明细 · 全年活跃 {calendar.activeDays} 天 · 最长连续{" "}
+                {calendar.longestStreak} 天 · 累计 {calendar.totalDurationMinutes} 分钟
+              </span>
+            ) : (
+              <span>该年度尚无研习记录，复习闪卡或采摘生词后这里会自动亮起</span>
+            )}
           </div>
-          <div className="mt-1.5 text-2xl font-extrabold font-mono text-foreground">
-            12 <span className="text-xs font-normal font-sans text-muted-foreground">天</span>
-          </div>
-          <span className="block mt-1 text-[10px] text-muted-foreground font-mono">保持日更心流</span>
-        </div>
 
-        <div className="rounded-2xl border border-border bg-secondary/50 p-4">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
-            <TrophyIcon className="size-3.5 text-foreground" />
-            历史最高连击
+          <div className="flex shrink-0 items-center gap-1.5 text-[10px]">
+            <span>少</span>
+            <span className="size-3 rounded-[2px] bg-[#ebedf0] dark:bg-[#161b22]" />
+            <span className="size-3 rounded-[2px] bg-[#9be9a8] dark:bg-[#0e4429]" />
+            <span className="size-3 rounded-[2px] bg-[#40c463] dark:bg-[#006d32]" />
+            <span className="size-3 rounded-[2px] bg-[#30a14e] dark:bg-[#26a641]" />
+            <span className="size-3 rounded-[2px] bg-[#216e39] dark:bg-[#39d353]" />
+            <span>多</span>
           </div>
-          <div className="mt-1.5 text-2xl font-extrabold font-mono text-foreground">
-            28 <span className="text-xs font-normal font-sans text-muted-foreground">天</span>
-          </div>
-          <span className="block mt-1 text-[10px] text-muted-foreground font-mono">2026 年春季创造</span>
         </div>
-
-        <div className="rounded-2xl border border-border bg-secondary/50 p-4">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
-            <CheckCircle2Icon className="size-3.5 text-foreground" />
-            FSRS 记忆留存率
-          </div>
-          <div className="mt-1.5 text-2xl font-extrabold font-mono text-foreground">
-            94.2%
-          </div>
-          <span className="block mt-1 text-[10px] text-muted-foreground font-mono">预期遗忘阈值 10%</span>
-        </div>
-
-        <div className="rounded-2xl border border-border bg-secondary/50 p-4">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
-            <SparklesIcon className="size-3.5 text-foreground" />
-            语境采词总量
-          </div>
-          <div className="mt-1.5 text-2xl font-extrabold font-mono text-foreground">
-            84 <span className="text-xs font-normal font-sans text-muted-foreground">词</span>
-          </div>
-          <span className="block mt-1 text-[10px] text-muted-foreground font-mono">绑定 26 个视频片段</span>
-        </div>
-      </div>
+      )}
     </div>
   )
 }

@@ -425,9 +425,25 @@ export interface HeatmapDay {
   date: string
   count: number
   level: number // 0 ~ 4
+  reviewCount: number
+  collectedCount: number
   durationMinutes: number
   newCards: number
   reviewCards: number
+  retentionRate: number | null
+}
+
+export interface HeatmapCalendar {
+  year: number
+  totalCount: number
+  totalReviews: number
+  totalCollected: number
+  activeDays: number
+  totalDurationMinutes: number
+  maxDailyCount: number
+  longestStreak: number
+  availableYears: number[]
+  days: HeatmapDay[]
 }
 
 export interface LearningOverviewStats {
@@ -776,8 +792,8 @@ export const reviewApi = {
 
 // 06. 研习打卡与热力统计 API
 export const statsApi = {
-  getHeatmap: (year = 2026) =>
-    request<HeatmapDay[]>(`/api/stats/heatmap?year=${year}`),
+  getHeatmap: (year?: number) =>
+    request<HeatmapCalendar>(`/api/stats/heatmap${year ? `?year=${year}` : ""}`),
   getOverview: () =>
     request<LearningOverviewStats>("/api/stats/overview"),
 }
@@ -913,16 +929,86 @@ export interface AiExplainResult {
   rawAnswer: string
 }
 
+/** 一次凭据探测的真实结果，含成败原因、上游状态码与耗时 */
+export interface AiModelDetection {
+  ok: boolean
+  status:
+    | "CONNECTED"
+    | "INVALID_KEY"
+    | "ENDPOINT_NOT_FOUND"
+    | "RATE_LIMITED"
+    | "NO_MODELS"
+    | "NOT_CONFIGURED"
+    | "UNREACHABLE"
+    | "UPSTREAM_ERROR"
+    | "REQUEST_FAILED"
+    | string
+  message: string
+  endpoint: string
+  httpStatus: number | null
+  elapsedMs: number
+  models: string[]
+  detectedAt: number
+}
+
+export interface AiProviderConfigEntry {
+  provider: string
+  apiKey: string
+  apiHost: string
+  selectedModel: string
+  customModels: string[]
+  configured: boolean
+  verifyStatus: string | null
+  verifyMessage: string | null
+  verifiedAt: string | null
+  availableModels: string[]
+}
+
+export interface AiAccountConfig {
+  activeProvider: string
+  activeModel: string | null
+  activeConfigured: boolean
+  temperature: number
+  enableReadingAi: boolean
+  enableFlashcardAi: boolean
+  providers: AiProviderConfigEntry[]
+}
+
+export interface AiConfigSavePayload {
+  activeProvider?: string
+  temperature?: number
+  enableReadingAi?: boolean
+  enableFlashcardAi?: boolean
+  providers?: {
+    provider: string
+    apiKey?: string
+    apiHost?: string
+    selectedModel?: string
+    customModels?: string[]
+  }[]
+}
+
 export const aiApi = {
   testConnection: (data: { provider?: string; apiHost?: string; apiKey?: string; model?: string }) =>
     request<AiTestConnectionResult>("/api/ai/test-connection", {
       method: "POST",
       body: JSON.stringify(data),
     }),
+  /** 探测凭据并拉取模型；只传 provider 时使用账号已保存的 Key 与地址 */
   fetchModels: (data: { provider?: string; apiHost?: string; apiKey?: string }) =>
-    request<string[]>("/api/ai/models", {
+    request<AiModelDetection>("/api/ai/models", {
       method: "POST",
       body: JSON.stringify(data),
+    }),
+  getConfig: () => request<AiAccountConfig>("/api/ai/config"),
+  saveConfig: (data: AiConfigSavePayload) =>
+    request<AiAccountConfig>("/api/ai/config", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  clearProvider: (provider: string) =>
+    request<AiAccountConfig>(`/api/ai/config/${encodeURIComponent(provider)}`, {
+      method: "DELETE",
     }),
   explainWord: (data: {
     word: string

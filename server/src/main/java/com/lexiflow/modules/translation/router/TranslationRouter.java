@@ -22,7 +22,8 @@ public class TranslationRouter {
     public RoutedTranslation translate(
             List<TranslationItem> items,
             String sourceLanguage,
-            String targetLanguage
+            String targetLanguage,
+            Long userId
     ) {
         RuntimeException lastFailure = null;
         for (TranslationProvider provider : providers) {
@@ -32,7 +33,7 @@ public class TranslationRouter {
             try {
                 return new RoutedTranslation(
                         provider.name(),
-                        provider.translateBatch(items, sourceLanguage, targetLanguage)
+                        provider.translateBatch(items, sourceLanguage, targetLanguage, userId)
                 );
             } catch (RuntimeException exception) {
                 lastFailure = exception;

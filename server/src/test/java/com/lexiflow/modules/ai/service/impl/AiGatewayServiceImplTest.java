@@ -3,6 +3,8 @@ package com.lexiflow.modules.ai.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.lexiflow.modules.ai.dto.AiExplainRequest;
+import com.lexiflow.modules.ai.model.AiResolvedConfig;
+import com.lexiflow.modules.ai.service.AiConfigStore;
 import com.lexiflow.modules.ai.vo.AiExplainVo;
 import com.sun.net.httpserver.HttpServer;
 import jakarta.validation.Validation;
@@ -24,7 +26,36 @@ class AiGatewayServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new AiGatewayServiceImpl(objectMapper);
+        // 本测试只覆盖解析与请求拼装，凭据一律由请求直接携带，
+        // 因此用一个原样回传请求字段的桩替换账号级凭据解析即可。
+        AiConfigStore passthroughStore = new AiConfigStore() {
+            @Override
+            public AiResolvedConfig resolve(Long userId, String provider, String apiHost, String apiKey, String model) {
+                return new AiResolvedConfig(
+                        provider != null ? provider : "deepseek",
+                        apiHost != null ? apiHost : "",
+                        apiKey != null ? apiKey : "",
+                        model != null ? model : "deepseek-chat",
+                        true,
+                        "REQUEST");
+            }
+
+            @Override
+            public AiResolvedConfig resolveActive(Long userId) {
+                return resolve(userId, null, null, null, null);
+            }
+
+            @Override
+            public com.lexiflow.modules.ai.entity.AiProviderConfigEntity findProvider(Long userId, String provider) {
+                return null;
+            }
+
+            @Override
+            public com.lexiflow.modules.ai.entity.AiPreferenceEntity findPreference(Long userId) {
+                return null;
+            }
+        };
+        service = new AiGatewayServiceImpl(objectMapper, passthroughStore);
     }
 
     @Test

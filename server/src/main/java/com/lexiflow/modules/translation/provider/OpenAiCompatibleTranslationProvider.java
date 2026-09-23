@@ -49,8 +49,10 @@ public class OpenAiCompatibleTranslationProvider implements TranslationProvider 
     public List<TranslationResult> translateBatch(
             List<TranslationItem> items,
             String sourceLanguage,
-            String targetLanguage
+            String targetLanguage,
+            Long userId
     ) {
+        // 本 Provider 读的是 application.yml 里的静态翻译配置，与账号无关，故忽略 userId
         if (items.isEmpty()) {
             return List.of();
         }

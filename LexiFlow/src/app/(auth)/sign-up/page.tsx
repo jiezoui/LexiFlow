@@ -1,11 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import * as React from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { motion } from "motion/react"
 import {
-  LandmarkIcon,
   MailIcon,
   LockIcon,
   EyeIcon,
@@ -14,314 +12,240 @@ import {
   CheckIcon,
   ShieldCheckIcon,
   UserIcon,
+  AtSignIcon,
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-  InputGroupButton,
-} from "@/components/ui/input-group"
-import dynamic from "next/dynamic"
+import { AuthVisualPanel } from "@/components/login/auth-visual-panel"
+import { InteractiveHoverButton } from "@/components/ui/interactive-hover-button"
+import { authApi } from "@/lib/api-client"
 
-const GlobeDemo = dynamic(() => import("@/components/globe-demo"), {
-  ssr: false,
-})
-
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.06, delayChildren: 0.1 },
-  },
-}
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 12 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: {
-      duration: 0.4,
-      ease: [0.25, 0.46, 0.45, 0.94] as [number, number, number, number],
-    },
-  },
-}
+const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,30}$/
 
 export default function SignUpPage() {
-  const [showPassword, setShowPassword] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
-  const [isSuccess, setIsSuccess] = useState(false)
-  const [agreed, setAgreed] = useState(false)
+  const [showPassword, setShowPassword] = React.useState(false)
+  const [isTyping, setIsTyping] = React.useState(false)
+  const [nickname, setNickname] = React.useState("")
+  const [username, setUsername] = React.useState("")
+  const [email, setEmail] = React.useState("")
+  const [password, setPassword] = React.useState("")
+  const [isLoading, setIsLoading] = React.useState(false)
+  const [isSuccess, setIsSuccess] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  /**
+   * 注册：字段约束与后端 RegisterRequest 保持一致，
+   * 前端先做一次校验是为了少一次往返，真正的判断仍以后端为准。
+   */
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!agreed) return
+    setError(null)
+
+    if (!USERNAME_PATTERN.test(username.trim())) {
+      setError("用户名需为 3-30 位的字母、数字或下划线")
+      return
+    }
+    if (password.length < 6) {
+      setError("密码长度不少于 6 位")
+      return
+    }
+
     setIsLoading(true)
-    setTimeout(() => {
-      setIsLoading(false)
+    try {
+      await authApi.register({
+        username: username.trim(),
+        email: email.trim(),
+        password,
+        nickname: nickname.trim() || undefined,
+      })
       setIsSuccess(true)
-      setTimeout(() => setIsSuccess(false), 2000)
-    }, 1500)
+      setTimeout(() => {
+        window.location.replace("/sign-in")
+      }, 900)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "注册失败，请稍后重试")
+      setIsLoading(false)
+    }
   }
 
+  const inputClass =
+    "h-12 w-full rounded-xl border border-border/60 bg-background pl-10 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-primary"
+
   return (
-    <div className="flex min-h-svh">
-      {/* Left panel - Globe */}
-      <div className="relative hidden w-1/2 flex-col justify-between bg-zinc-950 lg:flex">
-        {/* Logo */}
-        <Link href="/dashboard" className="relative z-20 flex items-center gap-2.5 p-8">
-          <div className="relative flex size-8 items-center justify-center rounded-xl overflow-hidden shadow-xs border border-white/20 bg-black/40">
-            <img src="/logo.png" alt="LexiFlow Logo" className="size-full object-cover" />
-          </div>
-          <span className="text-sm font-bold tracking-tight text-white">
-            语脉 · LexiFlow
-          </span>
-          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-mono text-zinc-300">
-            BETA
-          </span>
-        </Link>
+    /* 左黑右白的固定配色，不跟随全局明暗切换，与登录页保持一致 */
+    <div className="grid min-h-svh bg-white lg:grid-cols-[6fr_4fr]">
+      <AuthVisualPanel
+        isTyping={isTyping}
+        showPassword={showPassword}
+        passwordLength={password.length}
+        tagline="建号即开通 FSRS 记忆调度 · 生词本与多模态语料库随账号同步"
+      />
 
-        {/* Globe */}
-        <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
-          <GlobeDemo />
-        </div>
-
-        {/* Quote overlay — pinned to bottom */}
-        <div className="relative z-20 mt-auto p-8">
-          <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
-            <blockquote className="text-sm leading-relaxed text-white/80">
-              &ldquo;Language is not an isolated set of tokens to memorize, but an acoustic and situational landscape to live in.&rdquo;
-            </blockquote>
-            <p className="mt-3 text-xs text-white/50">
-              &mdash; 语脉 · 多模态二语习得认知假说
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Right panel - Form */}
-      <div className="flex flex-1 items-center justify-center bg-background px-6 py-12">
-        <motion.div
-          className="w-full max-w-sm"
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-        >
-          {/* Logo (mobile) */}
-          <motion.div
-            className="mb-8 flex flex-col items-center lg:hidden"
-            variants={itemVariants}
-          >
-            <div className="relative flex size-10 items-center justify-center rounded-xl overflow-hidden shadow-xs border border-border/40 bg-background">
+      {/* ── 右侧注册表单 ── */}
+      <div className="auth-light flex items-center justify-center bg-background px-5 py-12 text-foreground xl:px-10">
+        <div className="w-full max-w-[420px]">
+          <div className="mb-10 flex items-center justify-center gap-2.5 lg:hidden">
+            <div className="flex size-9 items-center justify-center overflow-hidden rounded-xl border border-border/40">
               <img src="/logo.png" alt="LexiFlow Logo" className="size-full object-cover" />
             </div>
-            <span className="mt-2 text-base font-bold text-foreground">
-              语脉 · LexiFlow
-            </span>
-          </motion.div>
+            <span className="text-base font-bold text-foreground">语脉 · LexiFlow</span>
+          </div>
 
-          {/* Heading */}
-          <motion.div className="text-center" variants={itemVariants}>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Create your account
-            </h1>
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              Start managing your finances today
-            </p>
-          </motion.div>
+          <div className="mb-10 text-center">
+            <h1 className="mb-2 text-3xl font-bold tracking-tight">创建账号</h1>
+            <p className="text-sm text-muted-foreground">几分钟即可开始你的语境研习</p>
+          </div>
 
-          {/* Social buttons */}
-          <motion.div
-            className="mt-8 grid grid-cols-2 gap-3"
-            variants={itemVariants}
-          >
-            <Button variant="outline" size="lg" className="gap-2">
-              <Image
-                src="/logos/google-com.png"
-                alt="Google"
-                width={16}
-                height={16}
-                className="size-4"
-              />
-              <span className="text-sm">Google</span>
-            </Button>
-            <Button variant="outline" size="lg" className="gap-2">
-              <Image
-                src="/logos/apple-com.png"
-                alt="Apple"
-                width={16}
-                height={16}
-                className="size-4"
-              />
-              <span className="text-sm">Apple</span>
-            </Button>
-          </motion.div>
-
-          {/* Divider */}
-          <motion.div
-            className="relative my-6 flex items-center"
-            variants={itemVariants}
-          >
-            <div className="flex-1 border-t border-border" />
-            <span className="mx-3 text-xs text-muted-foreground">
-              or continue with
-            </span>
-            <div className="flex-1 border-t border-border" />
-          </motion.div>
-
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <motion.div variants={itemVariants}>
-              <label
-                htmlFor="name"
-                className="mb-1.5 block text-sm font-medium"
-              >
-                Full name
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="space-y-2">
+              <label htmlFor="nickname" className="text-sm font-medium">
+                昵称 <span className="text-muted-foreground">（可选）</span>
               </label>
-              <InputGroup>
-                <InputGroupAddon align="inline-start">
-                  <UserIcon className="size-4 text-muted-foreground" />
-                </InputGroupAddon>
-                <InputGroupInput
-                  id="name"
+              <div className="relative">
+                <UserIcon className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  id="nickname"
                   type="text"
-                  placeholder="John Doe"
-                  required
+                  autoComplete="nickname"
+                  placeholder="显示在个人主页的名字"
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  onFocus={() => setIsTyping(true)}
+                  onBlur={() => setIsTyping(false)}
+                  className={inputClass}
                 />
-              </InputGroup>
-            </motion.div>
+              </div>
+            </div>
 
-            <motion.div variants={itemVariants}>
-              <label
-                htmlFor="email"
-                className="mb-1.5 block text-sm font-medium"
-              >
-                Email
+            <div className="space-y-2">
+              <label htmlFor="username" className="text-sm font-medium">
+                用户名
               </label>
-              <InputGroup>
-                <InputGroupAddon align="inline-start">
-                  <MailIcon className="size-4 text-muted-foreground" />
-                </InputGroupAddon>
-                <InputGroupInput
+              <div className="relative">
+                <AtSignIcon className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  id="username"
+                  type="text"
+                  autoComplete="username"
+                  placeholder="3-30 位字母、数字或下划线"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  onFocus={() => setIsTyping(true)}
+                  onBlur={() => setIsTyping(false)}
+                  required
+                  className={inputClass}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="email" className="text-sm font-medium">
+                邮箱
+              </label>
+              <div className="relative">
+                <MailIcon className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <input
                   id="email"
                   type="email"
+                  autoComplete="email"
                   placeholder="name@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onFocus={() => setIsTyping(true)}
+                  onBlur={() => setIsTyping(false)}
                   required
+                  className={inputClass}
                 />
-              </InputGroup>
-            </motion.div>
+              </div>
+            </div>
 
-            <motion.div variants={itemVariants}>
-              <label
-                htmlFor="password"
-                className="mb-1.5 block text-sm font-medium"
-              >
-                Password
+            <div className="space-y-2">
+              <label htmlFor="password" className="text-sm font-medium">
+                密码
               </label>
-              <InputGroup>
-                <InputGroupAddon align="inline-start">
-                  <LockIcon className="size-4 text-muted-foreground" />
-                </InputGroupAddon>
-                <InputGroupInput
+              <div className="relative">
+                <LockIcon className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <input
                   id="password"
                   type={showPassword ? "text" : "password"}
-                  placeholder="Create a password"
+                  autoComplete="new-password"
+                  placeholder="至少 6 位"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onFocus={() => setIsTyping(true)}
+                  onBlur={() => setIsTyping(false)}
                   required
+                  className="h-12 w-full rounded-xl border border-border/60 bg-background pl-10 pr-11 text-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-primary"
                 />
-                <InputGroupAddon align="inline-end">
-                  <InputGroupButton
-                    size="icon-xs"
-                    variant="ghost"
-                    onClick={() => setShowPassword(!showPassword)}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                  >
-                    {showPassword ? (
-                      <EyeOffIcon className="size-3.5 text-muted-foreground" />
-                    ) : (
-                      <EyeIcon className="size-3.5 text-muted-foreground" />
-                    )}
-                  </InputGroupButton>
-                </InputGroupAddon>
-              </InputGroup>
-            </motion.div>
-
-            <motion.div
-              className="flex items-start gap-2.5"
-              variants={itemVariants}
-            >
-              <Checkbox
-                id="terms"
-                checked={agreed}
-                onCheckedChange={(checked) => setAgreed(checked)}
-                className="mt-0.5"
-              />
-              <label htmlFor="terms" className="text-sm text-muted-foreground">
-                I agree to the{" "}
-                <Link
-                  href="#"
-                  className="font-medium text-foreground underline-offset-4 hover:underline"
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? "隐藏密码" : "显示密码"}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
                 >
-                  Terms of Service
-                </Link>{" "}
-                and{" "}
-                <Link
-                  href="#"
-                  className="font-medium text-foreground underline-offset-4 hover:underline"
-                >
-                  Privacy Policy
-                </Link>
-              </label>
-            </motion.div>
+                  {showPassword ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
+                </button>
+              </div>
+            </div>
 
-            <motion.div variants={itemVariants} className="pt-1">
-              <Button
-                type="submit"
-                size="lg"
-                className="w-full"
-                disabled={isLoading || isSuccess || !agreed}
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2Icon className="size-4 animate-spin" />
-                    <span>Creating account...</span>
-                  </>
+            {error && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                {error}
+              </div>
+            )}
+
+            <InteractiveHoverButton
+              type="submit"
+              text={isLoading ? "创建中…" : isSuccess ? "创建成功，正在跳转" : "创建账号"}
+              disabled={isLoading || isSuccess}
+              className="h-12 w-full text-base font-medium disabled:cursor-not-allowed disabled:opacity-70"
+              icon={
+                isLoading ? (
+                  <Loader2Icon className="size-4 animate-spin" />
                 ) : isSuccess ? (
-                  <>
-                    <CheckIcon className="size-4" />
-                    <span>Account created!</span>
-                  </>
-                ) : (
-                  <span>Create account</span>
-                )}
-              </Button>
-            </motion.div>
+                  <CheckIcon className="size-4" />
+                ) : undefined
+              }
+            />
           </form>
 
-          {/* Footer */}
-          <motion.p
-            className="mt-6 text-center text-sm text-muted-foreground"
-            variants={itemVariants}
-          >
-            Already have an account?{" "}
+          {/* 第三方注册入口（纯前端占位，尚未接入 OAuth） */}
+          <div className="relative my-7 flex items-center">
+            <div className="flex-1 border-t border-border" />
+            <span className="mx-3 text-xs text-muted-foreground">或使用以下方式注册</span>
+            <div className="flex-1 border-t border-border" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              className="flex h-11 items-center justify-center gap-2 rounded-full border border-border bg-background text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              <Image src="/logos/google-com.png" alt="" width={16} height={16} className="size-4" />
+              <span>Google</span>
+            </button>
+            <button
+              type="button"
+              className="flex h-11 items-center justify-center gap-2 rounded-full border border-border bg-background text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              <Image src="/logos/apple-com.png" alt="" width={16} height={16} className="size-4" />
+              <span>Apple</span>
+            </button>
+          </div>
+
+          <p className="mt-8 text-center text-sm text-muted-foreground">
+            已经有账号了？{" "}
             <Link
               href="/sign-in"
               className="font-medium text-foreground underline-offset-4 transition-colors hover:underline"
             >
-              Sign in
+              直接登入
             </Link>
-          </motion.p>
+          </p>
 
-          {/* Secured badge */}
-          <motion.div
-            className="mt-8 flex items-center justify-center gap-1.5 text-xs text-muted-foreground/60"
-            variants={itemVariants}
-          >
+          <div className="mt-8 flex items-center justify-center gap-1.5 text-xs text-muted-foreground/60">
             <ShieldCheckIcon className="size-3.5" />
-            <span>256-bit SSL encrypted</span>
-          </motion.div>
-        </motion.div>
+            <span>密码经后端加密存储，不会以明文落库</span>
+          </div>
+        </div>
       </div>
     </div>
   )
