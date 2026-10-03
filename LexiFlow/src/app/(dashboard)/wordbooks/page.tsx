@@ -19,9 +19,11 @@ import {
   Trash2Icon,
   ClockIcon,
   LayersIcon,
+  ChevronDownIcon,
 } from "lucide-react"
-import { wordbookApi, type Wordbook } from "@/lib/api-client"
+import { wordbookApi, planApi, type Wordbook } from "@/lib/api-client"
 import { WordbookStudyDrawer } from "@/components/wordbook/wordbook-study-drawer"
+import { PlanConfigDialog } from "@/components/plan/plan-config-dialog"
 
 function WordbooksPageContent() {
   const router = useRouter()
@@ -43,6 +45,7 @@ function WordbooksPageContent() {
   const [importingId, setImportingId] = useState<number | null>(null)
   const [importSuccessMsg, setImportSuccessMsg] = useState<string | null>(null)
   const [batchModalTarget, setBatchModalTarget] = useState<Wordbook | null>(null)
+  const [configDialogBookId, setConfigDialogBookId] = useState<number | null>(null)
 
   // 从 localStorage 恢复主词书设定与点击历史事件记录
   useEffect(() => {
@@ -78,7 +81,7 @@ function WordbooksPageContent() {
     } catch { }
     recordWordbookClick(bookId)
     const book = books.find((b) => b.id === bookId)
-    setImportSuccessMsg(`⭐ 已将「${book?.title || "所选词书"}」设为当前主研习词书，已置顶排在第 1 位！`)
+    setImportSuccessMsg(`已将「${book?.title || "所选词书"}」设为主词书`)
     setTimeout(() => setImportSuccessMsg(null), 3500)
   }
 
@@ -143,6 +146,18 @@ function WordbooksPageContent() {
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploadTitle, setUploadTitle] = useState<string>("")
   const [uploadCategory, setUploadCategory] = useState<string>("EXAM")
+  const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false)
+  const categoryDropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(e.target as Node)) {
+        setCategoryDropdownOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
   const [uploadTags, setUploadTags] = useState<string>("")
   const [uploadDesc, setUploadDesc] = useState<string>("")
   const [isUploading, setIsUploading] = useState<boolean>(false)
@@ -430,16 +445,14 @@ function WordbooksPageContent() {
                   </div>
 
                   <div className="flex items-center gap-1">
-                    {!isPrimary && (
-                      <button
-                        type="button"
-                        onClick={() => handleSetPrimary(book.id)}
-                        className="text-[11px] text-muted-foreground hover:text-primary transition-colors cursor-pointer px-1.5 py-0.5 rounded hover:bg-muted font-medium"
-                        title="设为当前主学习词书（将置顶至第 1 位）"
-                      >
-                        设为当前学习
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setConfigDialogBookId(book.id)}
+                      className="text-[11px] text-muted-foreground hover:text-primary transition-colors cursor-pointer px-1.5 py-0.5 rounded hover:bg-muted font-medium"
+                      title={isPrimary ? "调整当前主修计划" : "设为主修计划并配置配额"}
+                    >
+                      {isPrimary ? "调整计划" : "制定计划"}
+                    </button>
                     <button
                       type="button"
                       onClick={() => setDeleteTarget(book)}
@@ -662,16 +675,56 @@ function WordbooksPageContent() {
                   <label className="block text-xs font-semibold text-foreground mb-1">
                     所属分类
                   </label>
-                  <select
-                    value={uploadCategory}
-                    onChange={(e) => setUploadCategory(e.target.value)}
-                    className="w-full h-9 px-3 rounded-xl border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  >
-                    <option value="EXAM">考试大纲 (EXAM)</option>
-                    <option value="COLLOQUIAL">日常口语 (COLLOQUIAL)</option>
-                    <option value="PROFESSIONAL">行业专业 (PROFESSIONAL)</option>
-                    <option value="ACADEMIC">学术科研 (ACADEMIC)</option>
-                  </select>
+                  <div className="relative" ref={categoryDropdownRef}>
+                    <button
+                      type="button"
+                      onClick={() => setCategoryDropdownOpen(!categoryDropdownOpen)}
+                      className="w-full flex items-center justify-between h-9 px-3 rounded-xl border border-border bg-background text-xs text-foreground font-medium hover:border-zinc-400 transition-colors shadow-2xs select-none"
+                    >
+                      <span>
+                        {uploadCategory === "EXAM" ? "考试大纲 (EXAM)"
+                          : uploadCategory === "COLLOQUIAL" ? "日常口语 (COLLOQUIAL)"
+                          : uploadCategory === "PROFESSIONAL" ? "行业专业 (PROFESSIONAL)"
+                          : "学术科研 (ACADEMIC)"}
+                      </span>
+                      <ChevronDownIcon
+                        className={`size-3.5 text-muted-foreground transition-transform duration-200 ${
+                          categoryDropdownOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+
+                    {categoryDropdownOpen && (
+                      <div className="absolute left-0 top-full mt-1 z-50 w-full rounded-xl border border-border bg-popover p-1 shadow-lg backdrop-blur-md animate-in fade-in zoom-in-95">
+                        {[
+                          { key: "EXAM", label: "考试大纲 (EXAM)" },
+                          { key: "COLLOQUIAL", label: "日常口语 (COLLOQUIAL)" },
+                          { key: "PROFESSIONAL", label: "行业专业 (PROFESSIONAL)" },
+                          { key: "ACADEMIC", label: "学术科研 (ACADEMIC)" },
+                        ].map(({ key, label }) => {
+                          const isSelected = uploadCategory === key
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              onClick={() => {
+                                setUploadCategory(key)
+                                setCategoryDropdownOpen(false)
+                              }}
+                              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                                isSelected
+                                  ? "bg-muted text-foreground font-semibold"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50 font-medium"
+                              }`}
+                            >
+                              <span>{label}</span>
+                              {isSelected && <CheckIcon className="size-3 text-primary ml-1" />}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div>
@@ -715,7 +768,7 @@ function WordbooksPageContent() {
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow hover:bg-primary/90 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
                 >
                   <SparklesIcon className={`size-3.5 ${isUploading ? "animate-spin" : ""}`} />
-                  <span>{isUploading ? "智能解析匹配中..." : "开始解析并生成词库"}</span>
+                  <span>{isUploading ? "导入中..." : "导入"}</span>
                 </button>
               </div>
             </form>
@@ -866,6 +919,18 @@ function WordbooksPageContent() {
         bookId={activeBookId}
         isOpen={activeBookId !== null}
         onClose={handleCloseDrawer}
+      />
+
+      {/* 学习计划制定/微调弹窗 */}
+      <PlanConfigDialog
+        open={configDialogBookId !== null}
+        onOpenChange={(open) => !open && setConfigDialogBookId(null)}
+        initialWordbookId={configDialogBookId ?? undefined}
+        onSuccess={() => {
+          if (configDialogBookId) {
+            handleSetPrimary(configDialogBookId)
+          }
+        }}
       />
     </div>
   )
