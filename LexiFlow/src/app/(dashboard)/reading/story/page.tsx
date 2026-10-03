@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { contextStoryApi, type ContextStory } from "@/lib/api-client"
 import { ContextStoryGeneratorModal } from "@/components/reading/context-story-generator-modal"
+import { storyExamLabel } from "@/lib/story-training-profile"
 import { usePrimeBreadcrumbTitle } from "@/components/breadcrumb-title-context"
 
 export default function ContextStoryListPage() {
@@ -51,7 +52,7 @@ export default function ContextStoryListPage() {
               href="/reading"
               className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
             >
-              <ArrowLeftIcon className="size-3" /> 阅读库
+              <ArrowLeftIcon className="size-3" /> 外刊研读
             </Link>
             <span className="text-muted-foreground">/</span>
             <span className="text-xs font-medium text-foreground">语境短文</span>
@@ -113,7 +114,7 @@ export default function ContextStoryListPage() {
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-1.5">
                     <span className="rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold bg-primary/10 text-primary">
-                      {st.targetLevel}
+                      {st.targetLevel}{storyExamLabel(st.examFocus) ? ` · ${storyExamLabel(st.examFocus)}` : ""}
                     </span>
                     <span className="text-[11px] text-muted-foreground">
                       {st.topic}

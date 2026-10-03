@@ -17,9 +17,11 @@ import {
   type ContextStoryDetail,
   type ContextStoryWord,
   contextStoryApi,
+  statsApi,
 } from "@/lib/api-client"
 import { WordLookupPopover } from "@/components/reading/word-lookup-popover"
 import { cleanStoryTranslation } from "@/lib/story-translation"
+import { storyExamLabel } from "@/lib/story-training-profile"
 
 interface ContextStoryReaderProps {
   story: ContextStoryDetail
@@ -35,6 +37,11 @@ interface ParsedToken {
 
 export function ContextStoryReader({ story, onBack }: ContextStoryReaderProps) {
   const router = useRouter()
+  const targetWords = story.targetWords ?? []
+  const coveredWords = targetWords.filter((word) => word.actualOccurrences >= word.requiredOccurrences).length
+  const actualOccurrences = targetWords.reduce((total, word) => total + word.actualOccurrences, 0)
+  const requiredOccurrences = targetWords.reduce((total, word) => total + word.requiredOccurrences, 0)
+  const difficultyText = story.difficultyStatus === "MATCH" ? "难度检查符合" : story.difficultyStatus === "ABOVE" ? "句式或用词可能偏难" : story.difficultyStatus === "BELOW" ? "句式可能偏易" : null
 
   // 读者标记陌生的目标词集合
   const [tappedLemmas, setTappedLemmas] = useState<Set<string>>(new Set())
@@ -60,6 +67,13 @@ export function ContextStoryReader({ story, onBack }: ContextStoryReaderProps) {
 
   // 开始阅读计时
   const startTimeRef = useRef<number>(Date.now())
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void statsApi.recordDuration(1).catch(() => {})
+    }, 60000)
+    return () => clearInterval(timer)
+  }, [])
 
   // 解析包含 [[surface|lemma]] 的段落
   const parsedParagraphs = useMemo(() => {
@@ -257,7 +271,7 @@ export function ContextStoryReader({ story, onBack }: ContextStoryReaderProps) {
           </Button>
           <div className="h-4 w-px bg-border" />
           <span className="text-xs font-mono font-medium text-muted-foreground">
-            {story.targetLevel} · {story.wordCount} 词
+            {story.targetLevel}{storyExamLabel(story.examFocus) ? ` · ${storyExamLabel(story.examFocus)}` : ""} · {story.wordCount} 词
           </span>
         </div>
 
@@ -287,6 +301,12 @@ export function ContextStoryReader({ story, onBack }: ContextStoryReaderProps) {
           </Button>
         </div>
       </div>
+
+      {targetWords.length > 0 && <section className="rounded-2xl border border-border bg-card p-4 sm:p-5" aria-label="目标词复现情况">
+        <div className="flex flex-wrap items-start justify-between gap-2"><div><h2 className="text-sm font-semibold">词汇复现</h2><p className="mt-1 text-xs text-muted-foreground">目标词 {coveredWords}/{targetWords.length} 个达标 · 文中出现 {actualOccurrences} 次，最低要求 {requiredOccurrences} 次</p></div>{difficultyText && <span className="rounded-md bg-secondary px-2 py-1 text-[11px] text-muted-foreground">{story.targetLevel} 目标 · {difficultyText}</span>}</div>
+        {story.nonTargetRareRate != null && <p className="mt-2 text-[11px] text-muted-foreground">非目标低频词占比约 {story.nonTargetRareRate}%（按词典已覆盖词的词频估算，难度检查不等于 CEFR 认证）</p>}
+        <div className="mt-3 flex flex-wrap gap-1.5">{targetWords.map((word) => <span key={word.id} title={word.wordType === "NEW" ? "新词" : "复习词"} className={`rounded-md border px-2 py-1 text-[11px] ${word.actualOccurrences >= word.requiredOccurrences ? "border-border bg-secondary/50" : "border-destructive/40 text-destructive"}`}><span className="font-medium">{word.lemma}</span><span className="ml-1.5 font-mono text-muted-foreground">{word.actualOccurrences}/{word.requiredOccurrences}</span></span>)}</div>
+      </section>}
 
       {/* 沉浸式阅读正文 */}
       <article className="rounded-2xl border border-border bg-card p-6 sm:p-10 shadow-xs">

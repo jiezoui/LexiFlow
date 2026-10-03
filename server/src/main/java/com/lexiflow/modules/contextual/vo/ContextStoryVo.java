@@ -28,6 +28,12 @@ public class ContextStoryVo {
     @Schema(description = "目标水平等级", example = "CET-4")
     private String targetLevel;
 
+    private String examFocus;
+
+    private String difficultyStatus;
+
+    private BigDecimal nonTargetRareRate;
+
     @Schema(description = "总词数", example = "320")
     private Integer wordCount;
 

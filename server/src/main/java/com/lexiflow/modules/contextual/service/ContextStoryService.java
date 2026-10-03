@@ -7,6 +7,7 @@ import com.lexiflow.modules.contextual.vo.ContextStoryDetailVo;
 import com.lexiflow.modules.contextual.vo.ContextStoryVo;
 
 public interface ContextStoryService {
+    int getAvailableTargetCount(Long userId);
 
     /**
      * 生成语境文章 (带词汇硬约束、双层标记生成与自适应校验重写)

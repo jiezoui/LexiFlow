@@ -49,6 +49,14 @@ public class ContextStoryEntity {
      */
     private String targetLevel;
 
+    private String examFocus;
+
+    /** MATCH, BELOW or ABOVE; heuristic reading check, not a CEFR certification. */
+    private String difficultyStatus;
+
+    /** Frequency-list proxy, excluding target words; null when dictionary coverage is too low. */
+    private BigDecimal nonTargetRareRate;
+
     /**
      * 带 [[surface|lemma]] 标记的文章正文
      */

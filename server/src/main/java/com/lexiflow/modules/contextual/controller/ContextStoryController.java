@@ -16,6 +16,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @Tag(name = "08. 语境文章生成与研读接口 (Contextual Story)", description = "基于 FSRS 记忆状态与目标生词的自适应词汇约束阅读生成闭环")
 @RestController
 @RequestMapping("/api/contextual/stories")
@@ -23,6 +25,11 @@ import org.springframework.web.bind.annotation.*;
 public class ContextStoryController {
 
     private final ContextStoryService contextStoryService;
+
+    @GetMapping("/candidates")
+    public Result<Map<String, Integer>> getCandidates() {
+        return Result.success(Map.of("availableCount", contextStoryService.getAvailableTargetCount(UserContext.requireCurrentUserId())));
+    }
 
     @Operation(
             summary = "一键生成个性化语境文章",

@@ -64,4 +64,34 @@ class StoryNlpUtilTest {
         assertThat(tagged).contains("[[intelligence|intelligence]]");
         assertThat(tagged).doesNotContain("[[artificial|artificial]]");
     }
+
+    @Test
+    void shouldMarkEveryRepeatedOccurrenceEvenWhenOneWasAlreadyMarked() {
+        String tagged = StoryNlpUtil.autoFillMissingMarkers(
+                "The [[river|river]] changed. Later the river changed again.", Set.of("river"));
+
+        assertThat(StoryNlpUtil.countMarkedOccurrences(tagged)).containsEntry("river", 2);
+    }
+
+    @Test
+    void shouldNotCountAFalseLemmaMarkerAsVocabularyExposure() {
+        assertThat(StoryNlpUtil.countMarkedOccurrences("The [[table|river]] was large."))
+                .doesNotContainKey("river");
+    }
+
+    @Test
+    void shouldRecognizeSilentEInflectionsAsVocabularyExposure() {
+        String tagged = StoryNlpUtil.autoFillMissingMarkers(
+                "They recycled bottles while recycling paper.", Set.of("recycle"));
+
+        assertThat(StoryNlpUtil.countMarkedOccurrences(tagged)).containsEntry("recycle", 2);
+        assertThat(StoryNlpUtil.countMarkedOccurrences("They [[recycled|recycle]] bottles."))
+                .containsEntry("recycle", 1);
+    }
+
+    @Test
+    void shouldMeasureAverageSentenceLength() {
+        assertThat(StoryNlpUtil.averageSentenceWords("One short sentence. Another short sentence."))
+                .isEqualTo(3.0);
+    }
 }

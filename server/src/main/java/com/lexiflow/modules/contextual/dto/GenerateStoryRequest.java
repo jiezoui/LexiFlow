@@ -18,10 +18,13 @@ public class GenerateStoryRequest {
     @Schema(description = "文章题材/主题偏好 (如 Environment, Technology, Campus, Culture, Society)，留空则自适应聚类", example = "Environment")
     private String topic;
 
-    @Schema(description = "目标语言难度分级 (CET-4, CET-6, IELTS, TOEFL, GRE)", example = "CET-4")
+    @Schema(description = "目标阅读难度 (A2, B1, B2, C1)", example = "B1")
     private String targetLevel;
 
-    @Schema(description = "期望纳入的目标生词数 (建议 5~8 词)", example = "6")
+    @Schema(description = "独立的考试场景 (GENERAL, CET4, CET6, POSTGRAD, IELTS, TOEFL)", example = "GENERAL")
+    private String examFocus;
+
+    @Schema(description = "期望纳入的目标词数 (1~16，自动选词推荐 8/12/16)", example = "12")
     private Integer targetCount;
 
     @Schema(description = "自定义指定包含的单词词元列表 (可选，若不指定则自动从 FSRS 到期词库中按语义聚类提取)")

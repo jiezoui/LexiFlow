@@ -1,11 +1,13 @@
 package com.lexiflow.modules.contextual.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lexiflow.common.exception.BusinessException;
 import com.lexiflow.modules.ai.service.AiGatewayService;
+import com.lexiflow.modules.ai.service.AiUsagePolicy;
 import com.lexiflow.modules.contextual.dto.GenerateStoryRequest;
 import com.lexiflow.modules.contextual.dto.StoryFeedbackRequest;
 import com.lexiflow.modules.contextual.entity.ContextStoryEntity;
@@ -13,6 +15,7 @@ import com.lexiflow.modules.contextual.entity.ContextStoryWordEntity;
 import com.lexiflow.modules.contextual.mapper.ContextStoryMapper;
 import com.lexiflow.modules.contextual.mapper.ContextStoryWordMapper;
 import com.lexiflow.modules.contextual.service.ContextStoryService;
+import com.lexiflow.modules.contextual.service.StoryGenerationPolicy;
 import com.lexiflow.modules.contextual.util.StoryNlpUtil;
 import com.lexiflow.modules.contextual.vo.ContextStoryDetailVo;
 import com.lexiflow.modules.contextual.vo.ContextStoryVo;
@@ -31,10 +34,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -48,27 +51,19 @@ public class ContextStoryServiceImpl implements ContextStoryService {
     private final UserWordMapper userWordMapper;
     private final DictEntryMapper dictEntryMapper;
     private final AiGatewayService aiGatewayService;
+    private final AiUsagePolicy usagePolicy;
     private final FsrsEngine fsrsEngine;
     private final ObjectMapper objectMapper;
-
-    // 系统兜底高频优质词簇 (在用户为全新账号或复习库暂时为空时保证 100% 极速可用)
-    private static final List<String> FALLBACK_LEMMAS = List.of(
-            "climate", "pollution", "environment", "maintain", "resource", "adapt", "sustain", "innovate"
-    );
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ContextStoryDetailVo generateStory(GenerateStoryRequest req, Long userId) {
-        String targetLevel = StringUtils.hasText(req.getTargetLevel()) ? req.getTargetLevel().trim() : "CET-4";
+        usagePolicy.requireEnabled(userId, AiUsagePolicy.Scope.STORY);
+        StoryGenerationPolicy.Profile profile = StoryGenerationPolicy.from(req);
         String topic = StringUtils.hasText(req.getTopic()) ? req.getTopic().trim() : "Environment & Technology";
-        int targetCount = req.getTargetCount() != null && req.getTargetCount() >= 3 && req.getTargetCount() <= 10
-                ? req.getTargetCount() : 6;
 
         // 1. 筛选目标生词集合 (新学词 + 复习词)
-        List<SelectedWordMeta> targetWords = selectTargetWords(req.getCustomLemmas(), userId, targetCount);
-        if (targetWords.isEmpty()) {
-            throw new BusinessException("未找到可用的候选词汇，无法生成语境文章");
-        }
+        List<SelectedWordMeta> targetWords = selectTargetWords(req.getCustomLemmas(), userId, profile);
 
         List<String> newWordLemmas = targetWords.stream()
                 .filter(w -> "NEW".equals(w.wordType))
@@ -81,7 +76,7 @@ public class ContextStoryServiceImpl implements ContextStoryService {
 
         // 2. 构造词汇约束结构化 Prompt
         String systemPrompt = buildSystemPrompt();
-        String userPrompt = buildGenerationPrompt(targetLevel, topic, newWordLemmas, reviewWordLemmas);
+        String userPrompt = buildGenerationPrompt(profile, topic, newWordLemmas, reviewWordLemmas);
 
         log.info("触发语境文章初次生成: user=[{}], topic=[{}], targetCount=[{}]", userId, topic, targetWords.size());
 
@@ -92,49 +87,38 @@ public class ContextStoryServiceImpl implements ContextStoryService {
                 req.getProvider(),
                 req.getModel(),
                 req.getApiKey(),
-                req.getApiHost()
+                req.getApiHost(),
+                5000
         );
 
         ParsedStory parsed = parseLlmStoryResponse(rawLlmResponse, topic);
         int rewriteCount = 0;
 
-        // 4. 双重自动化校验 (Verifier & Lemmatizer)
-        Map<String, Integer> occurrences = StoryNlpUtil.countMarkedOccurrences(parsed.contentMarked);
-        List<String> missingLemmas = checkMissingConstraints(targetWords, occurrences);
-
-        // 5. 定向自适应重写 (Adaptive Rewrite, 最多 1 次)
-        if (!missingLemmas.isEmpty()) {
-            log.warn("文章初稿未完全满足目标词约束，缺失/频次不足: {}, 发起自适应重写修正", missingLemmas);
-            String rewritePrompt = buildRewritePrompt(parsed.contentMarked, missingLemmas, targetWords);
-            try {
-                String rewriteResponse = aiGatewayService.generateText(
-                        systemPrompt,
-                        rewritePrompt,
-                        req.getProvider(),
-                        req.getModel(),
-                        req.getApiKey(),
-                        req.getApiHost()
-                );
-                ParsedStory rewritten = parseLlmStoryResponse(rewriteResponse, topic);
-                if (StringUtils.hasText(rewritten.contentMarked)) {
-                    parsed = rewritten;
-                    rewriteCount = 1;
-                    occurrences = StoryNlpUtil.countMarkedOccurrences(parsed.contentMarked);
-                }
-            } catch (Exception e) {
-                log.warn("自适应重写失败，降级使用初稿并执行规则兜底补齐: {}", e.getMessage());
-            }
-        }
-
-        // 6. 标记补齐与纯净正文清洗
         List<String> allLemmas = targetWords.stream().map(w -> w.lemma).toList();
         String finalMarkedContent = StoryNlpUtil.autoFillMissingMarkers(parsed.contentMarked, allLemmas);
+        BigDecimal rareRate = measureNonTargetRareRate(StoryNlpUtil.stripMarkers(finalMarkedContent), allLemmas, profile);
+        List<String> violations = checkGenerationConstraints(parsed, finalMarkedContent, targetWords, profile, rareRate, true);
+
+        // One focused rewrite is allowed. A failed rewrite never becomes a READY article.
+        if (!violations.isEmpty()) {
+            log.warn("文章初稿未达标: {}, 发起定向重写", violations);
+            String rewritePrompt = buildRewritePrompt(parsed.contentMarked, violations, targetWords, profile);
+            String rewriteResponse = aiGatewayService.generateText(systemPrompt, rewritePrompt,
+                    req.getProvider(), req.getModel(), req.getApiKey(), req.getApiHost(), 5000);
+            parsed = parseLlmStoryResponse(rewriteResponse, topic);
+            rewriteCount = 1;
+            finalMarkedContent = StoryNlpUtil.autoFillMissingMarkers(parsed.contentMarked, allLemmas);
+            rareRate = measureNonTargetRareRate(StoryNlpUtil.stripMarkers(finalMarkedContent), allLemmas, profile);
+            violations = checkGenerationConstraints(parsed, finalMarkedContent, targetWords, profile, rareRate, false);
+        }
+        if (!violations.isEmpty()) {
+            throw new BusinessException("文章未达到目标词复现或篇幅要求，请重试生成：" + String.join("；", violations));
+        }
+
         String finalCleanContent = StoryNlpUtil.stripMarkers(finalMarkedContent);
         int finalWordCount = StoryNlpUtil.countWords(finalCleanContent);
-        occurrences = StoryNlpUtil.countMarkedOccurrences(finalMarkedContent);
-
-        // 估算超纲词率 (OOV)
-        BigDecimal oovRate = estimateOovRate(finalWordCount, targetWords.size());
+        Map<String, Integer> occurrences = StoryNlpUtil.countMarkedOccurrences(finalMarkedContent);
+        String difficultyStatus = StoryGenerationPolicy.assessDifficulty(finalCleanContent, profile, rareRate);
 
         // 7. 持久化至数据库
         String publicId = "cs_" + PublicIdGenerator.next();
@@ -143,13 +127,16 @@ public class ContextStoryServiceImpl implements ContextStoryService {
                 .userId(userId)
                 .title(StringUtils.hasText(parsed.title) ? parsed.title : "Contextual Reading: " + topic)
                 .topic(topic)
-                .targetLevel(targetLevel)
+                .targetLevel(profile.level())
+                .examFocus(profile.examFocus())
+                .difficultyStatus(difficultyStatus)
+                .nonTargetRareRate(rareRate)
                 .contentMarked(finalMarkedContent)
                 .contentClean(finalCleanContent)
                 .translationCn(StoryNlpUtil.cleanTranslation(parsed.translationCn))
                 .wordCount(finalWordCount)
                 .targetWordsCount(targetWords.size())
-                .oovRate(oovRate)
+                .oovRate(null)
                 .generationModel(StringUtils.hasText(req.getModel()) ? req.getModel() : "default-llm")
                 .rewriteCount(rewriteCount)
                 .status("READY")
@@ -195,6 +182,9 @@ public class ContextStoryServiceImpl implements ContextStoryService {
                 .title(storyEntity.getTitle())
                 .topic(storyEntity.getTopic())
                 .targetLevel(storyEntity.getTargetLevel())
+                .examFocus(storyEntity.getExamFocus())
+                .difficultyStatus(storyEntity.getDifficultyStatus())
+                .nonTargetRareRate(storyEntity.getNonTargetRareRate())
                 .contentMarked(storyEntity.getContentMarked())
                 .contentClean(storyEntity.getContentClean())
                 .translationCn(storyEntity.getTranslationCn())
@@ -262,6 +252,9 @@ public class ContextStoryServiceImpl implements ContextStoryService {
                 .title(story.getTitle())
                 .topic(story.getTopic())
                 .targetLevel(story.getTargetLevel())
+                .examFocus(story.getExamFocus())
+                .difficultyStatus(story.getDifficultyStatus())
+                .nonTargetRareRate(story.getNonTargetRareRate())
                 .contentMarked(story.getContentMarked())
                 .contentClean(story.getContentClean())
                 .translationCn(StoryNlpUtil.cleanTranslation(story.getTranslationCn()))
@@ -347,70 +340,72 @@ public class ContextStoryServiceImpl implements ContextStoryService {
 
     private record SelectedWordMeta(Long wordId, String lemma, String wordType, int requiredCount, String phoneticUs, String definitionCn) {}
 
-    private List<SelectedWordMeta> selectTargetWords(List<String> customLemmas, Long userId, int targetCount) {
-        List<SelectedWordMeta> list = new ArrayList<>();
-
-        if (customLemmas != null && !customLemmas.isEmpty()) {
-            for (String lemma : customLemmas) {
-                if (StringUtils.hasText(lemma)) {
-                    DictEntryEntity dict = dictEntryMapper.selectOne(new LambdaQueryWrapper<DictEntryEntity>().eq(DictEntryEntity::getLemma, lemma.trim().toLowerCase()));
-                    list.add(new SelectedWordMeta(
-                            dict != null ? dict.getId() : null,
-                            lemma.trim().toLowerCase(),
-                            "REVIEW",
-                            1,
-                            dict != null ? dict.getPhoneticUs() : "",
-                            dict != null ? dict.getDefinitionCn() : ""
-                    ));
-                }
-            }
-            return list;
-        }
-
-        // 1. 优先提取今日到期复习词
-        List<UserWordEntity> dueWords = userWordMapper.selectList(new LambdaQueryWrapper<UserWordEntity>()
+    private Map<String, UserWordEntity> availableWords(Long userId) {
+        List<UserWordEntity> cards = userWordMapper.selectList(new LambdaQueryWrapper<UserWordEntity>()
                 .eq(UserWordEntity::getUserId, userId)
-                .eq(UserWordEntity::getIsKnown, 0)
-                .le(UserWordEntity::getDueAt, LocalDateTime.now())
-                .orderByAsc(UserWordEntity::getStability)
-                .last("LIMIT 15"));
-
-        // 2. 提取初学新词
-        List<UserWordEntity> newWords = userWordMapper.selectList(new LambdaQueryWrapper<UserWordEntity>()
-                .eq(UserWordEntity::getUserId, userId)
-                .eq(UserWordEntity::getIsKnown, 0)
-                .eq(UserWordEntity::getState, 0)
-                .orderByDesc(UserWordEntity::getId)
-                .last("LIMIT 10"));
-
-        int needNew = Math.min(newWords.size(), Math.max(2, targetCount / 2));
-        int needReview = targetCount - needNew;
-
-        for (int i = 0; i < needNew && i < newWords.size(); i++) {
-            UserWordEntity uw = newWords.get(i);
-            DictEntryEntity dict = dictEntryMapper.selectById(uw.getWordId());
-            list.add(new SelectedWordMeta(uw.getWordId(), uw.getLemma(), "NEW", 2, dict != null ? dict.getPhoneticUs() : "", dict != null ? dict.getDefinitionCn() : ""));
-        }
-
-        for (int i = 0; i < needReview && i < dueWords.size(); i++) {
-            UserWordEntity uw = dueWords.get(i);
-            DictEntryEntity dict = dictEntryMapper.selectById(uw.getWordId());
-            list.add(new SelectedWordMeta(uw.getWordId(), uw.getLemma(), "REVIEW", 1, dict != null ? dict.getPhoneticUs() : "", dict != null ? dict.getDefinitionCn() : ""));
-        }
-
-        // 3. 兜底补齐 (保证系统始终能生成连贯内容)
-        if (list.size() < 4) {
-            for (String lemma : FALLBACK_LEMMAS) {
-                if (list.size() >= targetCount) break;
-                boolean exists = list.stream().anyMatch(w -> w.lemma.equalsIgnoreCase(lemma));
-                if (!exists) {
-                    DictEntryEntity dict = dictEntryMapper.selectOne(new LambdaQueryWrapper<DictEntryEntity>().eq(DictEntryEntity::getLemma, lemma));
-                    list.add(new SelectedWordMeta(dict != null ? dict.getId() : null, lemma, "REVIEW", 1, dict != null ? dict.getPhoneticUs() : "", dict != null ? dict.getDefinitionCn() : ""));
-                }
+                .eq(UserWordEntity::getIsKnown, 0));
+        Map<String, UserWordEntity> unique = new LinkedHashMap<>();
+        for (UserWordEntity card : cards) {
+            if (StringUtils.hasText(card.getLemma())) {
+                String lemma = card.getLemma().trim().toLowerCase();
+                if (lemma.matches("[a-z]+(?:'[a-z]+)?")) unique.putIfAbsent(lemma, card);
             }
         }
+        return unique;
+    }
 
-        return list;
+    @Override
+    public int getAvailableTargetCount(Long userId) {
+        return availableWords(userId).size();
+    }
+
+    private SelectedWordMeta asTarget(String lemma, UserWordEntity card, StoryGenerationPolicy.Profile profile) {
+        boolean isNew = card == null || Objects.equals(card.getState(), 0);
+        Long wordId = card != null ? card.getWordId() : null;
+        DictEntryEntity dict = wordId != null ? dictEntryMapper.selectById(wordId)
+                : dictEntryMapper.selectOne(new LambdaQueryWrapper<DictEntryEntity>().eq(DictEntryEntity::getLemma, lemma));
+        if (wordId == null && dict != null) wordId = dict.getId();
+        return new SelectedWordMeta(wordId, lemma, isNew ? "NEW" : "REVIEW",
+                isNew ? profile.newOccurrences() : profile.reviewOccurrences(),
+                dict != null ? dict.getPhoneticUs() : "", dict != null ? dict.getDefinitionCn() : "");
+    }
+
+    private List<SelectedWordMeta> selectTargetWords(List<String> customLemmas, Long userId,
+                                                      StoryGenerationPolicy.Profile profile) {
+        Map<String, UserWordEntity> candidates = availableWords(userId);
+        List<String> selected = new ArrayList<>();
+        if (customLemmas != null) {
+            for (String raw : customLemmas) {
+                String lemma = raw == null ? "" : raw.trim().toLowerCase();
+                if (!lemma.matches("[a-z]+(?:'[a-z]+)?")) throw new BusinessException("手动词汇须填写英文单词原形");
+                if (!selected.contains(lemma)) selected.add(lemma);
+            }
+            if (selected.size() != profile.targetCount()) {
+                throw new BusinessException("手动指定了 " + selected.size() + " 个不同单词，请与目标词数 " + profile.targetCount() + " 保持一致");
+            }
+        } else {
+            if (candidates.size() < profile.targetCount()) {
+                throw new BusinessException("复习词库当前可用 " + candidates.size() + "/" + profile.targetCount() + " 词，请降低词汇强度或手动补充");
+            }
+            List<UserWordEntity> cards = new ArrayList<>(candidates.values());
+            cards.sort(Comparator.comparing(UserWordEntity::getStability, Comparator.nullsFirst(Double::compareTo)));
+            int desiredNew = Math.max(1, profile.targetCount() / 3);
+            for (UserWordEntity card : cards) {
+                if (selected.size() >= desiredNew) break;
+                if (Objects.equals(card.getState(), 0)) selected.add(card.getLemma().trim().toLowerCase());
+            }
+            for (UserWordEntity card : cards) {
+                if (selected.size() >= profile.targetCount()) break;
+                String lemma = card.getLemma().trim().toLowerCase();
+                if (!selected.contains(lemma) && card.getDueAt() != null && !card.getDueAt().isAfter(LocalDateTime.now())) selected.add(lemma);
+            }
+            for (UserWordEntity card : cards) {
+                if (selected.size() >= profile.targetCount()) break;
+                String lemma = card.getLemma().trim().toLowerCase();
+                if (!selected.contains(lemma)) selected.add(lemma);
+            }
+        }
+        return selected.stream().map(lemma -> asTarget(lemma, candidates.get(lemma), profile)).toList();
     }
 
     private String buildSystemPrompt() {
@@ -429,22 +424,26 @@ public class ContextStoryServiceImpl implements ContextStoryService {
                 """;
     }
 
-    private String buildGenerationPrompt(String targetLevel, String topic, List<String> newWords, List<String> reviewWords) {
+    private String buildGenerationPrompt(StoryGenerationPolicy.Profile profile, String topic,
+                                         List<String> newWords, List<String> reviewWords) {
         return String.format("""
-                Target Difficulty: %s
+                Target CEFR reading difficulty: %s. %s
+                Exam/topic context (not a CEFR equivalence): %s
                 Theme/Topic: %s
                 
-                NEW VOCABULARY (Each MUST appear naturally in the story AT LEAST TWICE):
+                NEW VOCABULARY (Each MUST appear naturally at least %d times, in separate parts of the article):
                 %s
                 
-                REVIEW VOCABULARY (Each MUST appear naturally in the story AT LEAST ONCE):
+                REVIEW VOCABULARY (Each MUST appear naturally at least %d times):
                 %s
                 
                 REQUIREMENTS:
-                1. Length: 250 - 350 words.
+                1. Length: %d - %d English words. Develop a coherent article with several paragraphs.
                 2. Wrap every single occurrence of the target vocabulary with [[surface|lemma]].
-                3. Provide an accurate and fluent paragraph-by-paragraph Chinese translation of contentMarked. Translate the visible English words, not the marker metadata; never copy [[...]] tags into translationCn.
-                4. Output STRICT JSON format as follows:
+                3. Distribute repetitions across the article; avoid repeating the same word in adjacent sentences just to meet a count.
+                4. Use the specified reading level in sentence structure, cohesion, and supporting vocabulary.
+                5. Provide an accurate and fluent paragraph-by-paragraph Chinese translation of contentMarked. Translate visible English words, not marker metadata; never copy [[...]] tags into translationCn.
+                6. Output STRICT JSON format as follows:
                 {
                   "title": "Creative Story Title",
                   "topic": "%s",
@@ -452,27 +451,33 @@ public class ContextStoryServiceImpl implements ContextStoryService {
                   "translationCn": "完整中文对照翻译..."
                 }
                 """,
-                targetLevel,
+                profile.level(),
+                profile.guidance(),
+                profile.examFocus(),
                 topic,
+                profile.newOccurrences(),
                 String.join(", ", newWords),
+                profile.reviewOccurrences(),
                 String.join(", ", reviewWords),
+                profile.minWords(),
+                profile.maxWords(),
                 topic
         );
     }
 
-    private String buildRewritePrompt(String previousMarkedStory, List<String> missingLemmas, List<SelectedWordMeta> allTargets) {
+    private String buildRewritePrompt(String previousMarkedStory, List<String> violations,
+                                      List<SelectedWordMeta> allTargets, StoryGenerationPolicy.Profile profile) {
         return String.format("""
-                The previous story did not completely fulfill the target vocabulary constraints.
-                The following words were missing or under-utilized:
+                The previous article did not meet the following checks:
                 %s
                 
-                Please REWRITE and improve the following story.
+                Please rewrite the complete article at CEFR %s, within %d-%d English words.
                 RULES:
                 1. Preserve the original narrative storyline and characters.
-                2. Naturally integrate the missing vocabulary wrapped with [[surface|lemma]].
-                3. Ensure all target vocabulary (%s) are present.
+                2. Naturally integrate every target word with [[surface|lemma]] markers.
+                3. Meet each minimum frequency exactly or exceed it: %s.
                 4. Regenerate translationCn from the rewritten English story. Use natural Chinese with the same paragraph breaks, and no [[...]] markers or English lemma hints.
-                4. Return STRICT JSON:
+                5. Return STRICT JSON:
                 {
                   "title": "Story Title",
                   "topic": "Topic",
@@ -483,8 +488,11 @@ public class ContextStoryServiceImpl implements ContextStoryService {
                 PREVIOUS STORY:
                 %s
                 """,
-                String.join(", ", missingLemmas),
-                allTargets.stream().map(w -> w.lemma).collect(Collectors.joining(", ")),
+                String.join("; ", violations),
+                profile.level(),
+                profile.minWords(),
+                profile.maxWords(),
+                allTargets.stream().map(w -> w.lemma + " >= " + w.requiredCount).collect(Collectors.joining(", ")),
                 previousMarkedStory
         );
     }
@@ -498,6 +506,52 @@ public class ContextStoryServiceImpl implements ContextStoryService {
             }
         }
         return missing;
+    }
+
+    private BigDecimal measureNonTargetRareRate(String cleanText, List<String> targetLemmas,
+                                                StoryGenerationPolicy.Profile profile) {
+        Set<String> targets = new HashSet<>(targetLemmas);
+        List<String> tokens = StoryNlpUtil.wordLemmas(cleanText).stream()
+                .filter(lemma -> lemma.length() > 2 && !targets.contains(lemma))
+                .toList();
+        if (tokens.isEmpty()) return null;
+        List<DictEntryEntity> entries = dictEntryMapper.selectList(new QueryWrapper<DictEntryEntity>()
+                .select("lemma", "frequency_rank")
+                .in("lemma", new HashSet<>(tokens)));
+        if (entries == null) return null;
+        Map<String, Integer> ranks = new HashMap<>();
+        for (DictEntryEntity entry : entries) {
+            if (StringUtils.hasText(entry.getLemma()) && entry.getFrequencyRank() != null
+                    && entry.getFrequencyRank() > 0 && entry.getFrequencyRank() < 99999) {
+                ranks.put(entry.getLemma().toLowerCase(), entry.getFrequencyRank());
+            }
+        }
+        long covered = tokens.stream().filter(ranks::containsKey).count();
+        if (covered == 0 || covered < tokens.size() * 0.7) return null;
+        long rare = tokens.stream().filter(token -> ranks.getOrDefault(token, 0) > StoryGenerationPolicy.rareFrequencyRank(profile)).count();
+        return BigDecimal.valueOf(rare * 100.0 / covered).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private List<String> checkGenerationConstraints(ParsedStory story, String marked,
+                                                    List<SelectedWordMeta> targets,
+                                                    StoryGenerationPolicy.Profile profile,
+                                                    BigDecimal rareRate,
+                                                    boolean includeDifficulty) {
+        List<String> issues = new ArrayList<>();
+        String clean = StoryNlpUtil.stripMarkers(marked);
+        int words = StoryNlpUtil.countWords(clean);
+        if (words < profile.minAcceptedWords() || words > profile.maxAcceptedWords()) {
+            issues.add("篇幅 " + words + " 词，要求 " + profile.minWords() + "–" + profile.maxWords() + " 词");
+        }
+        issues.addAll(checkMissingConstraints(targets, StoryNlpUtil.countMarkedOccurrences(marked)));
+        if (!StringUtils.hasText(story.translationCn) || story.translationCn.codePoints().noneMatch(c -> Character.UnicodeScript.of(c) == Character.UnicodeScript.HAN)) {
+            issues.add("缺少完整中文译文");
+        }
+        if (includeDifficulty && words > 0) {
+            String status = StoryGenerationPolicy.assessDifficulty(clean, profile, rareRate);
+            if (!"MATCH".equals(status)) issues.add("句长或非目标低频词比例与 " + profile.level() + " 目标难度不匹配（" + status + "）");
+        }
+        return issues;
     }
 
     private record ParsedStory(String title, String topic, String contentMarked, String translationCn) {}
@@ -527,16 +581,8 @@ public class ContextStoryServiceImpl implements ContextStoryService {
             return new ParsedStory(title, topic, contentMarked, translationCn);
         } catch (Exception e) {
             log.warn("解析大模型文章 JSON 失败，执行正则文本提取: {}", e.getMessage());
-            // 简单保底：若直接输出纯文本，则将纯文本作为 contentMarked
-            return new ParsedStory("Contextual Reading", defaultTopic, rawJson, "语境阅读中文翻译生成中...");
+            return new ParsedStory("Contextual Reading", defaultTopic, rawJson, "");
         }
-    }
-
-    private BigDecimal estimateOovRate(int wordCount, int targetCount) {
-        if (wordCount <= 0) return BigDecimal.ZERO;
-        // 估算：非基础高频且非目标词的占比，一般自然控制在 3% ~ 6%
-        double rate = Math.min(8.5, Math.max(2.8, (targetCount * 100.0) / wordCount * 0.7));
-        return BigDecimal.valueOf(rate).setScale(2, RoundingMode.HALF_UP);
     }
 
     private ContextStoryVo toVo(ContextStoryEntity entity) {
@@ -545,6 +591,9 @@ public class ContextStoryServiceImpl implements ContextStoryService {
                 .title(entity.getTitle())
                 .topic(entity.getTopic())
                 .targetLevel(entity.getTargetLevel())
+                .examFocus(entity.getExamFocus())
+                .difficultyStatus(entity.getDifficultyStatus())
+                .nonTargetRareRate(entity.getNonTargetRareRate())
                 .wordCount(entity.getWordCount())
                 .targetWordsCount(entity.getTargetWordsCount())
                 .oovRate(entity.getOovRate())

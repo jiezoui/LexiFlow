@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   SparklesIcon,
@@ -10,7 +10,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { contextStoryApi, type ContextStoryDetail, type GenerateStoryRequest } from "@/lib/api-client"
-import { getActiveAiConfig } from "@/lib/ai-config"
+import { getActiveAiConfig, getAiSettings } from "@/lib/ai-config"
 
 interface ContextStoryGeneratorModalProps {
   open: boolean
@@ -27,7 +27,25 @@ const TOPIC_PRESETS = [
   { label: "科幻叙事", value: "Futuristic Sci-Fi Narrative" },
 ]
 
-const LEVEL_PRESETS = ["CET-4", "CET-6", "IELTS", "TOEFL", "考研"]
+const LEVEL_PRESETS = [
+  { value: "A2", hint: "熟悉场景 · 短句" },
+  { value: "B1", hint: "清晰叙事 · 适度复句" },
+  { value: "B2", hint: "抽象主题 · 复杂论述" },
+  { value: "C1", hint: "精细观点 · 多层句式" },
+]
+const EXAM_PRESETS = [
+  { value: "GENERAL", label: "通用" },
+  { value: "CET4", label: "四级" },
+  { value: "CET6", label: "六级" },
+  { value: "POSTGRAD", label: "考研" },
+  { value: "IELTS", label: "雅思" },
+  { value: "TOEFL", label: "托福" },
+]
+const VOCAB_PRESETS = [
+  { count: 8, label: "轻读", length: "350–450" },
+  { count: 12, label: "标准", length: "500–650" },
+  { count: 16, label: "强化", length: "700–850" },
+]
 
 export function ContextStoryGeneratorModal({
   open,
@@ -36,8 +54,10 @@ export function ContextStoryGeneratorModal({
 }: ContextStoryGeneratorModalProps) {
   const router = useRouter()
   const [topic, setTopic] = useState<string>("Environment & Ecology")
-  const [targetLevel, setTargetLevel] = useState<string>("CET-4")
-  const [targetCount, setTargetCount] = useState<number>(6)
+  const [targetLevel, setTargetLevel] = useState<string>("B1")
+  const [examFocus, setExamFocus] = useState<string>("GENERAL")
+  const [autoTargetCount, setAutoTargetCount] = useState<number>(12)
+  const [availableCount, setAvailableCount] = useState<number | null>(null)
   const [customWordInput, setCustomWordInput] = useState<string>("")
   const [customWords, setCustomWords] = useState<string[]>([])
   const [isAutoFromFsrs, setIsAutoFromFsrs] = useState<boolean>(true)
@@ -45,13 +65,32 @@ export function ContextStoryGeneratorModal({
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [stepText, setStepText] = useState<string>("")
 
+  useEffect(() => {
+    if (!open) return
+    let active = true
+    contextStoryApi.candidates().then((result) => {
+      if (active) setAvailableCount(result.availableCount)
+    }).catch(() => {
+      if (active) setAvailableCount(null)
+    })
+    return () => { active = false }
+  }, [open])
+
   if (!open) return null
+
+  const targetCount = isAutoFromFsrs ? autoTargetCount : customWords.length
+  const range = targetCount <= 3 ? "250–350" : targetCount <= 8 ? "350–450" : targetCount <= 12 ? "500–650" : "700–850"
+  const newRepeat = targetCount > 12 ? 3 : 2
+  const reviewRepeat = targetCount <= 8 ? 1 : 2
 
   const handleAddCustomWord = () => {
     const w = customWordInput.trim().toLowerCase()
-    if (w && !customWords.includes(w)) {
+    if (/^[a-z]+(?:'[a-z]+)?$/.test(w) && !customWords.includes(w) && customWords.length < 16) {
       setCustomWords([...customWords, w])
       setCustomWordInput("")
+      setErrorMsg(null)
+    } else if (w) {
+      setErrorMsg("请输入未重复的英文单词原形，最多 16 个")
     }
   }
 
@@ -60,9 +99,22 @@ export function ContextStoryGeneratorModal({
   }
 
   const handleGenerate = async () => {
+    if (!isAutoFromFsrs && customWords.length === 0) {
+      setErrorMsg("请先添加至少一个目标词")
+      return
+    }
+    if (isAutoFromFsrs && availableCount !== null && availableCount < targetCount) {
+      setErrorMsg(`复习词库目前可用 ${availableCount}/${targetCount} 词，请降低词汇强度或手动指定`)
+      return
+    }
+    if (!getAiSettings().enableStoryAi) {
+      setErrorMsg("请先在设置中开启语境文章")
+      return
+    }
     setGenerating(true)
     setErrorMsg(null)
     setStepText("正在提取候选词汇...")
+    const statusTimers: ReturnType<typeof setTimeout>[] = []
 
     try {
       const activeConfig = getActiveAiConfig()
@@ -70,6 +122,7 @@ export function ContextStoryGeneratorModal({
       const payload: GenerateStoryRequest = {
         topic,
         targetLevel,
+        examFocus,
         targetCount,
         customLemmas: isAutoFromFsrs ? undefined : customWords,
         provider: activeConfig?.provider || undefined,
@@ -78,18 +131,19 @@ export function ContextStoryGeneratorModal({
         apiHost: activeConfig?.apiHost || undefined,
       }
 
-      const timer1 = setTimeout(() => {
+      statusTimers.push(setTimeout(() => {
         setStepText("正在生成语境短文...")
-      }, 1500)
+      }, 1500))
 
-      const timer2 = setTimeout(() => {
-        setStepText("正在校验目标词使用与难度...")
-      }, 4500)
+      statusTimers.push(setTimeout(() => {
+        setStepText("正在生成正文与译文，并校验目标词...")
+      }, 4500))
+
+      statusTimers.push(setTimeout(() => {
+        setStepText("长文生成与必要的重写可能需要 1–3 分钟，请稍候...")
+      }, 15_000))
 
       const story = await contextStoryApi.generate(payload)
-
-      clearTimeout(timer1)
-      clearTimeout(timer2)
 
       if (onSuccess) {
         onSuccess(story)
@@ -101,6 +155,7 @@ export function ContextStoryGeneratorModal({
       const msg = err instanceof Error ? err.message : "生成失败，请检查网络或 AI 密钥配置"
       setErrorMsg(msg)
     } finally {
+      statusTimers.forEach(clearTimeout)
       setGenerating(false)
       setStepText("")
     }
@@ -108,7 +163,7 @@ export function ContextStoryGeneratorModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="relative w-full max-w-lg rounded-2xl border border-border bg-card p-5 sm:p-6 shadow-xl transition-all">
+      <div className="relative max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-xl transition-all sm:p-6">
         {/* 简洁 Header */}
         <div className="flex items-center justify-between border-b border-border pb-3.5">
           <div>
@@ -157,6 +212,7 @@ export function ContextStoryGeneratorModal({
                 手动指定单词
               </button>
             </div>
+            {isAutoFromFsrs && <p className="mt-2 text-[11px] text-muted-foreground">{availableCount === null ? "生成前会核对词库可用数量" : `复习词库当前有 ${availableCount} 个可用目标词；不足时不会用无关词凑数`}</p>}
           </div>
 
           {/* 手动指定词汇输入框 */}
@@ -165,7 +221,7 @@ export function ContextStoryGeneratorModal({
               <div className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="输入单词原形后回车 (如 paradigm)..."
+                  placeholder="输入英文单词原形后回车 (如 paradigm)..."
                   value={customWordInput}
                   onChange={(e) => setCustomWordInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddCustomWord())}
@@ -191,9 +247,7 @@ export function ContextStoryGeneratorModal({
                     </button>
                   </span>
                 ))}
-                {customWords.length === 0 && (
-                  <span className="text-[11px] text-muted-foreground">未添加单词时将自动随机抽选</span>
-                )}
+                {customWords.length === 0 && <span className="text-[11px] text-muted-foreground">添加 1–16 个词；手动模式只使用你指定的词</span>}
               </div>
             </div>
           )}
@@ -228,48 +282,24 @@ export function ContextStoryGeneratorModal({
             />
           </div>
 
-          {/* 难度等级与词数 */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-medium text-foreground block mb-1.5">难度分级</label>
-              <div className="flex flex-wrap gap-1">
-                {LEVEL_PRESETS.map((lvl) => (
-                  <button
-                    key={lvl}
-                    type="button"
-                    onClick={() => setTargetLevel(lvl)}
-                    className={`rounded-md px-2 py-1 text-xs font-mono transition-colors ${
-                      targetLevel === lvl
-                        ? "border border-primary bg-primary/10 text-primary font-semibold"
-                        : "border border-border bg-muted/30 text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {lvl}
-                  </button>
-                ))}
-              </div>
-            </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium">阅读难度</label>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{LEVEL_PRESETS.map((level) => <button key={level.value} type="button" onClick={() => setTargetLevel(level.value)} aria-pressed={targetLevel === level.value} className={`rounded-lg border px-2 py-2 text-left transition-colors ${targetLevel === level.value ? "border-foreground bg-foreground text-background" : "border-border hover:bg-secondary"}`}><strong className="block font-mono text-xs">{level.value}</strong><span className={`mt-1 block text-[10px] ${targetLevel === level.value ? "text-background/70" : "text-muted-foreground"}`}>{level.hint}</span></button>)}</div>
+            <p className="mt-1.5 text-[11px] text-muted-foreground">阅读难度控制句式与表达复杂度；不会与考试标签直接换算。</p>
+          </div>
 
-            <div>
-              <label className="text-xs font-medium text-foreground flex justify-between mb-1.5">
-                <span>生词数量</span>
-                <span className="font-mono text-primary font-semibold">{targetCount} 词</span>
-              </label>
-              <input
-                type="range"
-                min={4}
-                max={9}
-                step={1}
-                value={targetCount}
-                onChange={(e) => setTargetCount(Number(e.target.value))}
-                className="w-full accent-primary h-1.5"
-              />
-              <div className="flex justify-between text-[10px] text-muted-foreground font-mono mt-1">
-                <span>4词</span>
-                <span>6词</span>
-                <span>9词</span>
-              </div>
-            </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium">训练场景</label>
+            <div className="flex flex-wrap gap-1.5">{EXAM_PRESETS.map((exam) => <button key={exam.value} type="button" onClick={() => setExamFocus(exam.value)} aria-pressed={examFocus === exam.value} className={`rounded-md px-2.5 py-1 text-xs transition-colors ${examFocus === exam.value ? "bg-foreground text-background" : "bg-secondary text-muted-foreground hover:text-foreground"}`}>{exam.label}</button>)}</div>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-medium">词汇强度</label>
+            {isAutoFromFsrs ? <div className="grid grid-cols-3 gap-2">{VOCAB_PRESETS.map((preset) => <button key={preset.count} type="button" onClick={() => setAutoTargetCount(preset.count)} aria-pressed={autoTargetCount === preset.count} className={`rounded-lg border px-2 py-2 text-left transition-colors ${autoTargetCount === preset.count ? "border-foreground bg-secondary" : "border-border hover:bg-secondary/60"}`}><strong className="block text-xs">{preset.label} · {preset.count} 词</strong><span className="mt-1 block font-mono text-[10px] text-muted-foreground">{preset.length} 词篇幅</span></button>)}</div> : <p className="rounded-lg bg-secondary px-3 py-2 text-xs text-muted-foreground">手动指定 {customWords.length} 词，篇幅和复现要求会自动匹配。</p>}
+          </div>
+
+          <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2.5 text-xs leading-relaxed">
+            <strong className="font-medium">生成预期</strong><span className="text-muted-foreground"> · {targetLevel} 阅读 · {targetCount} 个目标词 · 新词至少 {newRepeat} 次 / 复习词至少 {reviewRepeat} 次 · 预计 {range} 词</span>
           </div>
 
           {/* 错误提示 */}

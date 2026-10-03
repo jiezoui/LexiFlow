@@ -77,7 +77,10 @@ public final class StoryNlpUtil {
         Matcher matcher = MARK_PATTERN.matcher(contentMarked);
         while (matcher.find()) {
             String lemma = matcher.group(2).trim().toLowerCase();
-            counts.put(lemma, counts.getOrDefault(lemma, 0) + 1);
+            String surface = matcher.group(1).trim().toLowerCase();
+            if (matchesLemma(surface, lemma)) {
+                counts.put(lemma, counts.getOrDefault(lemma, 0) + 1);
+            }
         }
         return counts;
     }
@@ -97,6 +100,29 @@ public final class StoryNlpUtil {
         return count;
     }
 
+    public static double averageSentenceWords(String textClean) {
+        if (!StringUtils.hasText(textClean)) return 0;
+        String[] sentences = textClean.split("[.!?]+(?:\\s+|$)");
+        int total = 0;
+        int nonEmpty = 0;
+        for (String sentence : sentences) {
+            int words = countWords(sentence);
+            if (words > 0) {
+                total += words;
+                nonEmpty++;
+            }
+        }
+        return nonEmpty == 0 ? 0 : (double) total / nonEmpty;
+    }
+
+    public static List<String> wordLemmas(String textClean) {
+        List<String> lemmas = new ArrayList<>();
+        if (!StringUtils.hasText(textClean)) return lemmas;
+        Matcher matcher = WORD_PATTERN.matcher(textClean);
+        while (matcher.find()) lemmas.add(approximateLemmatize(matcher.group().toLowerCase()));
+        return lemmas;
+    }
+
     /**
      * 兜底校验：如果模型未严格使用 [[surface|lemma]] 标记，
      * 通过全文扫描词元与派生形态进行二次频次统计与自动标记补全
@@ -111,9 +137,6 @@ public final class StoryNlpUtil {
             lemmasLower.add(l.trim().toLowerCase());
         }
 
-        // 先记录已有标记中的词
-        Set<String> alreadyMarkedLemmas = new HashSet<>(countMarkedOccurrences(text).keySet());
-
         StringBuilder result = new StringBuilder();
         int lastIndex = 0;
         Matcher m = MARK_PATTERN.matcher(text);
@@ -121,25 +144,27 @@ public final class StoryNlpUtil {
         // 分段处理：标记外的普通文本段落进行词元匹配
         while (m.find()) {
             String segmentBefore = text.substring(lastIndex, m.start());
-            result.append(wrapUnmarkedWords(segmentBefore, lemmasLower, alreadyMarkedLemmas));
+            result.append(wrapUnmarkedWords(segmentBefore, lemmasLower));
             result.append(m.group(0)); // 保持已有标记不变
             lastIndex = m.end();
         }
         if (lastIndex < text.length()) {
             String segmentEnd = text.substring(lastIndex);
-            result.append(wrapUnmarkedWords(segmentEnd, lemmasLower, alreadyMarkedLemmas));
+            result.append(wrapUnmarkedWords(segmentEnd, lemmasLower));
         }
 
         return result.toString();
     }
 
-    private static String wrapUnmarkedWords(String plainSegment, Set<String> lemmasLower, Set<String> alreadyMarkedLemmas) {
+    private static String wrapUnmarkedWords(String plainSegment, Set<String> lemmasLower) {
         Matcher wordMatcher = WORD_PATTERN.matcher(plainSegment);
         StringBuilder sb = new StringBuilder();
         while (wordMatcher.find()) {
             String word = wordMatcher.group();
-            String candidateLemma = approximateLemmatize(word.toLowerCase());
-            if (lemmasLower.contains(candidateLemma) && !alreadyMarkedLemmas.contains(candidateLemma)) {
+            String candidateLemma = lemmasLower.stream()
+                    .filter(lemma -> matchesLemma(word.toLowerCase(), lemma))
+                    .findFirst().orElse(null);
+            if (candidateLemma != null) {
                 wordMatcher.appendReplacement(sb, Matcher.quoteReplacement("[[" + word + "|" + candidateLemma + "]]"));
             }
         }
@@ -183,5 +208,20 @@ public final class StoryNlpUtil {
             return word.substring(0, word.length() - 2);
         }
         return word;
+    }
+
+    private static boolean matchesLemma(String surface, String lemma) {
+        if (surface.equals(lemma) || approximateLemmatize(surface).equals(lemma)) return true;
+        if (lemma.length() < 3) return false;
+        if (surface.equals(lemma + "s") || surface.equals(lemma + "ed") || surface.equals(lemma + "ing")) return true;
+        if (lemma.endsWith("e")) {
+            String stem = lemma.substring(0, lemma.length() - 1);
+            if (surface.equals(lemma + "d") || surface.equals(stem + "ing")) return true;
+        }
+        if (lemma.endsWith("y") && lemma.length() > 3) {
+            String stem = lemma.substring(0, lemma.length() - 1);
+            if (surface.equals(stem + "ies") || surface.equals(stem + "ied")) return true;
+        }
+        return false;
     }
 }

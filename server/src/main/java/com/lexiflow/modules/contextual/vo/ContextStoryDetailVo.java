@@ -29,6 +29,12 @@ public class ContextStoryDetailVo {
     @Schema(description = "目标水平等级", example = "CET-4")
     private String targetLevel;
 
+    private String examFocus;
+
+    private String difficultyStatus;
+
+    private BigDecimal nonTargetRareRate;
+
     @Schema(description = "带 [[surface|lemma]] 标记的文章正文")
     private String contentMarked;
 
