@@ -92,6 +92,21 @@ public class InternalMediaController {
         return Result.success();
     }
 
+    @PutMapping("/{mediaId}/podcast-playback")
+    public Result<Void> uploadPodcastPlayback(
+            @RequestHeader(value = WORKER_TOKEN_HEADER, required = false) String token,
+            @PathVariable Long mediaId,
+            HttpServletRequest request
+    ) throws IOException {
+        tokenVerifier.verify(token);
+        long contentLength = request.getContentLengthLong();
+        if (contentLength <= 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST.getCode(), "必须提供 Content-Length");
+        }
+        mediaWorkerService.replacePodcastPlayback(mediaId, request.getInputStream(), contentLength);
+        return Result.success();
+    }
+
     @GetMapping("/{mediaId}/subtitle-status")
     public Result<Boolean> subtitleStatus(
             @RequestHeader(value = WORKER_TOKEN_HEADER, required = false) String token,

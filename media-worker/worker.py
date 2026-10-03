@@ -298,6 +298,29 @@ def upload_playback(media_id: int, path: Path) -> None:
         )
 
 
+def prepare_podcast_playback(source: Path, target: Path, probe_data: dict[str, Any]) -> None:
+    audio = first_stream(probe_data, "audio") or {}
+    codec_args = ["-c:a", "copy"] if audio.get("codec_name") == "mp3" else [
+        "-c:a", "libmp3lame", "-q:a", "4"
+    ]
+    run([
+        CONFIG.ffmpeg, "-y", "-i", str(source), "-map", "0:a:0", "-vn",
+        "-map_metadata", "-1", *codec_args, str(target),
+    ])
+
+
+def upload_podcast_playback(media_id: int, path: Path) -> None:
+    size = path.stat().st_size
+    with path.open("rb") as content:
+        api(
+            "PUT",
+            f"/internal/media/{media_id}/podcast-playback",
+            data=content,
+            headers={"Content-Type": "audio/mpeg", "Content-Length": str(size)},
+            timeout=(10, 1800),
+        )
+
+
 def extract_embedded_subtitle(
     source: Path, probe_data: dict[str, Any], target: Path
 ) -> bool:
@@ -755,14 +778,22 @@ def handle_podcast(job: dict[str, Any]) -> None:
                 raise NonRetryableMediaError(
                     "SOURCE_AUDIO_UNAVAILABLE: 原始音频是静音文件，请更换单集或 RSS 源"
                 )
-            api("POST", f"/internal/media/{media_id}/probe", json=metadata)
+
+            playback_audio = task / "podcast.mp3"
+            progress(job_id, "TRANSCODING", 24, detail="正在固定与字幕一致的播放音频")
+            prepare_podcast_playback(audio_file, playback_audio, source_probe)
+            playback_metadata = probe_payload(probe(playback_audio))
+            if playback_metadata["durationMs"] > max_duration_seconds * 1000:
+                raise RuntimeError("podcast playback duration exceeds configured limit")
+            api("POST", f"/internal/media/{media_id}/probe", json=playback_metadata)
+            upload_podcast_playback(media_id, playback_audio)
 
             progress(job_id, "DOWNLOADING_MODEL", 30, detail="正在准备语音识别模型")
             ensure_whisper_model()
             progress(job_id, "TRANSCRIBING", 35, detail="正在生成逐句精听文本")
             subtitle = task / "podcast.srt"
             tokens = task / "podcast.tokens.json"
-            language = transcribe(audio_file, subtitle, tokens, job_id=job_id)
+            language = transcribe(playback_audio, subtitle, tokens, job_id=job_id)
             upload_subtitle(media_id, subtitle, language, "ASR", tokens)
 
             progress(job_id, "FINALIZING", 98, detail="正在整理精听文本")

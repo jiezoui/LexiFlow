@@ -19,6 +19,8 @@ import java.util.Map;
 @Component
 public class JwtUtils {
 
+    private static final long MEDIA_STREAM_TOKEN_LIFETIME_MS = 12L * 60 * 60 * 1000;
+
     private final SecretKey secretKey;
     private final long expirationMillis;
 
@@ -44,6 +46,7 @@ public class JwtUtils {
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", userId);
         claims.put("username", username);
+        claims.put("scope", "user");
 
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + expirationMillis);
@@ -55,6 +58,33 @@ public class JwtUtils {
                 .expiration(expiryDate)
                 .signWith(secretKey)
                 .compact();
+    }
+
+    /** A short-lived token scoped to one media stream; safe for native audio/video elements. */
+    public String generateMediaStreamToken(Long userId, String mediaPublicId) {
+        Date now = new Date();
+        return Jwts.builder()
+                .subject(String.valueOf(userId))
+                .claim("scope", "media-stream")
+                .claim("mediaId", mediaPublicId)
+                .issuedAt(now)
+                .expiration(new Date(now.getTime() + MEDIA_STREAM_TOKEN_LIFETIME_MS))
+                .signWith(secretKey)
+                .compact();
+    }
+
+    public Long mediaStreamUserId(String token, String mediaPublicId) {
+        try {
+            Claims claims = parseClaims(token);
+            if (!claims.getExpiration().after(new Date())
+                    || !"media-stream".equals(claims.get("scope", String.class))
+                    || !mediaPublicId.equals(claims.get("mediaId", String.class))) {
+                return null;
+            }
+            return Long.parseLong(claims.getSubject());
+        } catch (JwtException | IllegalArgumentException e) {
+            return null;
+        }
     }
 
     /**
@@ -74,7 +104,9 @@ public class JwtUtils {
     public boolean validateToken(String token) {
         try {
             Claims claims = parseClaims(token);
-            return claims.getExpiration().after(new Date());
+            String scope = claims.get("scope", String.class);
+            return claims.getExpiration().after(new Date())
+                    && (scope == null || "user".equals(scope));
         } catch (JwtException | IllegalArgumentException e) {
             return false;
         }

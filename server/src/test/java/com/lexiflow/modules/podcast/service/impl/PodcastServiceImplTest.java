@@ -107,6 +107,33 @@ class PodcastServiceImplTest {
     }
 
     @Test
+    void reconnectKeepsTheAudioThatWasUsedForTranscription() {
+        PodcastFeedEntity feed = PodcastFeedEntity.builder()
+                .id(10L).userId(1L).title("Test Podcast").build();
+        PodcastEpisodeEntity episode = PodcastEpisodeEntity.builder()
+                .id(20L).publicId("episode-public-id").feedId(10L)
+                .title("Recovered episode").audioUrl("https://example.com/new-ad.mp3")
+                .durationMs(90_000L).build();
+        MediaItemEntity media = MediaItemEntity.builder()
+                .id(30L).publicId("media-public-id").userId(1L)
+                .platform("PODCAST").externalId("episode-public-id")
+                .storageKey("media/1/media-public-id/podcast.mp3")
+                .fileSize(1000L).mimeType("audio/mpeg")
+                .durationMs(120_000L).playbackType("HTML5_AUDIO_LOCAL")
+                .status("READY").build();
+
+        when(episodeMapper.selectOne(any())).thenReturn(episode);
+        when(feedMapper.selectOne(any())).thenReturn(feed);
+        when(mediaMapper.selectAnyExternal(1L, "PODCAST", "episode-public-id")).thenReturn(media);
+
+        MediaDetailVo result = service.prepare(1L, "episode-public-id");
+
+        assertEquals("/api/media/media-public-id/stream", result.playback().url());
+        assertEquals("HTML5_AUDIO_LOCAL", media.getPlaybackType());
+        assertEquals(120_000L, media.getDurationMs());
+    }
+
+    @Test
     void reusesTheRowReturnedByTheAtomicInsertWhenTwoRequestsOpenAnEpisodeTogether() {
         PodcastFeedEntity feed = PodcastFeedEntity.builder()
                 .id(10L).userId(1L).title("Test Podcast").build();

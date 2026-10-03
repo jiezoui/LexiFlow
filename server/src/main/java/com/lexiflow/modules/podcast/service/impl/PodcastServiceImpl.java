@@ -203,9 +203,11 @@ public class PodcastServiceImpl implements PodcastService {
         media.setSourceUrl(episode.getAudioUrl());
         media.setTitle(episode.getTitle());
         media.setCoverUrl(episode.getCoverUrl());
-        media.setDurationMs(episode.getDurationMs());
-        media.setPlaybackType("HTML5_AUDIO_REMOTE");
-        media.setMimeType("audio/mpeg");
+        if (media.getStorageKey() == null) {
+            media.setDurationMs(episode.getDurationMs());
+            media.setPlaybackType("HTML5_AUDIO_REMOTE");
+            media.setMimeType("audio/mpeg");
+        }
         media.setUpdatedAt(now);
         mediaMapper.updateById(media);
 

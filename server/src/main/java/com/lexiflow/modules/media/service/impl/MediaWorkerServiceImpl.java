@@ -9,6 +9,8 @@ import com.lexiflow.modules.media.entity.MediaItemEntity;
 import com.lexiflow.modules.media.mapper.MediaItemMapper;
 import com.lexiflow.modules.media.mapper.MediaUploadMapper;
 import com.lexiflow.modules.media.model.SubtitleSource;
+import com.lexiflow.modules.media.model.MediaPlatform;
+import com.lexiflow.modules.media.model.MediaPlaybackType;
 import com.lexiflow.modules.media.service.MediaWorkerService;
 import com.lexiflow.modules.media.service.SubtitleIngestionService;
 import com.lexiflow.modules.media.util.DetectedVideoType;
@@ -91,6 +93,44 @@ public class MediaWorkerServiceImpl implements MediaWorkerService {
         media.setContainerFormat("mov,mp4,m4a,3gp,3g2,mj2");
         media.setVideoCodec("h264");
         media.setAudioCodec("aac");
+        mediaMapper.updateById(media);
+    }
+
+    @Override
+    @Transactional
+    public void replacePodcastPlayback(Long mediaId, InputStream input, long contentLength) {
+        if (contentLength <= 0 || contentLength > Math.min(properties.getMaxFileSize(), 250L * 1024 * 1024)) {
+            throw new BusinessException(ResultCode.MEDIA_QUOTA_EXCEEDED);
+        }
+        MediaItemEntity media = require(mediaId);
+        if (!MediaPlatform.PODCAST.name().equals(media.getPlatform())) {
+            throw new BusinessException(ResultCode.MEDIA_FILE_INVALID);
+        }
+        long occupied = mediaMapper.sumStoredBytes(media.getUserId())
+                + uploadMapper.sumActiveBytes(media.getUserId(), LocalDateTime.now());
+        long previousBytes = media.getStorageKey() == null || media.getFileSize() == null
+                ? 0 : media.getFileSize();
+        if (occupied - previousBytes > properties.getUserStorageQuota() - contentLength) {
+            throw new BusinessException(ResultCode.MEDIA_QUOTA_EXCEEDED);
+        }
+
+        String key = "media/" + media.getUserId() + "/" + media.getPublicId() + "/podcast.mp3";
+        storageProvider.store(key, input, contentLength, "audio/mpeg");
+        try (InputStream stored = storageProvider.open(key)) {
+            byte[] header = stored.readNBytes(3);
+            boolean id3 = header.length == 3 && header[0] == 'I' && header[1] == 'D' && header[2] == '3';
+            boolean frame = header.length >= 2 && (header[0] & 0xff) == 0xff
+                    && (header[1] & 0xe0) == 0xe0;
+            if (!id3 && !frame) throw new BusinessException(ResultCode.MEDIA_FILE_INVALID);
+        } catch (Exception e) {
+            storageProvider.delete(key);
+            throw new BusinessException(ResultCode.MEDIA_FILE_INVALID);
+        }
+        media.setStorageKey(key);
+        media.setFileSize(contentLength);
+        media.setMimeType("audio/mpeg");
+        media.setPlaybackType(MediaPlaybackType.HTML5_AUDIO_LOCAL.name());
+        media.setUpdatedAt(LocalDateTime.now());
         mediaMapper.updateById(media);
     }
 

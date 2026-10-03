@@ -37,14 +37,24 @@ public record MediaDetailVo(
 
     public static MediaDetailVo from(MediaItemEntity media, SubtitleTrackEntity track,
                                      Integer processingProgress, String processingDetail) {
+        return from(media, track, processingProgress, processingDetail, null);
+    }
+
+    public static MediaDetailVo from(MediaItemEntity media, SubtitleTrackEntity track,
+                                     Integer processingProgress, String processingDetail, String streamToken) {
         String url = switch (media.getPlaybackType()) {
             case "YOUTUBE_IFRAME" -> media.getExternalId() == null ? null
                     : "https://www.youtube-nocookie.com/embed/" + media.getExternalId()
                     + "?enablejsapi=1&playsinline=1&rel=0";
             case "HTML5_AUDIO_REMOTE" -> media.getSourceUrl();
+            case "HTML5_AUDIO_LOCAL" -> media.getStorageKey() == null ? null
+                    : "/api/media/" + media.getPublicId() + "/stream";
             default -> media.getStorageKey() == null ? null
                     : "/api/media/" + media.getPublicId() + "/stream";
         };
+        if (streamToken != null && url != null && url.startsWith("/api/media/")) {
+            url += "?access=" + streamToken;
+        }
         String subtitleStatus = track == null ? "PENDING" : track.getStatus();
         String translationStatus = track == null || track.getTranslationStatus() == null
                 ? TranslationStatus.DISABLED.name() : track.getTranslationStatus();

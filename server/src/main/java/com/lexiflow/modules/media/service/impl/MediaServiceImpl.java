@@ -11,6 +11,7 @@ import com.lexiflow.infra.asyncjob.model.AsyncJobStatus;
 import com.lexiflow.infra.asyncjob.model.JobExecutorType;
 import com.lexiflow.infra.asyncjob.service.AsyncJobService;
 import com.lexiflow.infra.asyncjob.vo.AsyncJobVo;
+import com.lexiflow.infra.security.JwtUtils;
 import com.lexiflow.modules.media.MediaProperties;
 import com.lexiflow.modules.media.entity.MediaItemEntity;
 import com.lexiflow.modules.media.dto.ImportExternalMediaRequest;
@@ -57,6 +58,7 @@ import java.util.Map;
 public class MediaServiceImpl implements MediaService {
 
     private final MediaProperties properties;
+    private final JwtUtils jwtUtils;
     private final MediaItemMapper mediaMapper;
     private final SubtitleTrackMapper trackMapper;
     private final SubtitleCueMapper cueMapper;
@@ -97,7 +99,10 @@ public class MediaServiceImpl implements MediaService {
                 processingDetail = active.getResultRef();
             }
         }
-        return MediaDetailVo.from(media, latestReadyTrack(media.getId()), processingProgress, processingDetail);
+        String streamToken = media.getStorageKey() == null ? null
+                : jwtUtils.generateMediaStreamToken(userId, media.getPublicId());
+        return MediaDetailVo.from(media, latestReadyTrack(media.getId()),
+                processingProgress, processingDetail, streamToken);
     }
 
     @Override

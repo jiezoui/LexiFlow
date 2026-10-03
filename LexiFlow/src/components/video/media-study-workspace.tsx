@@ -291,10 +291,13 @@ export function MediaStudyWorkspace({ mediaId, mode = "video" }: { mediaId: stri
         const nextCues = mergeTranslations(transcript, translations)
         let visibleDetail = detail
         const hasNoTranscript = nextCues.length === 0 && detail.subtitleStatus !== "READY"
+        const legacyRemotePodcast = detail.source === "PODCAST"
+          && detail.status === "READY"
+          && detail.playback.type === "HTML5_AUDIO_REMOTE"
         const sourceAudioUnavailable = detail.errorMessage?.startsWith(unavailableAudioPrefix)
         const canAutomaticallyStart = ["WAITING_SUBTITLE", "FAILED", "READY"].includes(detail.status)
           && !sourceAudioUnavailable
-        if (initial && hasNoTranscript && canAutomaticallyStart
+        if (initial && ((hasNoTranscript && canAutomaticallyStart) || legacyRemotePodcast)
           && autoTranscriptionMediaRef.current !== mediaId) {
           autoTranscriptionMediaRef.current = mediaId
           try {
@@ -304,7 +307,9 @@ export function MediaStudyWorkspace({ mediaId, mode = "video" }: { mediaId: stri
               status: "PROCESSING",
               processingStage: automaticStage(detail.source),
               processingProgress: 0,
-              processingDetail: "转写任务已自动开始",
+              processingDetail: legacyRemotePodcast
+                ? "正在重新生成与播放音频一致的字幕"
+                : "转写任务已自动开始",
               errorMessage: null,
             }
           } catch (error) {
@@ -527,7 +532,7 @@ export function MediaStudyWorkspace({ mediaId, mode = "video" }: { mediaId: stri
           {!transcriptReady ? (
             <div className="flex aspect-video w-full max-w-5xl flex-col items-center justify-center rounded-2xl bg-zinc-950 px-6 text-center text-zinc-300">
               {transcriptionFailed ? <AlertCircleIcon className="size-7 text-zinc-500" /> : <LoaderCircleIcon className="size-7 animate-spin text-zinc-400" />}
-              <p className="mt-3 text-sm font-semibold">{transcriptionFailed ? "字幕生成失败" : "字幕生成完成后即可播放"}</p>
+              <p className="mt-3 text-sm font-semibold">{transcriptionFailed ? "字幕生成失败" : isPodcast ? "正在同步音频与精听文本" : "字幕生成完成后即可播放"}</p>
             </div>
           ) : isPodcast && media.playback.url ? (
             <PodcastAudioPlayer

@@ -5,6 +5,7 @@ import com.lexiflow.common.result.Result;
 import com.lexiflow.common.result.ResultCode;
 import com.lexiflow.infra.asyncjob.vo.AsyncJobVo;
 import com.lexiflow.infra.security.UserContext;
+import com.lexiflow.infra.security.JwtUtils;
 import com.lexiflow.infra.storage.StorageProvider;
 import com.lexiflow.modules.media.entity.MediaItemEntity;
 import com.lexiflow.modules.media.dto.ImportExternalMediaRequest;
@@ -47,6 +48,7 @@ import java.util.List;
 public class MediaController {
 
     private final MediaService mediaService;
+    private final JwtUtils jwtUtils;
     private final StorageProvider storageProvider;
 
     @Operation(summary = "查询当前用户的视频列表")
@@ -122,11 +124,16 @@ public class MediaController {
         return Result.success(mediaService.translate(mediaId, UserContext.requireCurrentUserId()));
     }
 
-    @Operation(summary = "支持 HTTP 单区间 Range 的视频流")
+    @Operation(summary = "支持 HTTP 单区间 Range 的音视频流")
     @GetMapping("/{mediaId}/stream")
-    public void stream(@PathVariable String mediaId, HttpServletRequest request,
+    public void stream(@PathVariable String mediaId,
+                       @RequestParam(value = "access", required = false) String access,
+                       HttpServletRequest request,
                        HttpServletResponse response) throws IOException {
-        MediaItemEntity media = mediaService.requireOwned(mediaId, UserContext.requireCurrentUserId());
+        Long userId = access == null ? UserContext.requireCurrentUserId()
+                : jwtUtils.mediaStreamUserId(access, mediaId);
+        if (userId == null) throw new BusinessException(ResultCode.MEDIA_NOT_FOUND);
+        MediaItemEntity media = mediaService.requireOwned(mediaId, userId);
         if (media.getStorageKey() == null || media.getFileSize() == null) {
             throw new BusinessException(ResultCode.MEDIA_UPLOAD_CONFLICT);
         }

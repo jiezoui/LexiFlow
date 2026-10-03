@@ -1,7 +1,17 @@
 "use client"
 
-import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from "react"
-import { HeadphonesIcon, PauseIcon, PlayIcon, RotateCcwIcon, RotateCwIcon, Volume2Icon, VolumeXIcon } from "lucide-react"
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react"
+import {
+  HeadphonesIcon,
+  PauseIcon,
+  PlayIcon,
+  RotateCcwIcon,
+  RotateCwIcon,
+  Volume2Icon,
+  VolumeXIcon,
+  ChevronDownIcon,
+  CheckIcon,
+} from "lucide-react"
 import type { MediaCue } from "@/lib/api-client"
 import type { MediaPlayerHandle } from "@/components/video/media-player"
 
@@ -44,6 +54,18 @@ export const PodcastAudioPlayer = forwardRef<MediaPlayerHandle, PodcastAudioPlay
   const [duration, setDuration] = useState(0)
   const [bufferedPercent, setBufferedPercent] = useState(0)
   const [playbackRate, setPlaybackRate] = useState(1)
+  const [rateDropdownOpen, setRateDropdownOpen] = useState(false)
+  const rateDropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (rateDropdownRef.current && !rateDropdownRef.current.contains(e.target as Node)) {
+        setRateDropdownOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
 
   const syncTime = useCallback(() => {
     const player = playerRef.current
@@ -200,19 +222,48 @@ export const PodcastAudioPlayer = forwardRef<MediaPlayerHandle, PodcastAudioPlay
         <button type="button" onClick={() => seekBy(10)} className="flex size-11 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="前进 10 秒">
           <RotateCwIcon className="size-4" />
         </button>
-        <label className="sr-only" htmlFor="podcast-playback-rate">播放速度</label>
-        <select
-          id="podcast-playback-rate"
-          value={playbackRate}
-          onChange={(event) => {
-            const rate = Number(event.target.value)
-            if (playerRef.current) playerRef.current.playbackRate = rate
-            setPlaybackRate(rate)
-          }}
-          className="h-10 rounded-xl border border-border bg-background px-2 text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {[0.75, 1, 1.25, 1.5, 2].map((rate) => <option key={rate} value={rate}>{rate}x</option>)}
-        </select>
+        <div className="relative" ref={rateDropdownRef}>
+          <button
+            type="button"
+            onClick={() => setRateDropdownOpen(!rateDropdownOpen)}
+            className="h-10 flex items-center gap-1 rounded-xl border border-border bg-background px-2.5 text-xs font-mono font-semibold text-foreground hover:bg-muted/70 transition-colors shadow-2xs select-none"
+            aria-label="播放速度"
+          >
+            <span>{playbackRate}x</span>
+            <ChevronDownIcon
+              className={`size-3 text-muted-foreground transition-transform duration-200 ${
+                rateDropdownOpen ? "rotate-180" : ""
+              }`}
+            />
+          </button>
+
+          {rateDropdownOpen && (
+            <div className="absolute right-0 bottom-full mb-1.5 z-50 min-w-20 rounded-xl border border-border bg-popover p-1 shadow-lg backdrop-blur-md animate-in fade-in zoom-in-95">
+              {[0.75, 1, 1.25, 1.5, 2].map((rate) => {
+                const isSelected = playbackRate === rate
+                return (
+                  <button
+                    key={rate}
+                    type="button"
+                    onClick={() => {
+                      if (playerRef.current) playerRef.current.playbackRate = rate
+                      setPlaybackRate(rate)
+                      setRateDropdownOpen(false)
+                    }}
+                    className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs font-mono transition-colors ${
+                      isSelected
+                        ? "bg-muted text-foreground font-bold"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50 font-medium"
+                    }`}
+                  >
+                    <span>{rate}x</span>
+                    {isSelected && <CheckIcon className="size-3 text-primary ml-1" />}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
         <button
           type="button"
           onClick={() => {

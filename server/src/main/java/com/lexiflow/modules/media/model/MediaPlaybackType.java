@@ -4,6 +4,7 @@ public enum MediaPlaybackType {
     YOUTUBE_IFRAME,
     BILIBILI_IFRAME,
     HTML5_AUDIO_REMOTE,
+    HTML5_AUDIO_LOCAL,
     HTML5,
     HLS
 }

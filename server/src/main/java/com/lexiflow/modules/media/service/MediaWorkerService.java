@@ -15,6 +15,8 @@ public interface MediaWorkerService {
 
     void replacePlayback(Long mediaId, InputStream input, long contentLength);
 
+    void replacePodcastPlayback(Long mediaId, InputStream input, long contentLength);
+
     boolean hasSubtitle(Long mediaId);
 
     SubtitleUploadVo ingestSubtitle(Long mediaId, byte[] content, String language,
