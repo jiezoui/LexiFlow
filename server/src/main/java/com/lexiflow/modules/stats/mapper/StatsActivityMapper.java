@@ -59,4 +59,73 @@ public interface StatsActivityMapper {
             ORDER BY y DESC
             """)
     List<Integer> selectActiveYears(@Param("userId") Long userId);
+
+    /**
+     * 按自然日统计未来到期需复习卡片数。
+     */
+    @Select("""
+            SELECT DATE(due_at) AS stat_date, COUNT(*) AS total
+            FROM user_word
+            WHERE user_id = #{userId} AND is_known = 0 AND due_at >= #{start} AND due_at < #{end}
+            GROUP BY DATE(due_at)
+            """)
+    List<DailyCountRow> countDueByDay(@Param("userId") Long userId,
+                                      @Param("start") LocalDateTime start,
+                                      @Param("end") LocalDateTime end);
+
+    /**
+     * 聚合用户的 FSRS 各状态词汇总数。
+     */
+    @Select("""
+            SELECT 
+                COUNT(*) AS total,
+                COALESCE(SUM(CASE WHEN is_known = 1 THEN 1 ELSE 0 END), 0) AS mastered,
+                COALESCE(SUM(CASE WHEN is_known = 0 AND state = 0 THEN 1 ELSE 0 END), 0) AS new_cards,
+                COALESCE(SUM(CASE WHEN is_known = 0 AND state = 1 THEN 1 ELSE 0 END), 0) AS learning,
+                COALESCE(SUM(CASE WHEN is_known = 0 AND state = 2 AND (stability IS NULL OR stability < 14) THEN 1 ELSE 0 END), 0) AS reviewing,
+                COALESCE(SUM(CASE WHEN is_known = 0 AND state = 2 AND stability >= 14 THEN 1 ELSE 0 END), 0) AS stable,
+                COALESCE(SUM(CASE WHEN is_known = 0 AND state = 3 THEN 1 ELSE 0 END), 0) AS relearning
+            FROM user_word
+            WHERE user_id = #{userId}
+            """)
+    java.util.Map<String, Object> selectFsrsCounts(@Param("userId") Long userId);
+
+    /**
+     * 聚合用户影子跟读声学评测核心指标。
+     */
+    @Select("""
+            SELECT 
+                COUNT(*) AS total_attempts,
+                COALESCE(AVG(overall_score), 0) AS avg_overall,
+                COALESCE(AVG(accuracy_score), 0) AS avg_accuracy,
+                COALESCE(AVG(fluency_score), 0) AS avg_fluency,
+                COALESCE(SUM(audio_duration_ms), 0) AS total_audio_ms
+            FROM shadowing_attempt
+            WHERE user_id = #{userId}
+            """)
+    java.util.Map<String, Object> selectShadowingSummary(@Param("userId") Long userId);
+
+    /**
+     * 查询最近 N 条影子跟读历史走势。
+     */
+    @Select("""
+            SELECT id, overall_score, accuracy_score, fluency_score, words_per_minute, source_title, created_at
+            FROM shadowing_attempt
+            WHERE user_id = #{userId}
+            ORDER BY created_at DESC
+            LIMIT #{limit}
+            """)
+    List<java.util.Map<String, Object>> selectRecentShadowingAttempts(@Param("userId") Long userId, @Param("limit") int limit);
+
+    /**
+     * 统计当前用户生成的语境文章总数。
+     */
+    @Select("SELECT COUNT(*) FROM context_story WHERE user_id = #{userId}")
+    Long countContextStories(@Param("userId") Long userId);
+
+    /**
+     * 统计全站精选外刊总数。
+     */
+    @Select("SELECT COUNT(*) FROM reading_article")
+    Long countReadingArticles();
 }

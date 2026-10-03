@@ -1,5 +1,5 @@
-import { DashboardCustomizer } from "@/components/dashboard/dashboard-customizer"
+import { AnalyticsDashboard } from "@/components/dashboard/analytics-dashboard"
 
 export default function Page() {
-  return <DashboardCustomizer />
+  return <AnalyticsDashboard />
 }

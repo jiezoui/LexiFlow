@@ -57,4 +57,43 @@ public class StatsController {
         LearningOverviewStatsVo overview = statsService.getLearningOverview(currentUserId);
         return Result.success(overview);
     }
+
+    @Operation(
+            summary = "获取 FSRS 记忆模型与未来复习负荷预测",
+            description = "聚合当前用户的 FSRS 各阶段记忆分布 (未学/初学/复习/稳固/斩词) 及未来 7 天到期复习负荷预测",
+            security = @SecurityRequirement(name = "BearerAuth")
+    )
+    @GetMapping("/fsrs")
+    public Result<com.lexiflow.modules.stats.vo.FsrsStatsVo> getFsrsStats() {
+        Long currentUserId = UserContext.requireCurrentUserId();
+        com.lexiflow.modules.stats.vo.FsrsStatsVo vo = statsService.getFsrsStats(currentUserId);
+        return Result.success(vo);
+    }
+
+    @Operation(
+            summary = "获取多模态学习投入全景分析数据",
+            description = "涵盖闪卡复习、影子跟读声学评测 (准确度、流利度走势)、语境阅读及多模态时长分布",
+            security = @SecurityRequirement(name = "BearerAuth")
+    )
+    @GetMapping("/multimodal")
+    public Result<com.lexiflow.modules.stats.vo.MultimodalStatsVo> getMultimodalStats() {
+        Long currentUserId = UserContext.requireCurrentUserId();
+        com.lexiflow.modules.stats.vo.MultimodalStatsVo vo = statsService.getMultimodalStats(currentUserId);
+        return Result.success(vo);
+    }
+
+    @Operation(
+            summary = "上报研习/视听/阅读时长 (分钟)",
+            description = "累加今日研习时长到 daily_stat，实时推进计划中的语境视听读指标",
+            security = @SecurityRequirement(name = "BearerAuth")
+    )
+    @PostMapping("/duration")
+    public Result<Void> recordDuration(
+            @Parameter(description = "本次上报时长 (分钟)", example = "1")
+            @RequestParam(name = "minutes", defaultValue = "1") Integer minutes
+    ) {
+        Long currentUserId = UserContext.requireCurrentUserId();
+        statsService.recordDuration(currentUserId, minutes);
+        return Result.success();
+    }
 }

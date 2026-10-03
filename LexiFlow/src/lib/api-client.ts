@@ -455,6 +455,60 @@ export interface LearningOverviewStats {
   overallRetentionRate: number
 }
 
+export interface DueForecastDay {
+  date: string
+  dayLabel: string
+  dueCount: number
+}
+
+export interface FsrsStats {
+  totalCards: number
+  newCards: number
+  learningCards: number
+  reviewingCards: number
+  stableCards: number
+  relearningCards: number
+  masteredCards: number
+  overallRetentionRate: number
+  dueForecast: DueForecastDay[]
+}
+
+export interface ShadowingTrendPoint {
+  id?: number
+  date: string
+  overallScore: number
+  accuracyScore: number
+  fluencyScore: number
+  wordsPerMinute: number
+  sourceTitle?: string
+}
+
+export interface MultimodalStats {
+  flashcards: {
+    totalReviews: number
+    totalCollected: number
+    activeCards: number
+  }
+  shadowing: {
+    totalAttempts: number
+    averageOverallScore: number
+    averageAccuracyScore: number
+    averageFluencyScore: number
+    totalPracticeMinutes: number
+    recentTrend: ShadowingTrendPoint[]
+  }
+  context: {
+    totalStories: number
+    totalArticles: number
+    totalMinutes: number
+  }
+  timeDistribution: {
+    category: string
+    minutes: number
+    percentage: number
+  }[]
+}
+
 export interface ReadingArticle {
   id: number
   channel: string
@@ -478,6 +532,46 @@ export interface ChannelStat {
   code: string
   name: string
   articleCount: number
+}
+
+export interface StudyPlanOverview {
+  macro: {
+    wordbookId: number
+    wordbookTitle: string
+    totalWords: number
+    masteredWords: number
+    unlearnedWords: number
+    progressPercent: number
+    targetDate: string | null
+    estimatedDate: string
+    daysRemaining: number
+  }
+  today: {
+    vocab: {
+      target: number
+      learned: number
+      dueReview: number
+      isCompleted: boolean
+    }
+    shadowing: {
+      target: number
+      completed: number
+      isCompleted: boolean
+    }
+    context: {
+      targetMinutes: number
+      currentMinutes: number
+      isCompleted: boolean
+    }
+  }
+}
+
+export interface UpdateStudyPlanPayload {
+  wordbookId: number
+  dailyNewWords: number
+  dailyShadowingSentences?: number
+  dailyContextMinutes?: number
+  targetDate?: string | null
 }
 
 const TOKEN_KEY = "lexiflow_jwt_token"
@@ -796,6 +890,22 @@ export const statsApi = {
     request<HeatmapCalendar>(`/api/stats/heatmap${year ? `?year=${year}` : ""}`),
   getOverview: () =>
     request<LearningOverviewStats>("/api/stats/overview"),
+  getFsrs: () =>
+    request<FsrsStats>("/api/stats/fsrs"),
+  getMultimodal: () =>
+    request<MultimodalStats>("/api/stats/multimodal"),
+  recordDuration: (minutes: number = 1) =>
+    request<void>(`/api/stats/duration?minutes=${minutes}`, { method: "POST" }),
+}
+
+// 06.1 全模块综合学习计划 API
+export const planApi = {
+  getTodayOverview: () => request<StudyPlanOverview>("/api/plan/today"),
+  updateConfig: (data: UpdateStudyPlanPayload) =>
+    request<StudyPlanOverview>("/api/plan/config", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
 }
 
 // 07. 深度外刊阅读与资讯 API
@@ -953,6 +1063,7 @@ export interface AiModelDetection {
 
 export interface AiProviderConfigEntry {
   provider: string
+  displayName?: string | null
   apiKey: string
   apiHost: string
   selectedModel: string
@@ -970,6 +1081,8 @@ export interface AiAccountConfig {
   activeConfigured: boolean
   temperature: number
   enableReadingAi: boolean
+  enableStoryAi: boolean
+  enableSubtitleAi: boolean
   enableFlashcardAi: boolean
   providers: AiProviderConfigEntry[]
 }
@@ -978,9 +1091,12 @@ export interface AiConfigSavePayload {
   activeProvider?: string
   temperature?: number
   enableReadingAi?: boolean
+  enableStoryAi?: boolean
+  enableSubtitleAi?: boolean
   enableFlashcardAi?: boolean
   providers?: {
     provider: string
+    displayName?: string
     apiKey?: string
     apiHost?: string
     selectedModel?: string
@@ -1008,6 +1124,10 @@ export const aiApi = {
     }),
   clearProvider: (provider: string) =>
     request<AiAccountConfig>(`/api/ai/config/${encodeURIComponent(provider)}`, {
+      method: "DELETE",
+    }),
+  deleteProvider: (provider: string) =>
+    request<AiAccountConfig>(`/api/ai/config/providers/${encodeURIComponent(provider)}`, {
       method: "DELETE",
     }),
   explainWord: (data: {
@@ -1044,9 +1164,12 @@ export interface ContextStory {
   title: string
   topic: string
   targetLevel: string
+  examFocus?: string | null
+  difficultyStatus?: "MATCH" | "BELOW" | "ABOVE" | null
+  nonTargetRareRate?: number | null
   wordCount: number
   targetWordsCount: number
-  oovRate: number
+  oovRate: number | null
   rewriteCount: number
   status: string
   createdAt: string
@@ -1063,6 +1186,7 @@ export interface ContextStoryDetail extends ContextStory {
 export interface GenerateStoryRequest {
   topic?: string
   targetLevel?: string
+  examFocus?: string
   targetCount?: number
   customLemmas?: string[]
   provider?: string
@@ -1077,12 +1201,16 @@ export interface StoryFeedbackRequest {
   rating?: number
 }
 
+// Generation may include an initial model call and one 90-second rewrite.
+const STORY_GENERATION_TIMEOUT_MS = 210_000
+
 export const contextStoryApi = {
+  candidates: () => request<{ availableCount: number }>("/api/contextual/stories/candidates"),
   generate: (data: GenerateStoryRequest) =>
     request<ContextStoryDetail>("/api/contextual/stories/generate", {
       method: "POST",
       body: JSON.stringify(data),
-    }),
+    }, STORY_GENERATION_TIMEOUT_MS),
   list: (params?: { page?: number; size?: number }) => {
     const query = new URLSearchParams()
     if (params?.page) query.set("page", String(params.page))
