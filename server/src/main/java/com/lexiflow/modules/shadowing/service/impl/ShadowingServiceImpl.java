@@ -673,7 +673,7 @@ public class ShadowingServiceImpl implements ShadowingService {
         if (sourceType == null || sourceType.isBlank()) return "BBC";
         String upper = sourceType.trim().toUpperCase();
         return switch (upper) {
-            case "BBC", "CARD", "CUSTOM", "MEDIA" -> upper;
+            case "BBC", "CARD", "CUSTOM", "MEDIA", "ARTICLE", "VIDEO", "PODCAST" -> upper;
             default -> "CUSTOM";
         };
     }

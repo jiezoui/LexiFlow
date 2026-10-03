@@ -69,7 +69,6 @@ export function PodcastImportDialog({ open, onOpenChange, onSuccess, subscriptio
               </div>
               <div className="min-w-0 text-left">
                 <DialogTitle className="text-base font-bold text-foreground">发现并订阅播客</DialogTitle>
-                <p className="mt-0.5 text-xs text-muted-foreground">选择领域或搜索节目，一键同步节目单</p>
               </div>
             </div>
             <button

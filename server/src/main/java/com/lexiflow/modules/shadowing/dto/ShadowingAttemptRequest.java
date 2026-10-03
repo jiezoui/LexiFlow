@@ -16,10 +16,10 @@ import lombok.Data;
 @Schema(description = "跟读评测结果提交请求")
 public class ShadowingAttemptRequest {
 
-    @Schema(description = "关联跟读句 ID（自定义句可为空）", example = "1")
+    @Schema(description = "关联跟读句 ID（文章、视频、播客的临时选句可为空）", example = "1")
     private Long sentenceId;
 
-    @Schema(description = "题源类型: BBC / CARD / CUSTOM", example = "BBC")
+    @Schema(description = "题源类型: ARTICLE / VIDEO / PODCAST / BBC / CARD / CUSTOM / MEDIA", example = "ARTICLE")
     private String sourceType;
 
     @Schema(description = "题源标题", example = "BBC World: Global Economic Dynamics")

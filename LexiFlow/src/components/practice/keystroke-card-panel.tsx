@@ -2,11 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from "react"
 import {
-  SparklesIcon,
-  Volume2Icon,
   RotateCcwIcon,
   CheckCircle2Icon,
-  AlertCircleIcon,
   ZapIcon,
   HelpCircleIcon,
   ActivityIcon,
@@ -34,7 +31,6 @@ interface KeystrokeCardPanelProps {
   onGiveUp: () => Promise<void>
   onExit?: () => void
   playWordAudio: (word: string) => void
-  playSentenceAudio: (sentence: string) => void
 }
 
 /**
@@ -54,7 +50,6 @@ export function KeystrokeCardPanel({
   onGiveUp,
   onExit,
   playWordAudio,
-  playSentenceAudio,
 }: KeystrokeCardPanelProps) {
   // 目标词严格清洗为纯字母以保证判断与槽位对齐
   const targetWord = sanitizeLettersOnly(card.lemma) || card.lemma.trim().toLowerCase()
@@ -79,7 +74,6 @@ export function KeystrokeCardPanel({
 
   // 实时 HUD 指标
   const [liveRtMs, setLiveRtMs] = useState<number>(0)
-  const [liveWpm, setLiveWpm] = useState<number>(0)
   const [liveBackspaces, setLiveBackspaces] = useState<number>(0)
   const [liveHesitationLabel, setLiveHesitationLabel] = useState<string>("等待输入")
 
@@ -291,58 +285,19 @@ export function KeystrokeCardPanel({
     await onGiveUp()
   }
 
-  // 语境挖空句生成 (将当前句子中的目标词替换为下划线槽位)
-  const renderClozeSentence = () => {
-    const sentence = card.contextSentence
-    if (!sentence) return null
-    const safeLemma = card.lemma.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    const regex = new RegExp(`\\b${safeLemma}\\b`, "gi")
-    const hasMatch = regex.test(sentence)
-    const clozeDisplay = hasMatch
-      ? sentence.replace(regex, "______")
-      : `${sentence} (提示词: ${card.lemma})`
-
-    return (
-      <div className="p-3 sm:p-4 rounded-2xl bg-muted/40 border border-border/60 text-left transition-all hover:border-primary/40 max-h-[110px] sm:max-h-[130px] overflow-y-auto shadow-2xs">
-        <div className="flex items-center justify-between gap-2 mb-1.5">
-          <span className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-            <SparklesIcon className="size-3.5 text-primary" />
-            Cloze Context · 原生语境挖空填词
-          </span>
-          <button
-            type="button"
-            onClick={() => playSentenceAudio(sentence)}
-            className="inline-flex items-center gap-1 text-[11px] font-mono text-primary hover:underline cursor-pointer"
-          >
-            <Volume2Icon className="size-3.5" />
-            <span>听原句</span>
-          </button>
-        </div>
-        <p className="text-xs sm:text-sm font-serif text-foreground leading-relaxed">
-          {clozeDisplay}
-        </p>
-        {card.contextTranslation && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            {card.contextTranslation}
-          </p>
-        )}
-      </div>
-    )
-  }
-
   return (
     <div className="w-full">
       {/* 默写主卡片 (根据红色方框适度增加高度，整体舒展大气并防滚动) */}
       <div
-        className={`relative flex flex-col justify-between min-h-[480px] sm:min-h-[520px] md:min-h-[540px] p-5 sm:p-6 md:p-8 rounded-3xl border border-border/80 bg-gradient-to-b from-card via-card/95 to-card/90 shadow-xl transition-all ${
+        className={`relative flex min-h-[420px] flex-col rounded-3xl border border-border/80 bg-gradient-to-b from-card via-card/95 to-card/90 p-5 shadow-xl transition-all sm:min-h-[460px] sm:p-6 md:min-h-[480px] md:p-8 ${
           isErrorShake ? "animate-shake border-rose-500/80 bg-rose-500/5" : ""
         }`}
       >
         {/* 卡顶元数据与状态栏 (状态内聚于卡顶栏) */}
-        <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-border/60 pb-3 mb-3.5">
+        <div className="mb-3.5 flex flex-col gap-3 border-b border-border/60 pb-3 lg:flex-row lg:items-center lg:justify-between">
           {/* 左侧：模式标签 + 记忆稳定性 */}
-          <div className="flex items-center gap-2.5">
-            <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+            <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-amber-500/30 bg-amber-500/15 px-3 py-1 text-xs font-mono font-bold text-amber-600 dark:text-amber-400">
               <ZapIcon className="size-3.5" />
               <span>{sourceType === "AFTER_REVIEW" ? "复习单词默写" : "新词拼写默写"}</span>
             </span>
@@ -352,7 +307,7 @@ export function KeystrokeCardPanel({
           </div>
 
           {/* 右侧：词量进度指示 + 快捷键提示 + 退出默写按钮 */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 lg:justify-end">
             {totalCards !== undefined && currentIndex !== undefined && (
               <span className="text-xs font-mono font-bold px-3 py-1 rounded-lg bg-muted text-foreground border border-border/60 shadow-2xs">
                 第 {currentIndex + 1} / {totalCards} 词
@@ -404,13 +359,13 @@ export function KeystrokeCardPanel({
           </div>
         </div>
 
-        {/* 词义线索与语境 */}
-        <div className="flex flex-col items-center justify-center text-center py-2 sm:py-3 flex-1">
-          <div className="flex items-baseline justify-center gap-2.5 text-primary font-bold text-xl sm:text-2xl md:text-3xl">
-            <span className="text-xs font-mono px-2.5 py-0.5 rounded-md bg-primary/10">
+        {/* 词义线索 */}
+        <div className="flex flex-1 flex-col items-center justify-center py-2 text-center sm:py-3">
+          <div className="flex max-w-full items-baseline justify-center gap-2.5 text-primary">
+            <span className="shrink-0 whitespace-nowrap rounded-md bg-primary/10 px-2.5 py-0.5 text-xs font-mono font-bold">
               {card.pos || "v./n."}
             </span>
-            <span>{card.definitionCn}</span>
+            <span className="min-w-0 break-words text-left text-lg font-bold leading-snug sm:text-xl">{card.definitionCn}</span>
           </div>
 
           {card.phoneticUs && (
@@ -429,7 +384,7 @@ export function KeystrokeCardPanel({
               return (
                 <div
                   key={idx}
-                  className={`size-9 sm:size-10 md:size-11 rounded-xl flex items-center justify-center font-mono font-bold text-base sm:text-xl transition-all border ${
+                  className={`flex size-9 shrink-0 items-center justify-center rounded-xl border font-mono text-base font-bold transition-all sm:size-10 sm:text-xl md:size-11 ${
                     isTyped
                       ? "border-primary bg-primary/10 text-foreground scale-105 shadow-xs"
                       : isHinted
@@ -443,8 +398,6 @@ export function KeystrokeCardPanel({
             })}
           </div>
 
-          {/* 语境挖空句 */}
-          <div className="mt-4 sm:mt-5 w-full max-w-xl">{renderClozeSentence()}</div>
         </div>
 
         {/* 默写输入交互条 */}
@@ -474,7 +427,7 @@ export function KeystrokeCardPanel({
           </div>
 
           {/* 操作辅助栏 */}
-          <div className="flex items-center gap-4 sm:gap-6 text-xs sm:text-sm font-mono text-muted-foreground">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs font-mono text-muted-foreground sm:gap-x-6 sm:text-sm">
             <button
               type="button"
               onClick={() => {
@@ -487,7 +440,6 @@ export function KeystrokeCardPanel({
             >
               <span>[Tab] 提示首字母</span>
             </button>
-            <span>·</span>
             <button
               type="button"
               onClick={handleGiveUpClick}
@@ -495,7 +447,7 @@ export function KeystrokeCardPanel({
               className="hover:text-rose-500 transition-colors flex items-center gap-1.5 text-rose-500/80 cursor-pointer"
             >
               <RotateCcwIcon className="size-3.5" />
-              <span>不记得了 / 认输记为 Again</span>
+              <span>不记得了</span>
             </button>
           </div>
         </div>

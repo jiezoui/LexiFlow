@@ -98,9 +98,44 @@ export function GithubHeatmap() {
     }
     try {
       const data = await statsApi.getHeatmap(year)
-      setCalendar(data)
-      setSelectedYear(data.year)
-      activeYearRef.current = data.year
+      if (Array.isArray(data)) {
+        const days = data as HeatmapDay[]
+        const total = days.reduce((sum, d) => sum + (d.count ?? 0), 0)
+        const active = days.filter((d) => (d.count ?? 0) > 0).length
+        const totalDur = days.reduce((sum, d) => sum + (d.durationMinutes ?? 0), 0)
+        let longestStreak = 0
+        let runningStreak = 0
+        for (const d of days) {
+          if ((d.count ?? 0) > 0) {
+            runningStreak++
+            longestStreak = Math.max(longestStreak, runningStreak)
+          } else {
+            runningStreak = 0
+          }
+        }
+        const y = year ?? (days[0] ? parseLocalDate(days[0].date).getFullYear() : new Date().getFullYear())
+        const totalReviews = days.reduce((sum, d) => sum + (d.reviewCount ?? 0), 0)
+        const totalCollected = days.reduce((sum, d) => sum + (d.collectedCount ?? 0), 0)
+        const maxDailyCount = days.reduce((max, d) => Math.max(max, d.count ?? 0), 0)
+        setCalendar({
+          year: y,
+          totalCount: total,
+          totalReviews,
+          totalCollected,
+          activeDays: active,
+          longestStreak,
+          totalDurationMinutes: totalDur,
+          maxDailyCount,
+          days,
+          availableYears: [y],
+        })
+        setSelectedYear(y)
+        activeYearRef.current = y
+      } else if (data && Array.isArray(data.days)) {
+        setCalendar(data)
+        setSelectedYear(data.year)
+        activeYearRef.current = data.year
+      }
       setError(null)
     } catch (e) {
       // 静默刷新失败时保留原有图表，不把已经显示的年度数据擦掉
@@ -197,8 +232,11 @@ export function GithubHeatmap() {
         ) : (
           /* 内容宽度由格子决定，用 w-max + mx-auto 让整块在卡片内水平居中 */
           <div className="mx-auto w-max">
-            {/* Month Labels：按各月落在的周列对齐，而不是均分整行 */}
-            <div className="relative h-4 mb-1.5 text-xs font-mono text-muted-foreground" style={{ width: gridWidth }}>
+            {/* Month Labels：按各月落在的周列对齐，并留出左侧星期标签宽度 (w-8 32px + gap-2 8px = 40px) */}
+            <div
+              className="relative h-4 mb-1.5 text-xs font-mono text-muted-foreground"
+              style={{ width: gridWidth, marginLeft: 40 }}
+            >
               {monthLabels.map(({ label, column }) => (
                 <span
                   key={label}
@@ -227,10 +265,14 @@ export function GithubHeatmap() {
                 ))}
               </div>
 
-              {/* 7 行 × N 周的矩阵 */}
+              {/* 7 行 × N 周的矩阵：显式指定 gridTemplateRows 确保 7 行固定高度，避免 Tailwind 缺 grid-rows-7 导致错位 */}
               <div
-                className="grid grid-rows-7 grid-flow-col"
-                style={{ gap: CELL_GAP, gridAutoColumns: CELL_SIZE }}
+                className="grid grid-flow-col"
+                style={{
+                  gap: CELL_GAP,
+                  gridAutoColumns: CELL_SIZE,
+                  gridTemplateRows: `repeat(7, ${CELL_SIZE}px)`,
+                }}
               >
                 {weeks.flatMap((week, weekIndex) =>
                   week.map((cell, dayIndex) => {

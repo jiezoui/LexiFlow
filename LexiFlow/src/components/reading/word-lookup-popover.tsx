@@ -29,7 +29,7 @@ import {
   type AiExplainResult,
 } from "@/lib/api-client"
 import { lemmatize } from "@/lib/lemmatizer"
-import { getActiveAiConfig } from "@/lib/ai-config"
+import { getActiveAiConfig, getAiSettings } from "@/lib/ai-config"
 
 export interface WordLookupPopoverProps {
   word: string
@@ -201,6 +201,7 @@ export function WordLookupPopover({
   const [aiLoading, setAiLoading] = useState(false)
   const [aiResult, setAiResult] = useState<AiExplainResult | null>(null)
   const [aiConfig, setAiConfig] = useState(getActiveAiConfig())
+  const [readingAiEnabled, setReadingAiEnabled] = useState(() => getAiSettings().enableReadingAi)
 
   // 例句翻译状态 (当前文章原句语境翻译)
   const [contextTrans, setContextTrans] = useState<string>("")
@@ -212,6 +213,9 @@ export function WordLookupPopover({
   // 当打开 AI 解析弹窗且配置有效时，优先命中客户端缓存或拉取解析
   useEffect(() => {
     if (!showAiInsight) return
+    const enabled = getAiSettings().enableReadingAi
+    setReadingAiEnabled(enabled)
+    if (!enabled) return
     const cfg = getActiveAiConfig()
     setAiConfig(cfg)
     if (cfg.isConfigured && !aiResult) {
@@ -278,6 +282,7 @@ export function WordLookupPopover({
   }, [showAiInsight])
 
   const handleRequestAiExplain = async (cfg = aiConfig, customQuestion?: string) => {
+    if (!getAiSettings().enableReadingAi) return
     if (!cfg.isConfigured) return
     const targetSentence = (contextSentence || contextParagraph || entry?.sampleSentence || "").trim()
     const isDefaultQuery = !customQuestion
@@ -958,7 +963,11 @@ export function WordLookupPopover({
               </div>
 
               {/* 未配置 AI 引导 */}
-              {!aiConfig.isConfigured ? (
+              {!readingAiEnabled ? (
+                <div className="py-6 text-center text-sm text-muted-foreground">
+                  词句解析已关闭。<Link href="/settings?tab=ai" className="text-primary underline-offset-2 hover:underline">前往设置</Link>
+                </div>
+              ) : !aiConfig.isConfigured ? (
                 <div className="p-5 rounded-2xl bg-muted/30 border border-dashed border-border/80 flex flex-col items-center text-center gap-3 my-auto">
                   <div className="size-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
                     <AlertCircleIcon className="size-5" />

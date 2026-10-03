@@ -10,8 +10,10 @@ import {
   RotateCwIcon,
   Volume2Icon,
   VolumeXIcon,
+  ChevronDownIcon,
+  CheckIcon,
 } from "lucide-react"
-import type { MediaCue } from "@/lib/api-client"
+import { statsApi, type MediaCue } from "@/lib/api-client"
 
 type CaptionMode = "bilingual" | "english" | "hidden"
 
@@ -122,6 +124,18 @@ export const MediaPlayer = forwardRef<MediaPlayerHandle, MediaPlayerProps>(funct
   const [controlsVisible, setControlsVisible] = useState(true)
   const [duration, setDuration] = useState(0)
   const [playbackRate, setPlaybackRate] = useState(1)
+  const [rateDropdownOpen, setRateDropdownOpen] = useState(false)
+  const rateDropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (rateDropdownRef.current && !rateDropdownRef.current.contains(e.target as Node)) {
+        setRateDropdownOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
   const [captionMode, setCaptionMode] = useState<CaptionMode>("bilingual")
   const timedWords = useMemo(() => cueWordTimings(activeCue), [activeCue])
 
@@ -138,6 +152,15 @@ export const MediaPlayer = forwardRef<MediaPlayerHandle, MediaPlayerProps>(funct
   const karaokeWordRefs = useRef<Array<HTMLSpanElement | null>>([])
   const karaokeFillRefs = useRef<Array<HTMLSpanElement | null>>([])
   const reducedMotionRef = useRef(false)
+
+  // 视听语境时长心跳上报 (每连续播放 60s 上报 1 分钟)
+  useEffect(() => {
+    if (!isPlaying) return
+    const timer = setInterval(() => {
+      void statsApi.recordDuration(1).catch(() => {})
+    }, 60000)
+    return () => clearInterval(timer)
+  }, [isPlaying])
 
   const clearHideTimer = useCallback(() => {
     if (hideTimerRef.current !== null) {
@@ -504,16 +527,47 @@ export const MediaPlayer = forwardRef<MediaPlayerHandle, MediaPlayerProps>(funct
                   </button>
                 ))}
               </div>
-              <label className="sr-only" htmlFor="video-playback-rate">播放速度</label>
-              <select
-                id="video-playback-rate"
-                value={playbackRate}
-                onChange={(event) => changePlaybackRate(Number(event.target.value))}
-                className="h-8 rounded-lg bg-zinc-900/60 px-2 text-[11px] font-semibold text-zinc-50 outline-none transition-colors hover:bg-zinc-800 focus-visible:ring-2 focus-visible:ring-zinc-50"
-                aria-label="播放速度"
-              >
-                {[0.75, 1, 1.25, 1.5, 2].map((rate) => <option key={rate} value={rate}>{rate}x</option>)}
-              </select>
+              <div className="relative" ref={rateDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setRateDropdownOpen(!rateDropdownOpen)}
+                  className="h-8 flex items-center gap-1 rounded-lg bg-zinc-900/80 border border-zinc-700/60 px-2 text-[11px] font-mono font-semibold text-zinc-50 hover:bg-zinc-800 transition-colors shadow-2xs select-none"
+                  aria-label="播放速度"
+                >
+                  <span>{playbackRate}x</span>
+                  <ChevronDownIcon
+                    className={`size-3 text-zinc-400 transition-transform duration-200 ${
+                      rateDropdownOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+
+                {rateDropdownOpen && (
+                  <div className="absolute right-0 bottom-full mb-1.5 z-50 min-w-20 rounded-xl border border-zinc-800 bg-zinc-950/95 p-1 shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95">
+                    {[0.75, 1, 1.25, 1.5, 2].map((rate) => {
+                      const isSelected = playbackRate === rate
+                      return (
+                        <button
+                          key={rate}
+                          type="button"
+                          onClick={() => {
+                            changePlaybackRate(rate)
+                            setRateDropdownOpen(false)
+                          }}
+                          className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs font-mono transition-colors ${
+                            isSelected
+                              ? "bg-zinc-800 text-white font-bold"
+                              : "text-zinc-400 hover:text-white hover:bg-zinc-800/60 font-medium"
+                          }`}
+                        >
+                          <span>{rate}x</span>
+                          {isSelected && <CheckIcon className="size-3 text-emerald-400 ml-1" />}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
               <button type="button" className="video-control" onClick={toggleMute} aria-label={isMuted ? "取消静音" : "静音"}>
                 {isMuted ? <VolumeXIcon className="size-4" /> : <Volume2Icon className="size-4" />}
               </button>

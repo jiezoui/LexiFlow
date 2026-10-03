@@ -56,11 +56,11 @@ const typeColors: Record<Notification["type"], string> = {
 }
 
 const filters: { label: string; value: FilterType }[] = [
-  { label: "All", value: "all" },
-  { label: "Unread", value: "unread" },
-  { label: "Transactions", value: "transaction" },
-  { label: "Security", value: "security" },
-  { label: "System", value: "system" },
+  { label: "全部", value: "all" },
+  { label: "未读", value: "unread" },
+  { label: "交易", value: "transaction" },
+  { label: "安全", value: "security" },
+  { label: "系统", value: "system" },
 ]
 
 export function NotificationsPageClient() {
@@ -94,17 +94,17 @@ export function NotificationsPageClient() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">Notifications</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">通知</h1>
           {unreadCount > 0 && (
             <Badge variant="default" className="tabular-nums">
-              {unreadCount} unread
+              {unreadCount} 未读
             </Badge>
           )}
         </div>
         {unreadCount > 0 && (
           <Button variant="outline" size="sm" onClick={markAllRead}>
             <CheckCheckIcon className="size-4" />
-            Mark all as read
+            全部已读
           </Button>
         )}
       </div>
@@ -201,7 +201,7 @@ export function NotificationsPageClient() {
                         }}
                       >
                         <XIcon className="size-3" />
-                        <span className="sr-only">Dismiss</span>
+                        <span className="sr-only">删除通知</span>
                       </Button>
                     </div>
                   </div>

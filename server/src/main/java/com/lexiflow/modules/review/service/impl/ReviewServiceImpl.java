@@ -51,6 +51,8 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewLogMapper, ReviewLogEnt
     private final DictEntryMapper dictEntryMapper;
     private final DailyStatMapper dailyStatMapper;
     private final FsrsEngine fsrsEngine;
+    private final com.lexiflow.modules.plan.mapper.StudyPlanMapper studyPlanMapper;
+    private final com.lexiflow.modules.wordbook.service.WordbookService wordbookService;
 
     @Override
     public List<ReviewQueueCardVo> getReviewQueue(Long userId, Integer limit) {
@@ -285,7 +287,26 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewLogMapper, ReviewLogEnt
                 .orderByAsc(UserWordEntity::getId)
                 .last("LIMIT " + maxWords));
 
-        // 2. 若用户新词池为空，直接返回空列表，绝对不私自向用户词库自动灌入静态推荐词
+        // 2. 若用户新词池为空，尝试从用户的活跃学习计划中自动出库对应配额新词
+        if (newCards.isEmpty() && studyPlanMapper != null && wordbookService != null) {
+            com.lexiflow.modules.plan.entity.StudyPlanEntity plan = studyPlanMapper.selectOne(
+                    new LambdaQueryWrapper<com.lexiflow.modules.plan.entity.StudyPlanEntity>()
+                            .eq(com.lexiflow.modules.plan.entity.StudyPlanEntity::getUserId, userId));
+            if (plan != null && plan.getWordbookId() != null) {
+                try {
+                    wordbookService.importWordbookToVocab(plan.getWordbookId(), maxWords, null, userId);
+                    newCards = userWordMapper.selectList(new LambdaQueryWrapper<UserWordEntity>()
+                            .eq(UserWordEntity::getUserId, userId)
+                            .eq(UserWordEntity::getState, CardState.NEW.getCode())
+                            .eq(UserWordEntity::getIsKnown, 0)
+                            .orderByAsc(UserWordEntity::getId)
+                            .last("LIMIT " + maxWords));
+                } catch (Exception e) {
+                    log.warn("从学习计划主词书自动出库新词失败: wordbookId={}, error={}", plan.getWordbookId(), e.getMessage());
+                }
+            }
+        }
+
         if (newCards.isEmpty()) {
             return Collections.emptyList();
         }
@@ -377,6 +398,8 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewLogMapper, ReviewLogEnt
             card.setIsKnown(1);
             card.setUpdatedAt(now);
             userWordMapper.updateById(card);
+            // 斩词也属于今日已消化/掌握的新词
+            updateDailyStat(userId, card.getState(), Rating.EASY.getValue(), request.getDurationMs());
             return;
         }
 

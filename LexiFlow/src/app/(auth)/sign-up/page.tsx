@@ -90,8 +90,7 @@ export default function SignUpPage() {
           </div>
 
           <div className="mb-10 text-center">
-            <h1 className="mb-2 text-3xl font-bold tracking-tight">创建账号</h1>
-            <p className="text-sm text-muted-foreground">几分钟即可开始你的语境研习</p>
+            <h1 className="text-3xl font-bold tracking-tight">创建账号</h1>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">

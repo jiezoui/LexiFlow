@@ -186,24 +186,25 @@ function ProblemRow({
   )
 }
 
-/** 「其他反馈」单行：语速 / 停顿 / 语调。 */
-function FeedbackRow({
+/** 语速 / 停顿 / 语调 紧凑指标卡片。 */
+function FeedbackPill({
   icon: Icon,
   label,
   value,
-  hint,
+  status,
 }: {
   icon: typeof TimerIcon
   label: string
   value: string
-  hint: string
+  status: string
 }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-border/70 bg-card px-3 py-2">
-      <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="w-14 shrink-0 text-[11px] font-semibold text-foreground">{label}</span>
-      <span className="shrink-0 font-mono text-[11px] font-bold text-foreground">{value}</span>
-      <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{hint}</span>
+    <div className="flex flex-col items-center justify-center rounded-xl border border-border/70 bg-card px-2.5 py-2 text-center">
+      <span className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
+        <Icon className="size-3" /> {label}
+      </span>
+      <span className="mt-0.5 font-mono text-xs font-bold text-foreground">{value}</span>
+      <span className="text-[10px] text-muted-foreground">{status}</span>
     </div>
   )
 }
@@ -384,23 +385,27 @@ export function ShadowingVerdict({
   }, [words])
 
   const advice = useMemo(() => {
-    const parts: string[] = []
-    if (weakestPhoneme && weakestPhoneme.score < 80) {
-      parts.push(`重点打磨 /${weakestPhoneme.phoneme.replace(/^\/|\/$/g, "")}/（均分 ${weakestPhoneme.score}）`)
+    if (scores.overall >= 85 && problemRows.length === 0) {
+      if (timing.words_per_minute > 0 && timing.words_per_minute < 140) {
+        return "发音准确度高。若想进一步提升，可尝试稍加快语速以贴近原声节奏。"
+      }
+      return "整句发音准确、语流连贯，可继续保持或进入下一句练习。"
     }
-    parts.push(`当前最弱的是「${weakestMetric[0]}」`)
+    const parts: string[] = []
+    if (weakestPhoneme && weakestPhoneme.score < 75) {
+      parts.push(`重点关注 /${weakestPhoneme.phoneme.replace(/^\/|\/$/g, "")}/（均分 ${weakestPhoneme.score}）的发音`)
+    }
+    if (weakestMetric[1] < 80) {
+      parts.push(`可侧重提升「${weakestMetric[0]}」`)
+    }
     if (timing.words_per_minute > 190) parts.push("适当放慢语速")
-    else if (timing.words_per_minute > 0 && timing.words_per_minute < 150) parts.push("语速偏慢，先保证连读再提速")
+    else if (timing.words_per_minute > 0 && timing.words_per_minute < 130) parts.push("适当提高语速保持连读")
     if (timing.pause_count > 2) parts.push("按意群切分，减少句内长停顿")
-    return `${parts.join("，")}。按教练提示调整口型后，用 0.75x 慢速跟读一遍再录。`
-  }, [weakestPhoneme, weakestMetric, timing])
-
-  const wpmHint =
-    timing.words_per_minute > 190
-      ? "偏快，建议 150~190"
-      : timing.words_per_minute > 0 && timing.words_per_minute < 150
-      ? "偏慢，可再连贯些"
-      : "节奏合适"
+    if (parts.length === 0) {
+      return "整体表现良好，点击待改进词可试听原音对照。"
+    }
+    return `${parts.join("，")}。`
+  }, [scores.overall, problemRows.length, weakestPhoneme, weakestMetric, timing])
   const prosodyHint =
     acoustic.pitch_range_semitones !== null
       ? `基频跨度 ${acoustic.pitch_range_semitones} 半音`
@@ -431,8 +436,8 @@ export function ShadowingVerdict({
         </TabsList>
 
         {/* ── ① 本轮反馈 ────────────────────────────────────────────── */}
-        <TabsContent value="feedback" className="flex flex-col gap-3">
-          <div className="grid gap-2.5 sm:grid-cols-[170px_minmax(0,1fr)]">
+        <TabsContent value="feedback" className="grid gap-3 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+          <div className="grid gap-2.5 sm:grid-cols-[170px_minmax(0,1fr)] xl:col-span-2">
             <div
               className={`flex flex-col items-center justify-center gap-1 rounded-2xl border px-3 py-3 text-center ${grade.ring}`}
             >
@@ -481,68 +486,42 @@ export function ShadowingVerdict({
                 tone={scores.prosody === null ? "fair" : scoreTone(scores.prosody)}
                 hint={prosodyHint}
               />
-              <p className="font-mono text-[10px] text-muted-foreground">
-                参考 {counts.total_reference} 词 · 读对 {counts.correct} · 误读{" "}
-                {counts.substitution} · 漏读 {counts.omission} · 多读 {counts.insertion} · 音素{" "}
-                {counts.total_phonemes} 个（低分 {counts.poor_phonemes}）
-              </p>
             </div>
           </div>
 
-          {(praises.length > 0 || perfectWords.length > 0) && (
-            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 px-3.5 py-2.5">
-              <div className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
-                <AwardIcon className="size-3" />
-                做得好的地方
+          {problemRows.length === 0 ? (
+            <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 xl:col-span-2">
+              <BadgeCheckIcon className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-emerald-900 dark:text-emerald-100">
+                  发音标准完整
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  本句未检测到明显漏读、误读或低分音素，可继续保持。
+                </p>
               </div>
-              <ul className="mt-1.5 flex flex-col gap-1.5">
-                {praises.slice(0, 2).map((tip, i) => (
-                  <li key={`${tip.title}-${i}`} className="text-[11px] leading-snug text-foreground">
-                    <span className="font-semibold">{tip.title}</span>
-                    <span className="text-muted-foreground"> · {tip.detail}</span>
-                  </li>
-                ))}
-                {perfectWords.length > 0 && (
-                  <li className="text-[11px] leading-snug text-muted-foreground">
-                    共 {perfectWords.length} 个词发音到位（≥85 分）：
-                    <span className="font-serif text-foreground">
-                      {perfectWords
-                        .slice(0, 8)
-                        .map((w) => w.word)
-                        .join("、")}
-                    </span>
-                    {perfectWords.length > 8 ? " …" : ""}
-                  </li>
-                )}
-              </ul>
             </div>
-          )}
-
-          <div className="overflow-hidden rounded-2xl border border-border bg-card">
-            <div className="flex items-center justify-between border-b border-border/60 px-3.5 py-2">
-              <span className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                <AlertTriangleIcon className="size-3" />
-                主要问题
-                <span className="rounded-full bg-muted px-1.5 text-[10px]">
-                  {problemRows.length}
+          ) : (
+            <div className="overflow-hidden rounded-2xl border border-border bg-card xl:col-span-2">
+              <div className="flex items-center justify-between border-b border-border/60 px-3.5 py-2">
+                <span className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <AlertTriangleIcon className="size-3 text-amber-500" />
+                  待改进发音
+                  <span className="rounded-full bg-rose-500/15 px-1.5 text-[10px] font-bold text-rose-600 dark:text-rose-400">
+                    {problemRows.length}
+                  </span>
                 </span>
-              </span>
-              {problemRows.length > 4 && (
-                <button
-                  type="button"
-                  onClick={() => setTab("words")}
-                  className="inline-flex items-center gap-1 font-mono text-[10px] font-bold text-primary hover:underline"
-                >
-                  查看全部
-                  <ArrowRightIcon className="size-3" />
-                </button>
-              )}
-            </div>
-            {problemRows.length === 0 ? (
-              <p className="px-3.5 py-3 text-[11px] text-muted-foreground">
-                本句没有明显的漏读或误读，继续保持这个状态 👍
-              </p>
-            ) : (
+                {problemRows.length > 4 && (
+                  <button
+                    type="button"
+                    onClick={() => setTab("words")}
+                    className="inline-flex items-center gap-1 font-mono text-[10px] font-bold text-primary hover:underline"
+                  >
+                    逐词查看
+                    <ArrowRightIcon className="size-3" />
+                  </button>
+                )}
+              </div>
               <div className="flex flex-col divide-y divide-border/60">
                 {problemRows.slice(0, 4).map((row, i) => {
                   const phoneme = row.worst
@@ -550,13 +529,13 @@ export function ShadowingVerdict({
                     : ""
                   const hint =
                     row.word.status === "OMISSION"
-                      ? "整词漏读：词尾 -s / -ed / -t / -d 也要发出来"
+                      ? "整词漏读：词尾 -s / -ed / -t / -d 请完整发音"
                       : row.word.status === "SUBSTITUTION"
-                      ? `读成了「${row.word.actual_word ?? "其它词"}」${
-                          phoneme ? `，注意 /${phoneme}/ 的口型` : ""
+                      ? `识别为「${row.word.actual_word ?? "其它词"}」${
+                          phoneme ? `，注意 /${phoneme}/ 发音` : ""
                         }`
                       : (phoneme && phonemeHints.get(phoneme)) ||
-                        `/${phoneme}/ 得分 ${Math.round(row.worst?.score ?? 0)}，点击试听对照`
+                        `/${phoneme}/ 得分 ${Math.round(row.worst?.score ?? 0)}，点击试听标准发音`
                   return (
                     <ProblemRow
                       key={`${row.word.word}-${i}`}
@@ -568,74 +547,49 @@ export function ShadowingVerdict({
                   )
                 })}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
-          {/* 语速 / 停顿 / 语调：面板固定在右列（约 400px）展示，单列堆叠更好读 */}
-          <div className="grid gap-2">
-            <FeedbackRow
+          <div className="grid grid-cols-3 gap-2 xl:col-span-2">
+            <FeedbackPill
               icon={TimerIcon}
               label="语速"
               value={`${timing.words_per_minute} WPM`}
-              hint={wpmHint}
+              status={
+                timing.words_per_minute > 190
+                  ? "偏快"
+                  : timing.words_per_minute > 0 && timing.words_per_minute < 150
+                  ? "偏慢"
+                  : "适中"
+              }
             />
-            <FeedbackRow
+            <FeedbackPill
               icon={WavesIcon}
               label="停顿"
               value={`${timing.pause_count} 处`}
-              hint={
-                timing.pause_count === 0
-                  ? "句内几乎无停顿，很连贯"
-                  : `最长 ${timing.longest_pause_ms} ms`
-              }
+              status={timing.pause_count === 0 ? "连贯" : `最长 ${timing.longest_pause_ms}ms`}
             />
-            <FeedbackRow
+            <FeedbackPill
               icon={GaugeIcon}
               label="语调"
               value={scores.prosody === null ? "--" : `${Math.round(scores.prosody)} 分`}
-              hint={
+              status={
                 scores.prosody === null
-                  ? "未测得基频"
+                  ? "未测"
                   : scores.prosody >= 75
-                  ? "起伏接近原声"
-                  : "语调平淡，可再夸张些"
+                  ? "起伏自然"
+                  : "起伏较平"
               }
             />
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-border/70 bg-muted/30 px-3.5 py-2.5">
-            <p className="flex min-w-0 flex-1 items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
-              <LightbulbIcon className="mt-0.5 size-3 shrink-0 text-amber-500" />
-              <span>
-                <span className="font-semibold text-foreground">练习建议：</span>
-                {advice}
-              </span>
+          <div className="flex items-start gap-2 rounded-2xl border border-border/70 bg-muted/30 px-3.5 py-2.5 xl:col-span-2">
+            <LightbulbIcon className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+            <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-muted-foreground">
+              <span className="font-semibold text-foreground">练习建议：</span>
+              {advice}
             </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setTab("words")}
-                className="inline-flex items-center gap-1 rounded-xl border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] font-bold transition-colors hover:bg-muted"
-              >
-                逐词发音
-                <ArrowRightIcon className="size-3" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab("analysis")}
-                className="inline-flex items-center gap-1 rounded-xl bg-primary px-2.5 py-1.5 font-mono text-[11px] font-bold text-primary-foreground shadow transition-opacity hover:opacity-90"
-              >
-                完整分析
-                <ArrowRightIcon className="size-3" />
-              </button>
-            </div>
           </div>
-
-          <p className="px-1 font-mono text-[10px] text-muted-foreground">
-            {engine.asr} · {engine.asr_model}
-            {engine.phoneme_alignment ? " · 音素级对齐已启用" : " · 仅词级评分"} · 评测耗时{" "}
-            {result.processing_ms} ms
-          </p>
         </TabsContent>
 
         {/* ── ② 逐词发音 ────────────────────────────────────────────── */}
@@ -681,8 +635,7 @@ export function ShadowingVerdict({
 
         {/* ── ③ 完整分析 ────────────────────────────────────────────── */}
         <TabsContent value="analysis" className="flex flex-col gap-3">
-          {/* 节奏 / 声学：右列宽度有限，卡片上下堆叠 */}
-          <div className="grid gap-2.5">
+          <div className="grid gap-2.5 xl:grid-cols-2">
             <section className="rounded-2xl border border-border bg-card p-3.5">
               <div className="flex items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 <TimerIcon className="size-3.5" /> 节奏分析
@@ -747,7 +700,7 @@ export function ShadowingVerdict({
             <div className="flex items-center gap-2 px-1 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               <LightbulbIcon className="size-3.5" /> 发音教练反馈
             </div>
-            <div className="flex flex-col gap-2">
+            <div className="grid gap-2 xl:grid-cols-2">
               {[...fixes, ...praises].map((tip, i) => {
                 const severe = tip.severity === "HIGH"
                 const praise = tip.type === "PRAISE"
@@ -827,7 +780,7 @@ export function ShadowingVerdict({
               </p>
               <p className="flex items-center gap-1">
                 <SparklesIcon className="size-3" />
-                {engine.asr} · {engine.asr_model} · 评测耗时 {result.processing_ms} ms
+                {engine.asr} {engine.phoneme_alignment ? "· 音素级对齐" : ""} · 评测耗时 {result.processing_ms} ms
               </p>
             </div>
           </details>

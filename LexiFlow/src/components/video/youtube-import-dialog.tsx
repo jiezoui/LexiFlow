@@ -108,8 +108,7 @@ export function YouTubeImportDialog({ open, onOpenChange, onSuccess }: YouTubeIm
                   disabled={!url.trim()}
                   className="flex items-center gap-1 rounded-lg bg-zinc-800/90 hover:bg-zinc-700/90 px-2.5 py-1 text-xs font-medium text-zinc-400 hover:text-zinc-200 border border-zinc-700/50 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed select-none active:scale-95"
                 >
-                  <span>Enter</span>
-                  <span className="text-[10px]">↵</span>
+                  <span>导入</span>
                 </button>
               )}
             </div>

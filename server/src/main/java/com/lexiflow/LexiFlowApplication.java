@@ -19,7 +19,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
         "com.lexiflow.infra.asyncjob.mapper",
         "com.lexiflow.modules.shadowing.mapper",
         "com.lexiflow.modules.subscription.mapper",
-        "com.lexiflow.modules.podcast.mapper"
+        "com.lexiflow.modules.podcast.mapper",
+        "com.lexiflow.modules.plan.mapper"
 })
 public class LexiFlowApplication {
 

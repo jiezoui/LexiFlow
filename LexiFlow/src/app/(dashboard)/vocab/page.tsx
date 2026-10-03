@@ -1,6 +1,6 @@
-﻿"use client"
+"use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
 import {
   BookmarkCheckIcon,
@@ -14,6 +14,7 @@ import {
   AlertCircleIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ChevronDownIcon,
   BookOpenIcon,
   FilmIcon,
   FileTextIcon,
@@ -39,6 +40,18 @@ export default function VocabPage() {
   const [debouncedKeyword, setDebouncedKeyword] = useState<string>("")
   const [page, setPage] = useState<number>(1)
   const [pageSize, setPageSize] = useState<number>(20)
+  const [pageSizeDropdownOpen, setPageSizeDropdownOpen] = useState(false)
+  const pageSizeDropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (pageSizeDropdownRef.current && !pageSizeDropdownRef.current.contains(e.target as Node)) {
+        setPageSizeDropdownOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
 
   // 交互状态
   const [playingId, setPlayingId] = useState<number | null>(null)
@@ -832,22 +845,47 @@ export default function VocabPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* 每页条数选择 */}
-            <div className="flex items-center gap-1.5">
-              <span>每页</span>
-              <select
-                value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value))
-                  setPage(1)
-                }}
-                className="h-8 rounded-lg border border-border bg-surface px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+            {/* 每页条数选择 (向上弹出的主题卡片) */}
+            <div className="relative" ref={pageSizeDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setPageSizeDropdownOpen(!pageSizeDropdownOpen)}
+                className="h-8 flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-xs font-mono font-medium text-foreground hover:bg-muted/70 transition-colors shadow-2xs select-none"
               >
-                <option value={10}>10</option>
-                <option value={20}>20</option>
-                <option value={50}>50</option>
-              </select>
-              <span>条</span>
+                <span>{pageSize} 条/页</span>
+                <ChevronDownIcon
+                  className={`size-3 text-muted-foreground transition-transform duration-200 ${
+                    pageSizeDropdownOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+
+              {pageSizeDropdownOpen && (
+                <div className="absolute right-0 bottom-full mb-1 z-50 min-w-24 rounded-xl border border-border bg-popover p-1 shadow-lg backdrop-blur-md animate-in fade-in zoom-in-95">
+                  {[10, 20, 50].map((size) => {
+                    const isSelected = pageSize === size
+                    return (
+                      <button
+                        key={size}
+                        type="button"
+                        onClick={() => {
+                          setPageSize(size)
+                          setPage(1)
+                          setPageSizeDropdownOpen(false)
+                        }}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-mono transition-colors ${
+                          isSelected
+                            ? "bg-muted text-foreground font-bold"
+                            : "text-muted-foreground hover:text-foreground hover:bg-muted/50 font-medium"
+                        }`}
+                      >
+                        <span>{size} 条</span>
+                        {isSelected && <CheckIcon className="size-3 text-primary ml-1" />}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
 
             {/* 页码切换 */}

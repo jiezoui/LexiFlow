@@ -50,9 +50,6 @@ export function ModuleNavigationGrid({
               </div>
               <ArrowRightIcon className="size-3.5 text-zinc-400 transition-transform duration-200 group-hover:translate-x-1 group-hover:text-zinc-900 dark:group-hover:text-zinc-100" />
             </div>
-            <p className="mt-0.5 text-xs text-zinc-400 font-normal">
-              基于 FSRS，科学安排记忆
-            </p>
           </div>
 
           {/* 拟物单词叠卡展示 (紧凑高度) */}
@@ -107,9 +104,6 @@ export function ModuleNavigationGrid({
               </div>
               <ArrowRightIcon className="size-3.5 text-zinc-400 transition-transform duration-200 group-hover:translate-x-1 group-hover:text-zinc-900 dark:group-hover:text-zinc-100" />
             </div>
-            <p className="mt-0.5 text-xs text-zinc-400 font-normal">
-              在真实语境中理解与记忆
-            </p>
           </div>
 
           {/* 典雅雪山名言画幅 (紧凑高度) */}
@@ -161,9 +155,6 @@ export function ModuleNavigationGrid({
               </div>
               <ArrowRightIcon className="size-3.5 text-zinc-400 transition-transform duration-200 group-hover:translate-x-1 group-hover:text-zinc-900 dark:group-hover:text-zinc-100" />
             </div>
-            <p className="mt-0.5 text-xs text-zinc-400 font-normal">
-              从兴趣内容中高效输入
-            </p>
           </div>
 
           {/* 拟真雪山视频播放器 UI (紧凑高度) */}
@@ -221,9 +212,6 @@ export function ModuleNavigationGrid({
               </div>
               <ArrowRightIcon className="size-3.5 text-zinc-400 transition-transform duration-200 group-hover:translate-x-1 group-hover:text-zinc-900 dark:group-hover:text-zinc-100" />
             </div>
-            <p className="mt-0.5 text-xs text-zinc-400 font-normal">
-              听·模仿·内化·流利表达
-            </p>
           </div>
 
           {/* 拟真声学波形 (紧凑高度) */}

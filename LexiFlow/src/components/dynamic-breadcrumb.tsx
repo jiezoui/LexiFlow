@@ -15,12 +15,14 @@ import { useCurrentBreadcrumbTitle } from "@/components/breadcrumb-title-context
 
 const labelMap: Record<string, string> = {
   dashboard: "今日概览",
+  plan: "学习计划",
+  cards: "闪卡复习",
   analytics: "数据统计",
   wordbooks: "词书库",
   vocab: "生词本",
   videos: "视频精听",
   podcasts: "播客精听",
-  reading: "阅读库",
+  reading: "外刊研读",
   story: "语境文章",
   settings: "系统设置",
   notifications: "消息通知",

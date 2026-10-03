@@ -132,15 +132,15 @@ export default function ReadingPage() {
   }, [loadArticles])
 
   // 触发拉取最新 BBC 资讯
-  const handleSyncBbc = async () => {
+  const handleSyncArticles = async () => {
     try {
       setSyncing(true)
       const res = await readingApi.sync(activeChannel === "ALL" ? undefined : activeChannel)
-      setNotice({ message: res.message || "BBC 外刊资讯同步完成", type: "success" })
+      setNotice({ message: res.message || "外刊资讯同步完成", type: "success" })
       loadChannels()
       loadArticles()
     } catch (e) {
-      console.error("同步 BBC 失败:", e)
+      console.error("同步外刊失败:", e)
       setNotice({ message: "同步失败，请检查网络或稍后重试", type: "info" })
     } finally {
       setSyncing(false)
@@ -337,15 +337,9 @@ export default function ReadingPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="text-[11px] font-mono tracking-wider text-muted-foreground font-semibold uppercase">
-            Editorial Immersion · BBC 全球期刊实时研读库
-          </div>
-          <h1 className="mt-0.5 text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
-            沉浸式深度外刊研读
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+            外刊研读
           </h1>
-          <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
-            实时聚合 BBC 权威新闻流，自动评估 CEFR 语言难度。阅读中点击任意单词即时查词并一键沉淀语境入库。
-          </p>
         </div>
 
         {/* 顶部操作条 */}
@@ -369,21 +363,13 @@ export default function ReadingPage() {
             )}
           </div>
 
-          <Link
-            href="/reading/story"
-            className="h-9 px-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center gap-1.5 text-xs font-semibold transition-all shadow-xs shrink-0"
-          >
-            <SparklesIcon className="size-3.5 text-amber-500" />
-            <span>AI 语境串词生文</span>
-          </Link>
-
           <button
-            onClick={handleSyncBbc}
+            onClick={handleSyncArticles}
             disabled={syncing}
             className="h-9 px-3.5 rounded-xl border border-border bg-surface hover:bg-surface/80 flex items-center gap-2 text-xs font-medium text-foreground transition-all shadow-sm shrink-0 disabled:opacity-50"
           >
             <RefreshCwIcon className={`size-3.5 ${syncing ? "animate-spin" : ""}`} />
-            <span>{syncing ? "正在拉取 BBC..." : "同步最新资讯"}</span>
+            <span>{syncing ? "正在同步外刊..." : "同步最新资讯"}</span>
           </button>
         </div>
       </div>
@@ -430,7 +416,7 @@ export default function ReadingPage() {
       {loading ? (
         <div className="py-20 text-center flex flex-col items-center justify-center gap-3">
           <RefreshCwIcon className="size-6 text-muted-foreground animate-spin" />
-          <span className="text-xs text-muted-foreground">正在加载 BBC 权威外刊与 CEFR 难度评估...</span>
+          <span className="text-xs text-muted-foreground">正在加载外刊报道与 CEFR 难度评估...</span>
         </div>
       ) : articles.length === 0 ? (
         <div className="py-20 text-center flex flex-col items-center justify-center gap-3 border border-border rounded-3xl bg-surface/50">
@@ -441,10 +427,10 @@ export default function ReadingPage() {
           <p className="text-xs text-muted-foreground max-w-sm">
             {debouncedKeyword
               ? `未检索到包含「${debouncedKeyword}」的报道，请尝试更换检索词。`
-              : "当前分类下暂无已收录的 BBC 新闻资讯，点击右上角即可一键拉取最新期刊报道。"}
+              : "当前分类下暂无已收录的资讯报道，点击右上角即可一键同步最新报道。"}
           </p>
           <button
-            onClick={handleSyncBbc}
+            onClick={handleSyncArticles}
             disabled={syncing}
             className="mt-2 h-9 px-4 rounded-xl border border-border bg-surface hover:bg-surface/80 text-xs font-semibold text-foreground transition-all flex items-center gap-2"
           >
@@ -623,7 +609,7 @@ export default function ReadingPage() {
             >
               <div className="flex items-center gap-2">
                 <span className="font-mono text-xs font-bold uppercase tracking-wider">
-                  BBC News · {detail?.channel}
+                  {detail?.sourceName || "外刊研读"} · {detail?.channel}
                 </span>
                 <span className="text-xs opacity-60">|</span>
                 <span className="text-xs opacity-75 font-mono">
@@ -700,7 +686,7 @@ export default function ReadingPage() {
                     target="_blank"
                     rel="noreferrer"
                     className="size-8 rounded-lg border border-current/20 flex items-center justify-center hover:bg-current/10 transition-colors"
-                    title="跳转至 BBC 原文链接"
+                    title="跳转至原文链接"
                   >
                     <ExternalLinkIcon className="size-3.5" />
                   </a>

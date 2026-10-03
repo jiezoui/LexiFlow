@@ -55,9 +55,9 @@ if (-not $SkipTorch) {
     }
 }
 
-Write-Host "`n[3/4] 安装 ASR / 音素识别 / 发音评测依赖 ..." -ForegroundColor Yellow
+Write-Host "`n[3/4] 安装 ASR / 音素识别 / 发音评测与参考音依赖 ..." -ForegroundColor Yellow
 & $py @pipArgs "transformers>=4.40,<4.47" "faster-whisper>=1.0.3" "ctranslate2>=4.3" `
-    "phonemizer>=3.3" "librosa>=0.10.2" "scipy>=1.11"
+    "phonemizer>=3.3" "librosa>=0.10.2" "scipy>=1.11" "edge-tts>=7.0"
 if ($LASTEXITCODE -ne 0) { throw "ASR 依赖安装失败" }
 
 # ── 4. 校验 ─────────────────────────────────────────────────────────────────

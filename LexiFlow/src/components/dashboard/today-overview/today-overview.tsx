@@ -9,10 +9,12 @@ import {
   shadowingApi,
   statsApi,
   wordbookApi,
+  planApi,
   type TodayReviewSummary,
   type VocabOverview,
   type LearningOverviewStats,
   type ReviewQueueCard,
+  type StudyPlanOverview,
 } from "@/lib/api-client"
 import { TodayHeroBanner } from "./today-hero-banner"
 import { ModuleNavigationGrid } from "./module-navigation-grid"
@@ -22,6 +24,7 @@ export function TodayOverview() {
   const [todaySummary, setTodaySummary] = useState<TodayReviewSummary | null>(null)
   const [vocabOverview, setVocabOverview] = useState<VocabOverview | null>(null)
   const [statsOverview, setStatsOverview] = useState<LearningOverviewStats | null>(null)
+  const [studyPlan, setStudyPlan] = useState<StudyPlanOverview | null>(null)
   const [queueCards, setQueueCards] = useState<ReviewQueueCard[]>([])
   const [articlesCount, setArticlesCount] = useState<number>(12)
   const [videosCount, setVideosCount] = useState<number>(8)
@@ -42,6 +45,7 @@ export function TodayOverview() {
         videosRes,
         shadowingRes,
         bookCountsRes,
+        planRes,
       ] = await Promise.allSettled([
         reviewApi.getTodaySummary(),
         vocabApi.getOverview(),
@@ -51,11 +55,13 @@ export function TodayOverview() {
         mediaApi.list(),
         shadowingApi.listSentences({ limit: 10 }),
         wordbookApi.getStatusCounts(bookId),
+        planApi.getTodayOverview(),
       ])
 
       if (summaryRes.status === "fulfilled") setTodaySummary(summaryRes.value)
       if (overviewRes.status === "fulfilled") setVocabOverview(overviewRes.value)
       if (statsRes.status === "fulfilled") setStatsOverview(statsRes.value)
+      if (planRes.status === "fulfilled") setStudyPlan(planRes.value)
       if (queueRes.status === "fulfilled" && Array.isArray(queueRes.value)) {
         setQueueCards(queueRes.value)
       }
@@ -83,10 +89,12 @@ export function TodayOverview() {
 
     const handleUpdate = () => void loadData()
     window.addEventListener("lexiflow_wordbook_updated", handleUpdate)
+    window.addEventListener("lexiflow_plan_updated", handleUpdate)
     window.addEventListener("focus", handleUpdate)
 
     return () => {
       window.removeEventListener("lexiflow_wordbook_updated", handleUpdate)
+      window.removeEventListener("lexiflow_plan_updated", handleUpdate)
       window.removeEventListener("focus", handleUpdate)
     }
   }, [loadData])
@@ -143,11 +151,12 @@ export function TodayOverview() {
         <div className="w-full">
           <TodayHeroBanner
             userName="Lin"
+            plan={studyPlan}
             dueCount={dueCount}
             newCount={newCount}
             completedToday={completedToday}
             estimatedMinutes={estimatedMinutes}
-            focusWords={focusWords}
+            onPlanUpdated={setStudyPlan}
           />
         </div>
 

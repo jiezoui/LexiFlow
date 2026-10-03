@@ -38,22 +38,32 @@ import {
   MicIcon,
   PauseIcon,
   PlayIcon,
-  RadioIcon,
-  RotateCcwIcon,
+  PodcastIcon,
+  SearchIcon,
   SparklesIcon,
   SquareIcon,
   TargetIcon,
   Trash2Icon,
   UploadIcon,
+  VideoIcon,
   Volume2Icon,
   XIcon,
+  ChevronDownIcon,
+  CheckIcon,
 } from "lucide-react"
 import { AudioWaveform } from "@/components/practice/audio-waveform"
 import { ShadowingVerdict } from "@/components/practice/shadowing-verdict"
+import { ProgressScrollArea } from "@/components/ui/progress-scroll-area"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useShadowingRecorder } from "@/hooks/use-shadowing-recorder"
 import {
+  mediaApi,
+  readingApi,
   shadowingApi,
   speechApi,
+  vocabApi,
+  type MediaItem,
+  type ReadingArticle,
   type ShadowingAssessment,
   type ShadowingAttemptRecord,
   type ShadowingSentence,
@@ -61,7 +71,14 @@ import {
   type SpeechPhonemeWords,
 } from "@/lib/api-client"
 
-type SourceTab = "BBC" | "CARD" | "MEDIA" | "CUSTOM"
+type SourceTab = "ARTICLE" | "VIDEO" | "PODCAST" | "CARD" | "BBC" | "MEDIA" | "CUSTOM"
+type PracticeSentence = Omit<ShadowingSentence, "sourceType"> & {
+  sourceType: SourceTab
+  persisted?: boolean
+  paragraphIndex?: number
+  startMs?: number
+}
+const ASSET_TABS: SourceTab[] = ["ARTICLE", "VIDEO", "PODCAST"]
 
 async function fetchSentenceLibrary(): Promise<ShadowingSentence[]> {
   const [all, media] = await Promise.all([
@@ -75,10 +92,25 @@ const SOURCE_META: Record<
   SourceTab,
   { label: string; icon: typeof SparklesIcon; description: string }
 > = {
+  ARTICLE: {
+    label: "语境文章",
+    icon: BookOpenIcon,
+    description: "从阅读文章中选择一篇进行跟读练习",
+  },
+  VIDEO: {
+    label: "视频",
+    icon: VideoIcon,
+    description: "选择已导入的视频进行连续字幕跟读",
+  },
+  PODCAST: {
+    label: "播客",
+    icon: PodcastIcon,
+    description: "选择已导入的播客进行原声跟读",
+  },
   BBC: {
-    label: "BBC 外刊精选",
+    label: "精选短句",
     icon: SparklesIcon,
-    description: "真实外刊语料，覆盖经济、科技、环境等高频话题",
+    description: "预置的独立练习句；完整文章请从语境文章中选择",
   },
   CARD: {
     label: "生词本例句",
@@ -86,7 +118,7 @@ const SOURCE_META: Record<
     description: "来自你正在记忆的生词，跟读同时巩固语境",
   },
   MEDIA: {
-    label: "媒体收藏",
+    label: "收藏句子",
     icon: BookmarkIcon,
     description: "从视频和播客精听字幕中收藏的句子",
   },
@@ -179,16 +211,37 @@ function parseTextToSentences(raw: string): ParsedSentence[] {
   return out
 }
 
-function formatWhen(iso: string | null): string {
-  if (!iso) return "未练习"
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return "未练习"
-  const minutes = Math.floor((Date.now() - date.getTime()) / 60000)
-  if (minutes < 1) return "刚刚"
-  if (minutes < 60) return `${minutes} 分钟前`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours} 小时前`
-  return `${Math.floor(hours / 24)} 天前`
+function makeSourceSentence(
+  id: number,
+  sourceType: "ARTICLE" | "VIDEO" | "PODCAST" | "CARD",
+  sourceTitle: string,
+  text: string,
+  translation: string,
+  cefrLevel: string,
+  context?: { paragraphIndex?: number; startMs?: number }
+): PracticeSentence {
+  return {
+    id,
+    sourceType,
+    sourceTitle,
+    text,
+    translation,
+    cefrLevel,
+    wordCount: text.trim().split(/\s+/).length,
+    tags: null,
+    attemptCount: 0,
+    bestScore: null,
+    lastScore: null,
+    lastPracticedAt: null,
+    masteryStatus: "NEW",
+    persisted: false,
+    ...context,
+  }
+}
+
+function formatCueTime(startMs: number): string {
+  const totalSeconds = Math.floor(startMs / 1000)
+  return `${String(Math.floor(totalSeconds / 60)).padStart(2, "0")}:${String(totalSeconds % 60).padStart(2, "0")}`
 }
 
 const MASTERY_META: Record<string, { label: string; className: string }> = {
@@ -212,14 +265,22 @@ function SentenceWorkspace({
   playRate,
   onSaved,
   onRequestNext,
+  onReportChange,
   hasNext,
+  position,
+  total,
+  hasContext,
   reportHost,
 }: {
-  sentence: ShadowingSentence
+  sentence: PracticeSentence
   playRate: number
   onSaved: () => void
   onRequestNext: () => void
+  onReportChange: (visible: boolean) => void
   hasNext: boolean
+  position: number
+  total: number
+  hasContext: boolean
   /** 右侧「评测报告」列的挂载点：卡片在左、报告在右，由父组件给出 DOM 节点 */
   reportHost: HTMLDivElement | null
 }) {
@@ -237,6 +298,14 @@ function SentenceWorkspace({
 
   const [isPlayingRef, setIsPlayingRef] = useState(false)
   const [isPlayingMine, setIsPlayingMine] = useState(false)
+
+  useEffect(() => {
+    if (!assessment || !reportHost) return
+    const frame = requestAnimationFrame(() => {
+      reportHost.scrollTo({ top: 0, behavior: "smooth" })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [assessment, reportHost])
 
   // 用「稳定的容器对象」持有 <audio> 实例。
   // 不把 Audio 直接存进 ref 再改它的属性：那属于「修改传给 hook 的值」，
@@ -271,6 +340,9 @@ function SentenceWorkspace({
   )
 
   const stopReference = useCallback(() => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel()
+    }
     const audio = audioBox.current.ref
     if (audio) {
       audio.pause()
@@ -279,18 +351,36 @@ function SentenceWorkspace({
     setIsPlayingRef(false)
   }, [])
 
+  const playFallbackSpeech = useCallback((text: string, rate: number) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setIsPlayingRef(false)
+      return
+    }
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = "en-US"
+    utterance.rate = rate
+    utterance.onend = () => setIsPlayingRef(false)
+    utterance.onerror = () => setIsPlayingRef(false)
+    setIsPlayingRef(true)
+    window.speechSynthesis.speak(utterance)
+  }, [])
+
   const playReference = useCallback(() => {
     stopReference()
-    // 让浏览器直接流式播放桥接服务合成的参考音（Edge 神经音色），
-    // 由浏览器负责缓冲与缓存，前端无需自建 Blob。
+    // 优先播放语音桥接服务的 Edge 神经音色，若加载失败自动回退到浏览器本地 TTS，确保 100% 可听
     if (!audioBox.current.ref) audioBox.current.ref = new Audio()
     const audio = audioBox.current.ref
     audio.src = speechApi.referenceAudioUrl(sentence.text, playRate)
     audio.onended = () => setIsPlayingRef(false)
-    audio.onerror = () => setIsPlayingRef(false)
+    audio.onerror = () => {
+      playFallbackSpeech(sentence.text, playRate)
+    }
     setIsPlayingRef(true)
-    void audio.play().catch(() => setIsPlayingRef(false))
-  }, [sentence.text, playRate, stopReference])
+    audio.play().catch(() => {
+      playFallbackSpeech(sentence.text, playRate)
+    })
+  }, [sentence.text, playRate, stopReference, playFallbackSpeech])
 
   const playMine = useCallback(() => {
     if (!recordedUrl) return
@@ -322,18 +412,20 @@ function SentenceWorkspace({
 
   const startRecording = useCallback(async () => {
     stopReference()
+    onReportChange(false)
     setAssessment(null)
     setEvalError(null)
     setSaveNotice(null)
     clearRecording()
     await recorder.start()
-  }, [clearRecording, recorder, stopReference])
+  }, [clearRecording, onReportChange, recorder, stopReference])
 
   const stopAndEvaluate = useCallback(async () => {
     const captured = await recorder.stop()
     if (!captured) return
 
     setRecordedUrl(URL.createObjectURL(captured.blob))
+    onReportChange(true)
     setIsEvaluating(true)
     setEvalError(null)
     const startedAt = Date.now()
@@ -345,7 +437,7 @@ function SentenceWorkspace({
       // 落库 + 计入打卡。保存失败不阻断评测展示，只提示。
       try {
         await shadowingApi.submitAttempt({
-          sentenceId: sentence.id,
+          sentenceId: sentence.persisted === false ? undefined : sentence.id,
           sourceType: sentence.sourceType,
           sourceTitle: sentence.sourceTitle,
           referenceText: sentence.text,
@@ -392,27 +484,18 @@ function SentenceWorkspace({
     } finally {
       setIsEvaluating(false)
     }
-  }, [onSaved, recorder, sentence])
+  }, [onReportChange, onSaved, recorder, sentence])
 
   const seconds = Math.floor(recorder.elapsedMs / 1000)
 
   return (
     <>
-      {/* 主体卡片：撑满左列剩余高度（不滚动），句子区在中间垂直居中 */}
-      <div className="flex min-h-[300px] flex-1 flex-col gap-3 rounded-3xl border border-border/80 bg-gradient-to-b from-card via-card/95 to-card/90 p-4 shadow-md sm:gap-4 sm:p-6">
-        {/* 元数据 + 参考音 */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
+      <div className="flex flex-col gap-4 rounded-2xl border border-border/70 bg-card px-4 py-4 sm:px-6 sm:py-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-primary/10 px-2.5 py-0.5 font-mono text-[10px] font-bold text-primary">
-              {sentence.sourceTitle}
-            </span>
-            <span className="rounded bg-muted px-2 py-0.5 font-mono text-[10px] font-bold text-muted-foreground">
-              CEFR {sentence.cefrLevel}
-            </span>
-            <span className="font-mono text-[10px] text-muted-foreground">
-              {sentence.wordCount} 词 · {formatWhen(sentence.lastPracticedAt)}
-              {sentence.bestScore !== null && ` · 最高 ${Math.round(sentence.bestScore)}`}
-              {sentence.attemptCount > 0 && ` · 已练 ${sentence.attemptCount} 次`}
+            <span className="text-xs font-semibold text-primary">当前句 {position} / {total}</span>
+            <span className="text-xs text-muted-foreground">
+              · {sentence.cefrLevel}{sentence.bestScore !== null && ` · 最佳 ${Math.round(sentence.bestScore)} 分`}
             </span>
           </div>
 
@@ -454,13 +537,13 @@ function SentenceWorkspace({
           </div>
         </div>
 
-        {/* 基准句 + 译文 + IPA：与波形各占一半弹性空间，句子随高度自动放大 */}
-        <div className="flex min-h-0 flex-1 flex-col justify-center gap-3">
-          <p className="font-serif text-[clamp(1.25rem,3vh,2rem)] leading-snug font-bold tracking-tight text-foreground">
-            &ldquo;{sentence.text}&rdquo;
+        <div className="flex flex-col gap-2 py-1">
+          {!hasContext && <p className="truncate text-xs text-muted-foreground">{sentence.sourceTitle}</p>}
+          <p className="max-w-3xl font-serif text-[clamp(1.05rem,1.6vw,1.4rem)] leading-relaxed font-semibold text-foreground">
+            {sentence.text}
           </p>
           {sentence.translation && (
-            <p className="text-[11px] leading-snug text-muted-foreground sm:text-xs">
+            <p className="text-sm leading-relaxed text-muted-foreground">
               {sentence.translation}
             </p>
           )}
@@ -493,18 +576,19 @@ function SentenceWorkspace({
           )}
         </div>
 
-        {/* 实时波形：随卡片剩余高度伸展（上下限都留了约束，短屏也不会把内容挤出卡片） */}
-        <AudioWaveform
-          isRecording={recorder.isRecording}
-          audioStream={null}
-          waveform={recorder.waveform}
-          level={recorder.level}
-          elapsedMs={recorder.elapsedMs}
-          className="max-h-48 min-h-16 w-full flex-1"
-        />
+        {recorder.isRecording && (
+          <AudioWaveform
+            isRecording={recorder.isRecording}
+            audioStream={null}
+            waveform={recorder.waveform}
+            level={recorder.level}
+            elapsedMs={recorder.elapsedMs}
+            className="h-12 w-full"
+          />
+        )}
 
         {/* 录音控制区（固定在卡片底部） */}
-        <div className="flex shrink-0 flex-col items-center justify-center gap-3 border-t border-border/60 pt-3">
+        <div className="flex shrink-0 flex-col items-center justify-center gap-3 border-t border-border/60 pt-4">
           {recorder.isRecording && (
             <div className="flex items-center gap-3 font-mono text-xs">
               <span className="flex items-center gap-1.5 font-bold text-rose-600 dark:text-rose-400">
@@ -530,9 +614,9 @@ function SentenceWorkspace({
                 type="button"
                 onClick={() => void startRecording()}
                 disabled={isEvaluating}
-                className="flex items-center gap-2.5 rounded-2xl bg-primary px-7 py-3.5 text-sm font-bold text-primary-foreground shadow-lg transition-all hover:scale-105 hover:opacity-95 active:scale-95 disabled:opacity-50"
+                className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
               >
-                <span className="flex size-8 items-center justify-center rounded-full bg-primary-foreground/20">
+                <span className="flex size-6 items-center justify-center rounded-full bg-primary-foreground/20">
                   <MicIcon className="size-4" />
                 </span>
                 {assessment ? "重新跟读本句" : "开始跟读"}
@@ -541,9 +625,9 @@ function SentenceWorkspace({
               <button
                 type="button"
                 onClick={() => void stopAndEvaluate()}
-                className="flex animate-pulse items-center gap-2.5 rounded-2xl bg-rose-600 px-7 py-3.5 text-sm font-bold text-white shadow-xl transition-all hover:scale-105 hover:bg-rose-700 active:scale-95"
+                className="flex items-center gap-2 rounded-xl bg-rose-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-700"
               >
-                <span className="flex size-8 items-center justify-center rounded-full bg-white/20">
+                <span className="flex size-6 items-center justify-center rounded-full bg-white/20">
                   <SquareIcon className="size-4 fill-white" />
                 </span>
                 结束并评测
@@ -561,29 +645,23 @@ function SentenceWorkspace({
               </button>
             )}
 
-            {(assessment || recordedUrl) && !recorder.isRecording && (
+            {assessment && !recorder.isRecording && hasNext && (
               <button
                 type="button"
-                onClick={() => {
-                  clearRecording()
-                  setAssessment(null)
-                  setEvalError(null)
-                  setSaveNotice(null)
-                }}
-                className="inline-flex items-center gap-1.5 rounded-2xl border border-border bg-card px-3.5 py-3 text-xs font-semibold transition-colors hover:bg-muted"
+                onClick={onRequestNext}
+                className="inline-flex items-center gap-1.5 rounded-2xl border border-border bg-card px-4 py-3 text-xs font-semibold transition-colors hover:bg-muted"
               >
-                <RotateCcwIcon className="size-3.5" />
-                清空
+                下一句 <ArrowRightIcon className="size-3.5" />
               </button>
             )}
           </div>
 
           <p className="text-center font-mono text-[11px] text-muted-foreground">
             {recorder.isRecording
-              ? "正在采集 16kHz 单声道音频，读完请点击「结束并评测」"
+              ? "读完后点击「结束并评测」"
               : assessment
-              ? "已出分：先看「本轮反馈」的主要问题，按提示调整口型后再重录一遍"
-              : "建议先听 1~2 遍标准原声，再模仿母语者的语流、连读与重音跟读"}
+              ? "查看右侧反馈，再读一次或继续下一句"
+              : "先听原声，再模仿语调与重音读一遍"}
           </p>
 
           {recorder.error && (
@@ -595,59 +673,7 @@ function SentenceWorkspace({
         </div>
       </div>
 
-      {/* A/B 听觉对比 + 换句：属于「练习动作」，留在左列卡片下方 */}
-      {assessment && !isEvaluating && (
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-muted/40 px-3 py-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-[11px] font-bold text-foreground">声学听觉对比</span>
-            <button
-              type="button"
-              onClick={playReference}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-2.5 py-1 text-[11px] font-semibold transition-colors hover:bg-muted"
-            >
-              <Volume2Icon className="size-3.5 text-primary" />
-              母语原声 [A]
-            </button>
-            {recordedUrl && (
-              <button
-                type="button"
-                onClick={playMine}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/20 dark:text-emerald-300"
-              >
-                <PlayIcon className="size-3.5" />
-                我的跟读 [B]
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void startRecording()}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-2.5 py-1 text-[11px] font-semibold transition-colors hover:bg-muted"
-            >
-              <RotateCcwIcon className="size-3.5" />
-              重录本句
-            </button>
-            {hasNext && (
-              <button
-                type="button"
-                onClick={onRequestNext}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3 py-1 text-[11px] font-bold text-primary-foreground shadow transition-opacity hover:opacity-90"
-              >
-                跟读下一句
-                <ArrowRightIcon className="size-3.5" />
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/*
-       * 评测报告（评测中 / 失败 / 得分与三选项卡）渲染到父组件提供的右列挂载点。
-       * 用 portal 而不是把状态提到页面：练习状态继续由本组件按 key={sentence.id}
-       * 持有并随换句重挂载，「左练习 / 右报告」只是同一份状态的两种摆放方式。
-       */}
+      {/* 评测内容渲染到右侧反馈面板。 */}
       {reportHost
         ? createPortal(
             <div className="flex flex-col gap-2.5">
@@ -656,9 +682,7 @@ function SentenceWorkspace({
                 <div className="flex flex-col items-center justify-center gap-2.5 rounded-3xl border border-border bg-card/60 p-8">
                   <Loader2Icon className="size-8 animate-spin text-primary" />
                   <p className="font-mono text-sm font-semibold text-foreground">正在评测发音…</p>
-                  <p className="max-w-md text-center font-mono text-[11px] text-muted-foreground">
-                    Whisper 转写 → 音素 CTC 前向-后向强制对齐 → GOP 打分，CPU 推理通常 2~5 秒
-                  </p>
+                  <p className="max-w-md text-center text-xs text-muted-foreground">正在分析你的发音和节奏，请稍候。</p>
                 </div>
               )}
 
@@ -670,10 +694,7 @@ function SentenceWorkspace({
                     评测失败
                   </div>
                   <p className="text-xs text-muted-foreground">{evalError}</p>
-                  <p className="font-mono text-[11px] text-muted-foreground">
-                    排查顺序：① 语音桥接服务是否运行（scripts\start-speech-bridge.ps1）
-                    ② 麦克风是否授权 ③ 录音是否过短
-                  </p>
+                  <p className="text-xs text-muted-foreground">请确认麦克风已授权、录音时长足够，然后重试。</p>
                 </div>
               )}
 
@@ -682,20 +703,20 @@ function SentenceWorkspace({
                 <>
                   {saveNotice && (
                     <div
-                      className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-[11px] ${
+                      className={`flex items-center gap-1.5 px-1 text-[11px] ${
                         saveNotice.includes("失败")
-                          ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                          : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                          ? "rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-amber-700 dark:text-amber-300"
+                          : "text-muted-foreground"
                       }`}
                     >
                       {saveNotice.includes("失败") ? (
-                        <AlertCircleIcon className="size-3.5" />
+                        <AlertCircleIcon className="size-3.5 text-amber-500" />
                       ) : (
-                        <CheckCircle2Icon className="size-3.5" />
+                        <CheckCircle2Icon className="size-3.5 text-emerald-600 dark:text-emerald-400" />
                       )}
-                      {saveNotice}
+                      <span>{saveNotice}</span>
                       {!assessment.engine.phoneme_alignment &&
-                        " · 本次为词级评分（音素模型未就绪）"}
+                        " · 本次为词级评分"}
                     </div>
                   )}
 
@@ -714,12 +735,37 @@ function SentenceWorkspace({
 
 export default function ShadowingPracticePage() {
   const [activeTab, setActiveTab] = useState<SourceTab>("BBC")
-  const [sentences, setSentences] = useState<ShadowingSentence[]>([])
+  const [sentences, setSentences] = useState<PracticeSentence[]>([])
+  const [articles, setArticles] = useState<ReadingArticle[]>([])
+  const [mediaItems, setMediaItems] = useState<MediaItem[]>([])
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null)
+  const [sourceSentences, setSourceSentences] = useState<PracticeSentence[]>([])
+  const [cardSentences, setCardSentences] = useState<PracticeSentence[]>([])
+  const [sourceQuery, setSourceQuery] = useState("")
+  const [sentenceQuery, setSentenceQuery] = useState("")
+  const [loadingAssets, setLoadingAssets] = useState(true)
+  const [assetLoadFailures, setAssetLoadFailures] = useState({ article: false, media: false, card: false })
+  const [loadingSource, setLoadingSource] = useState(false)
+  const [sourceError, setSourceError] = useState<string | null>(null)
+  const assetRequestRef = useRef(0)
+  const contextListRef = useRef<HTMLDivElement>(null)
   const [currentId, setCurrentId] = useState<number | null>(null)
   const [loadingSentences, setLoadingSentences] = useState(true)
   const [sentenceError, setSentenceError] = useState<string | null>(null)
 
   const [playRate, setPlayRate] = useState<number>(1.0)
+  const [speedDropdownOpen, setSpeedDropdownOpen] = useState(false)
+  const speedDropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (speedDropdownRef.current && !speedDropdownRef.current.contains(e.target as Node)) {
+        setSpeedDropdownOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
 
   const [stats, setStats] = useState<ShadowingStats | null>(null)
   const [history, setHistory] = useState<ShadowingAttemptRecord[]>([])
@@ -735,14 +781,79 @@ export default function ShadowingPracticePage() {
 
   // 右侧「评测报告」列的挂载点：由 <SentenceWorkspace> 用 portal 往里渲染报告
   const [reportHost, setReportHost] = useState<HTMLDivElement | null>(null)
+  const [showReport, setShowReport] = useState(false)
+  const [rightPanelView, setRightPanelView] = useState<"transcript" | "feedback">("transcript")
 
   const [toast, setToast] = useState<string | null>(null)
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const loadSentences = useCallback(async (): Promise<ShadowingSentence[]> => {
     const list = await fetchSentenceLibrary()
     setSentences(list)
     return list
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void Promise.allSettled([
+      readingApi.listArticles({ page: 1, size: 100 }),
+      mediaApi.list(),
+      vocabApi.listCards({ page: 1, size: 500 }),
+    ]).then(([articleResult, mediaResult, cardResult]) => {
+      if (cancelled) return
+      if (articleResult.status === "fulfilled") setArticles(articleResult.value.records)
+      if (mediaResult.status === "fulfilled") setMediaItems(mediaResult.value)
+      if (cardResult.status === "fulfilled") {
+        setCardSentences(cardResult.value.records
+          .filter((card) => card.contextSentence?.trim() && /[a-zA-Z]{2,}/.test(card.contextSentence))
+          .map((card) => makeSourceSentence(-card.id, "CARD", `生词本 · ${card.lemma}`, card.contextSentence.trim(), card.contextTranslation ?? "", "B2")))
+      }
+      setAssetLoadFailures({ article: articleResult.status === "rejected", media: mediaResult.status === "rejected", card: cardResult.status === "rejected" })
+      setLoadingAssets(false)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  const selectAsset = useCallback(async (tab: "ARTICLE" | "VIDEO" | "PODCAST", id: string) => {
+    const requestId = ++assetRequestRef.current
+    setShowReport(false)
+    setRightPanelView("transcript")
+    setSelectedAssetId(id)
+    setSentenceQuery("")
+    setSourceSentences([])
+    setCurrentId(null)
+    setSourceError(null)
+    setLoadingSource(true)
+    try {
+      let next: PracticeSentence[]
+      if (tab === "ARTICLE") {
+        const article = await readingApi.getDetail(Number(id))
+        const articleSentences = article.paragraphs.flatMap((paragraph, paragraphIndex) =>
+          parseTextToSentences((paragraph.match(/[^.!?\n]+(?:[.!?]+|$)/g) ?? []).join("\n"))
+            .filter((item) => /[a-zA-Z]{2,}/.test(item.text))
+            .map((item) => ({ ...item, paragraphIndex }))
+        )
+        next = articleSentences.map((item, index) =>
+          makeSourceSentence(-index - 1, tab, article.title, item.text, item.translation ?? "", article.cefrLevel, { paragraphIndex: item.paragraphIndex })
+        )
+      } else {
+        const media = mediaItems.find((item) => item.id === id)
+        const cues = await mediaApi.cues(id)
+        next = cues
+          .filter((cue) => cue.sourceText?.trim() && /[a-zA-Z]{2,}/.test(cue.sourceText))
+          .map((cue, index) => makeSourceSentence(-index - 1, tab, media?.title ?? "媒体字幕", cue.sourceText.trim(), cue.translation ?? "", media?.level ?? "B2", { startMs: cue.startMs }))
+      }
+      if (requestId !== assetRequestRef.current) return
+      setSourceSentences(next)
+      setCurrentId(next[0]?.id ?? null)
+      if (next.length === 0) setSourceError("该内容没有可跟读的英文句子，请选择其他内容。")
+    } catch (error: unknown) {
+      if (requestId === assetRequestRef.current) setSourceError(error instanceof Error ? error.message : "无法读取该来源的内容")
+    } finally {
+      if (requestId === assetRequestRef.current) setLoadingSource(false)
+    }
+  }, [mediaItems])
 
   const loadStats = useCallback(async () => {
     try {
@@ -776,6 +887,7 @@ export default function ShadowingPracticePage() {
         if (cancelled) return
         setSentences(list)
         const first = list.find((s) => s.sourceType === "BBC") ?? list[0]
+        if (first) setActiveTab((tab) => tab === "BBC" ? first.sourceType : tab)
         setCurrentId(first?.id ?? null)
       } catch (err: unknown) {
         if (!cancelled) {
@@ -811,9 +923,27 @@ export default function ShadowingPracticePage() {
   }, [toast])
 
   const tabSentences = useMemo(
-    () => sentences.filter((s) => s.sourceType === activeTab),
-    [sentences, activeTab]
+    () => ASSET_TABS.includes(activeTab)
+      ? sourceSentences
+      : activeTab === "CARD"
+        ? [...cardSentences, ...sentences.filter((sentence) => sentence.sourceType === "CARD")]
+      : sentences.filter((sentence) => sentence.sourceType === activeTab),
+    [sentences, sourceSentences, cardSentences, activeTab]
   )
+  const visibleSentences = useMemo(() => {
+    const query = sentenceQuery.trim().toLowerCase()
+    return query ? tabSentences.filter((sentence) => `${sentence.text} ${sentence.translation ?? ""}`.toLowerCase().includes(query)) : tabSentences
+  }, [sentenceQuery, tabSentences])
+
+  const sourceAssets = useMemo(() => {
+    const items = activeTab === "ARTICLE"
+      ? articles.map((article) => ({ id: String(article.id), title: article.title, meta: `${article.sourceName} · ${article.cefrLevel} · ${article.readMinutes} 分钟` }))
+      : mediaItems
+          .filter((media) => media.status === "READY" && (activeTab === "PODCAST" ? media.source === "PODCAST" : activeTab === "VIDEO" && media.source !== "PODCAST"))
+          .map((media) => ({ id: media.id, title: media.title, meta: `${media.creator ?? "我的媒体"} · ${media.level ?? "英语"}` }))
+    const query = sourceQuery.trim().toLowerCase()
+    return query ? items.filter((item) => `${item.title} ${item.meta}`.toLowerCase().includes(query)) : items
+  }, [activeTab, articles, mediaItems, sourceQuery])
 
   // 当前句从「渲染期派生」而不是用 effect 同步：
   // 若 currentId 不在当前标签下，则回退到该标签的第一句。
@@ -828,9 +958,32 @@ export default function ShadowingPracticePage() {
   )
   const nextSentence = currentIndex >= 0 ? tabSentences[currentIndex + 1] : undefined
 
+  useEffect(() => {
+    const list = contextListRef.current
+    const row = list?.querySelector<HTMLElement>('[data-current-sentence="true"]')
+    if (!list || !row) return
+    const listRect = list.getBoundingClientRect()
+    const rowRect = row.getBoundingClientRect()
+    if (rowRect.bottom > listRect.bottom) list.scrollBy({ top: rowRect.bottom - listRect.bottom + 12, behavior: "smooth" })
+    else if (rowRect.top < listRect.top) list.scrollBy({ top: rowRect.top - listRect.top - 12, behavior: "smooth" })
+  }, [activeTab, current?.id, selectedAssetId])
+
   const selectTab = useCallback(
     (tab: SourceTab) => {
       setActiveTab(tab)
+      assetRequestRef.current += 1
+      setSourceQuery("")
+      setSentenceQuery("")
+      setShowReport(false)
+      setRightPanelView("transcript")
+      setSourceError(null)
+      setLoadingSource(false)
+      setSelectedAssetId(null)
+      if (ASSET_TABS.includes(tab)) {
+        setSourceSentences([])
+        setCurrentId(null)
+        return
+      }
       const first = sentences.find((s) => s.sourceType === tab)
       setCurrentId(first?.id ?? null)
     },
@@ -927,6 +1080,7 @@ export default function ShadowingPracticePage() {
     setUploadedFileName(null)
     setImportProgress(null)
     setImporting(false)
+    if (created > 0 || skipped > 0) setLibraryOpen(false)
   }, [parsedSentences, importing, sentences, uploadedFileName, loadSentences])
 
   const handleDeleteSentence = useCallback(
@@ -948,75 +1102,182 @@ export default function ShadowingPracticePage() {
   )
 
   return (
-    // 高度链：shell 侧栏留白 1rem + 顶栏 4rem ⇒ 可视区高 = 100svh - 5rem。
-    // 这里刻意不用 flex-1：flex-basis:0 会让 height 失效、页面被内容撑高，
-    // 从而出现整页滚动条。改用确定高度 + overflow-hidden，滚动交给两列内部。
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-2 p-4 pt-2 md:px-6 lg:h-[calc(100svh-5rem)] lg:overflow-hidden">
-      {/* ══ 标题（一行放下：技术标签 + 标题 + 一句话说明）══ */}
-      <header className="flex shrink-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
-        <h1 className="text-lg font-extrabold tracking-tight text-foreground sm:text-xl">
-          语脉 · 影子跟读智能评测工坊
-        </h1>
-        <span className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-primary">
-          <RadioIcon className="size-3" />
-          Acoustic Shadowing · Forced Alignment · Phoneme GOP
-        </span>
-        <span className="hidden text-[11px] text-muted-foreground xl:inline">
-          本地 Whisper ASR × wav2vec2 音素 CTC 强制对齐，逐音素给出后验概率与发音诊断
-        </span>
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-6 md:px-8 md:py-9">
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">影子跟读</h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setLibraryOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+            <LayersIcon className="size-4" /> 素材库
+          </button>
+          <button type="button" onClick={() => setHistoryOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+            <HistoryIcon className="size-4" /> 练习记录
+          </button>
+        </div>
       </header>
 
-      {/* grid-rows-[minmax(0,1fr)]：把唯一一行的高度钉死在可视区内，
-          这样两列内部的 overflow-y-auto 才会生效，而不是把页面撑高。
-          左列＝跟读练习，右列＝评测报告（本轮反馈 / 逐词发音 / 完整分析）+ 训练统计 */}
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[minmax(0,1fr)]">
-        {/* ══════════ 主工作区 ══════════ */}
-        <div className="flex min-h-0 min-w-0 flex-col gap-2">
-          {/* 题源标签 + 语速 */}
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/80 bg-muted/40 p-1.5">
-            <div className="flex flex-wrap items-center gap-1 rounded-xl border border-border/60 bg-card/80 p-1">
+      <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+        <div className="flex min-w-0 flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-3 text-sm">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="font-semibold text-foreground">{SOURCE_META[activeTab].label}</span>
+              <span className="text-muted-foreground">·</span>
+              {selectedAssetId && ASSET_TABS.includes(activeTab) && (
+                <span className="max-w-52 truncate text-muted-foreground">{activeTab === "ARTICLE" ? articles.find((item) => String(item.id) === selectedAssetId)?.title : mediaItems.find((item) => item.id === selectedAssetId)?.title}</span>
+              )}
+              <span className="text-muted-foreground">{currentIndex >= 0 ? `${currentIndex + 1} / ${tabSentences.length} 句` : "暂无句子"}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>原声语速</span>
+                <div className="relative" ref={speedDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => setSpeedDropdownOpen(!speedDropdownOpen)}
+                    className="flex items-center gap-1.5 h-7.5 rounded-lg border border-border bg-card px-2.5 font-mono text-xs font-semibold text-foreground hover:bg-muted/70 transition-colors shadow-2xs select-none"
+                  >
+                    <span>{playRate}x</span>
+                    <ChevronDownIcon
+                      className={`size-3 text-muted-foreground transition-transform duration-200 ${
+                        speedDropdownOpen ? "rotate-180" : ""
+                      }`}
+                    />
+                  </button>
+
+                  {speedDropdownOpen && (
+                    <div className="absolute right-0 top-full mt-1 z-50 min-w-20 rounded-xl border border-border bg-popover p-1 shadow-lg backdrop-blur-md animate-in fade-in zoom-in-95">
+                      {SPEED_OPTIONS.map((rate) => {
+                        const isSelected = playRate === rate
+                        return (
+                          <button
+                            key={rate}
+                            type="button"
+                            onClick={() => {
+                              setPlayRate(rate)
+                              setSpeedDropdownOpen(false)
+                            }}
+                            className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs font-mono transition-colors ${
+                              isSelected
+                                ? "bg-muted text-foreground font-bold"
+                                : "text-muted-foreground hover:text-foreground hover:bg-muted/50 font-medium"
+                            }`}
+                          >
+                            <span>{rate}x</span>
+                            {isSelected && <CheckIcon className="size-3 text-primary ml-1.5" />}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button type="button" onClick={() => setLibraryOpen(true)} className="text-xs font-semibold text-primary hover:underline">更换素材 <ArrowRightIcon className="inline size-3" /></button>
+            </div>
+          </div>
+          <Sheet open={libraryOpen} onOpenChange={setLibraryOpen}>
+            <SheetContent side="right" className="gap-0 overflow-y-auto p-5 data-[side=right]:w-full data-[side=right]:sm:max-w-3xl">
+              <SheetHeader className="mb-5 p-0 pr-8">
+                <SheetTitle className="text-xl font-bold">跟读素材库</SheetTitle>
+                <SheetDescription>选择文章、视频或播客直接开启跟读，也可从生词本或收藏中选取单句。</SheetDescription>
+              </SheetHeader>
+          <div className="grid gap-5 md:grid-cols-[11rem_minmax(0,1fr)]">
+          <nav aria-label="素材来源" className="grid grid-cols-2 content-start gap-2 sm:grid-cols-3 md:grid-cols-1">
               {(Object.keys(SOURCE_META) as SourceTab[]).map((key) => {
                 const meta = SOURCE_META[key]
-                const count = sentences.filter((s) => s.sourceType === key).length
+                const count = key === "ARTICLE" ? articles.length
+                  : key === "PODCAST" ? mediaItems.filter((item) => item.status === "READY" && item.source === "PODCAST").length
+                  : key === "VIDEO" ? mediaItems.filter((item) => item.status === "READY" && item.source !== "PODCAST").length
+                  : key === "CARD" ? cardSentences.length + sentences.filter((sentence) => sentence.sourceType === "CARD").length
+                  : sentences.filter((sentence) => sentence.sourceType === key).length
                 return (
                   <button
                     key={key}
                     type="button"
-                    onClick={() => selectTab(key)}
-                    className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all ${
+                    onClick={() => {
+                      if (activeTab !== key) selectTab(key)
+                    }}
+                    className={`flex min-w-0 items-center gap-2 rounded-xl border px-3 py-3 text-left text-xs font-semibold transition-colors ${
                       activeTab === key
-                        ? "bg-primary text-primary-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
                     }`}
                   >
                     <meta.icon className="size-3.5" />
-                    {meta.label}
-                    <span className="rounded-full bg-black/10 px-1.5 font-mono text-[10px] dark:bg-white/10">
+                    <span className="min-w-0 flex-1 truncate">{meta.label}</span>
+                    <span className="font-mono text-[10px] opacity-70">
                       {count}
                     </span>
                   </button>
                 )
               })}
-            </div>
+          </nav>
+          <div className="min-w-0">
 
-            <div className="flex items-center gap-1.5 px-2 font-mono text-xs text-muted-foreground">
-              <span>原声语速</span>
-              {SPEED_OPTIONS.map((rate) => (
-                <button
-                  key={rate}
-                  type="button"
-                  onClick={() => setPlayRate(rate)}
-                  className={`rounded px-2 py-0.5 text-[11px] font-bold transition-colors ${
-                    playRate === rate
-                      ? "border border-primary/30 bg-primary/20 text-primary"
-                      : "hover:text-foreground"
-                  }`}
-                >
-                  {rate}x
-                </button>
-              ))}
+          {ASSET_TABS.includes(activeTab) && (
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">{SOURCE_META[activeTab].description}</p>
+              <label className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5">
+                <SearchIcon className="size-4 text-muted-foreground" />
+                <input aria-label={`搜索${SOURCE_META[activeTab].label}`} value={sourceQuery} onChange={(event) => setSourceQuery(event.target.value)} placeholder={`搜索${SOURCE_META[activeTab].label}`} className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
+              </label>
+              {loadingAssets ? (
+                <p className="py-5 text-center text-xs text-muted-foreground">正在加载来源…</p>
+              ) : sourceAssets.length === 0 ? (
+                <p className="rounded-xl bg-muted/50 px-4 py-5 text-center text-xs text-muted-foreground">{(activeTab === "ARTICLE" ? assetLoadFailures.article : assetLoadFailures.media) ? "来源加载失败，请刷新页面重试。" : sourceQuery ? "没有匹配的内容，请换个关键词。" : "暂无可选内容。请先在对应模块添加内容，或换一个来源。"}</p>
+              ) : (
+                <div className="max-h-[min(65vh,36rem)] space-y-2 overflow-y-auto pr-1">
+                  {sourceAssets.map((asset) => {
+                    const isSelected = selectedAssetId === asset.id
+                    return (
+                      <button
+                        key={asset.id}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={async () => {
+                          setLibraryOpen(false)
+                          if (!isSelected) {
+                            await selectAsset(activeTab as "ARTICLE" | "VIDEO" | "PODCAST", asset.id)
+                          }
+                        }}
+                        className={`group flex w-full items-center justify-between gap-3 rounded-2xl border p-3.5 text-left transition-all ${
+                          isSelected
+                            ? "border-primary/50 bg-primary/10 shadow-sm"
+                            : "border-border/70 bg-card hover:border-border hover:bg-muted/40"
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className={`block truncate text-sm font-bold transition-colors ${
+                            isSelected ? "text-primary" : "text-foreground group-hover:text-primary"
+                          }`}>
+                            {asset.title}
+                          </span>
+                          <span className="mt-1 block truncate text-xs text-muted-foreground">
+                            {asset.meta}
+                          </span>
+                        </div>
+                        <div className="shrink-0 flex items-center gap-1.5">
+                          {isSelected ? (
+                            <span className="flex items-center gap-1 rounded-lg bg-primary/20 px-2.5 py-1 text-[11px] font-bold text-primary">
+                              <CheckIcon className="size-3" />
+                              练习中
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 text-[11px] font-semibold text-muted-foreground group-hover:border-primary/40 group-hover:text-primary">
+                              选择
+                              <ArrowRightIcon className="size-3 transition-transform group-hover:translate-x-0.5" />
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              {loadingSource && <p className="text-xs text-muted-foreground">正在读取内容…</p>}
+              {sourceError && <p role="alert" className="text-xs text-rose-600">{sourceError}</p>}
             </div>
-          </div>
+          )}
 
           {/* 上传文本（替代原来的「自主输入句子」：上传/拖入文本文件，或直接粘贴多行文本） */}
           {activeTab === "CUSTOM" && (
@@ -1154,33 +1415,45 @@ export default function ShadowingPracticePage() {
             </div>
           )}
 
-          {/* 句子选择器 */}
-          {tabSentences.length > 0 && (
-            <div className="flex shrink-0 items-center gap-2 overflow-x-auto pb-1">
-              <span className="shrink-0 font-mono text-[11px] text-muted-foreground">题目</span>
-              {tabSentences.map((item, idx) => {
+          {/* 句子选择器（仅非容器型单句来源：生词本、精选短句、收藏） */}
+          {!ASSET_TABS.includes(activeTab) && tabSentences.length > 0 && (
+            <div className="mt-5 flex flex-col gap-2 border-t border-border/70 pt-5">
+              <span className="mb-1 text-xs font-semibold text-muted-foreground">{SOURCE_META[activeTab].label} · {tabSentences.length} 句</span>
+              {tabSentences.length > 8 && (
+                <label className="mb-2 flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5">
+                  <SearchIcon className="size-4 text-muted-foreground" />
+                  <input aria-label="搜索跟读句子" value={sentenceQuery} onChange={(event) => setSentenceQuery(event.target.value)} placeholder="搜索句子或译文" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
+                </label>
+              )}
+              {visibleSentences.length === 0 && <p className="py-4 text-center text-xs text-muted-foreground">没有匹配的句子</p>}
+              {visibleSentences.map((item) => {
                 const mastery = MASTERY_META[item.masteryStatus] ?? MASTERY_META.NEW
                 const isActive = item.id === current?.id
+                const idx = tabSentences.indexOf(item)
                 return (
-                  <div key={item.id} className="flex shrink-0 items-center">
+                  <div key={item.id} className="flex min-w-0 items-center">
                     <button
                       type="button"
-                      onClick={() => setCurrentId(item.id)}
-                      className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs transition-all ${
+                      onClick={() => {
+                        if (item.id !== current?.id) {
+                          setCurrentId(item.id)
+                          setShowReport(false)
+                          setRightPanelView("transcript")
+                        }
+                        setLibraryOpen(false)
+                      }}
+                      className={`flex min-w-0 flex-1 items-center gap-3 rounded-xl border px-3 py-3 text-left text-sm transition-all ${
                         isActive
                           ? "border-primary/40 bg-primary/10 font-bold text-primary"
                           : "border-border bg-card text-muted-foreground hover:text-foreground"
                       }`}
                     >
                       <span className="font-mono text-[10px] opacity-60">{idx + 1}</span>
-                      <span className="max-w-[200px] truncate font-serif">
-                        {item.text.slice(0, 30)}
-                        {item.text.length > 30 ? "…" : ""}
+                      <span className="min-w-0 flex-1 truncate font-serif">
+                        {item.text}
                       </span>
-                      <span
-                        className={`rounded px-1.5 py-0.5 font-mono text-[9px] ${mastery.className}`}
-                      >
-                        {item.bestScore !== null ? Math.round(item.bestScore) : mastery.label}
+                      <span className={`rounded px-1.5 py-0.5 font-mono text-[9px] ${item.persisted === false ? "bg-muted text-muted-foreground" : mastery.className}`}>
+                        {item.persisted === false ? `${item.wordCount} 词` : item.bestScore !== null ? Math.round(item.bestScore) : mastery.label}
                       </span>
                     </button>
                     {(item.sourceType === "CUSTOM" || item.sourceType === "MEDIA") && isActive && (
@@ -1199,59 +1472,127 @@ export default function ShadowingPracticePage() {
             </div>
           )}
 
+          {activeTab === "CARD" && assetLoadFailures.card && tabSentences.length === 0 && (
+            <p role="alert" className="mt-4 text-xs text-rose-600">生词本例句加载失败，请刷新页面重试。</p>
+          )}
+
           {sentenceError && (
             <div className="flex shrink-0 items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
               <AlertCircleIcon className="size-3.5" />
               {sentenceError}
             </div>
           )}
+          </div>
+          </div>
+            </SheetContent>
+          </Sheet>
 
-          {/* 主体（跟读卡片 + A/B）：本列**不滚动**，卡片自动撑满剩余高度 */}
-          <div
-            data-testid="shadowing-practice-column"
-            className="flex min-h-0 flex-1 flex-col gap-2.5"
-          >
+          <div data-testid="shadowing-practice-column" className="flex min-w-0 flex-col gap-4">
             {loadingSentences ? (
               <div className="flex flex-1 items-center justify-center gap-2 rounded-3xl border border-border bg-card/60 p-10 text-sm text-muted-foreground">
                 <Loader2Icon className="size-4 animate-spin" />
                 正在加载跟读句库…
               </div>
+            ) : loadingSource ? (
+              <div className="flex min-h-[320px] items-center justify-center gap-2 rounded-3xl border border-border bg-card text-sm text-muted-foreground"><Loader2Icon className="size-4 animate-spin" /> 正在读取跟读内容…</div>
             ) : !current ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-2.5 rounded-3xl border border-dashed border-border bg-card/40 p-10 text-center">
                 <LayersIcon className="size-7 text-muted-foreground" />
-                <p className="text-sm font-semibold text-foreground">该题源下还没有跟读句</p>
+                <p className="text-sm font-semibold text-foreground">{ASSET_TABS.includes(activeTab) && !selectedAssetId ? "先选择跟读素材" : "该来源下还没有跟读句"}</p>
+                {sentenceError && <p className="text-xs text-rose-600">{sentenceError}</p>}
+                {sourceError && <p className="text-xs text-rose-600">{sourceError}</p>}
                 <p className="max-w-sm text-xs text-muted-foreground">
-                  {activeTab === "CUSTOM"
-                    ? "在上方上传或粘贴英文文本并导入，即可开始跟读练习。"
+                  {ASSET_TABS.includes(activeTab)
+                    ? selectedAssetId ? "该内容没有可跟读的句子，请选择其他内容。" : `打开句库，选择一篇${activeTab === "ARTICLE" ? "文章" : activeTab === "VIDEO" ? "视频" : "播客"}。`
+                    : activeTab === "CUSTOM"
+                    ? "打开句库，上传或粘贴英文文本并导入。"
                     : activeTab === "MEDIA"
                       ? "在视频或播客精听页悬浮字幕，点击收藏后会出现在这里。"
                     : "换一个题源，或先在生词本中添加卡片例句。"}
                 </p>
+                <button type="button" onClick={() => setLibraryOpen(true)} className="mt-3 rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground">打开句库</button>
               </div>
             ) : (
               // key 让「换句」变成重新挂载：录音、评测结果、IPA 状态自然清空
               <SentenceWorkspace
-                key={current.id}
+                key={`${activeTab}:${selectedAssetId ?? "library"}:${current.id}`}
                 sentence={current}
                 playRate={playRate}
                 onSaved={refreshAfterSave}
                 hasNext={Boolean(nextSentence)}
+                position={currentIndex + 1}
+                total={tabSentences.length}
+                hasContext={tabSentences.length > 1}
                 reportHost={reportHost}
+                onReportChange={(visible) => {
+                  setShowReport(visible)
+                  setRightPanelView(visible ? "feedback" : "transcript")
+                }}
                 onRequestNext={() => {
-                  if (nextSentence) setCurrentId(nextSentence.id)
+                  if (nextSentence) { setCurrentId(nextSentence.id); setShowReport(false); setRightPanelView("transcript") }
                 }}
               />
             )}
           </div>
         </div>
+        <section aria-label="跟读语料与反馈" className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card lg:h-[min(76dvh,48rem)] lg:min-h-[32rem]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-4 py-3 sm:px-5">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-muted-foreground">{activeTab === "VIDEO" || activeTab === "PODCAST" ? "连续字幕" : activeTab === "ARTICLE" ? "文章正文" : "跟读语料"}</p>
+              <p className="mt-0.5 truncate text-sm font-semibold text-foreground">{ASSET_TABS.includes(activeTab) ? current?.sourceTitle ?? "选择素材后开始" : SOURCE_META[activeTab].label}</p>
+            </div>
+            <div role="tablist" aria-label="右侧内容" className="flex shrink-0 gap-1 rounded-lg bg-muted/70 p-1">
+              <button type="button" role="tab" aria-selected={rightPanelView === "transcript" || !showReport} onClick={() => setRightPanelView("transcript")} className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${rightPanelView === "transcript" || !showReport ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>语料 · {tabSentences.length}</button>
+              {showReport && <button type="button" role="tab" aria-selected={rightPanelView === "feedback"} onClick={() => setRightPanelView("feedback")} className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${rightPanelView === "feedback" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>本轮反馈</button>}
+            </div>
+          </div>
+          <ProgressScrollArea
+            viewportRef={contextListRef}
+            role="list"
+            aria-label="跟读语料上下文"
+            className={showReport && rightPanelView === "feedback" ? "hidden" : "min-h-0 flex-1"}
+            viewportClassName="px-3 py-2 max-lg:max-h-[54dvh]"
+            progressClassName="bg-primary/75"
+          >
+            {tabSentences.length === 0 ? (
+              <div className="flex min-h-48 items-center justify-center text-center text-sm text-muted-foreground">从素材库选择内容后，文章或字幕会显示在这里。</div>
+            ) : tabSentences.map((item, index) => {
+              const previous = tabSentences[index - 1]
+              const isActive = item.id === current?.id
+              const showGroup = activeTab === "ARTICLE"
+                ? item.paragraphIndex !== undefined && item.paragraphIndex !== previous?.paragraphIndex
+                : (activeTab === "BBC" || activeTab === "MEDIA") && item.sourceTitle !== previous?.sourceTitle
+              return (
+                <div key={`${item.sourceType}:${item.id}`} role="listitem">
+                  {showGroup && <p className="px-3 pb-1 pt-4 text-[11px] font-semibold text-muted-foreground first:pt-1">{activeTab === "ARTICLE" ? `第 ${(item.paragraphIndex ?? 0) + 1} 段` : item.sourceTitle}</p>}
+                  <button type="button" data-current-sentence={isActive ? "true" : undefined} aria-current={isActive ? "true" : undefined} onClick={() => { if (item.id === current?.id) return; setCurrentId(item.id); setShowReport(false); setRightPanelView("transcript") }} className={`flex w-full items-start gap-3 rounded-xl border-l-2 px-3 py-2.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-primary ${isActive ? "border-primary bg-primary/8 text-foreground" : "border-transparent text-foreground/75 hover:bg-muted/50 hover:text-foreground"}`}>
+                    <span className={`w-10 shrink-0 pt-0.5 text-right font-mono text-[11px] ${isActive ? "text-primary" : "text-muted-foreground"}`}>{item.startMs === undefined ? String(index + 1).padStart(2, "0") : formatCueTime(item.startMs)}</span>
+                    <span className="min-w-0 flex-1"><span className={`block text-sm leading-relaxed sm:text-[15px] ${isActive ? "font-semibold" : "font-normal"}`}>{item.text}</span>{isActive && item.translation && <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">{item.translation}</span>}</span>
+                    {isActive && <span className="shrink-0 pt-0.5 text-[11px] font-semibold text-primary">正在练习</span>}
+                  </button>
+                </div>
+              )
+            })}
+          </ProgressScrollArea>
+          <ProgressScrollArea
+            viewportRef={setReportHost}
+            role="tabpanel"
+            aria-label="本轮反馈"
+            className={showReport && rightPanelView === "feedback" ? "min-h-0 flex-1" : "hidden"}
+            viewportClassName="p-4 lg:p-5"
+            progressClassName="bg-primary/75"
+          />
+        </section>
 
-        {/* ══════════ 右栏：评测报告 + 训练统计（本列内部滚动） ══════════ */}
-        <aside
+        <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
+        <SheetContent
           data-testid="shadowing-report-column"
-          className="flex min-h-0 min-w-0 flex-col gap-2.5 lg:overflow-y-auto lg:pr-1"
+          className="w-full max-w-xl gap-4 overflow-y-auto p-5 sm:max-w-xl"
         >
-          {/* 评测报告挂载点：工作区通过 portal 把「本轮反馈 / 逐词发音 / 完整分析」渲染进来 */}
-          <div ref={setReportHost} className="flex shrink-0 flex-col gap-2.5" />
+          <SheetHeader className="p-0 pr-8">
+            <SheetTitle className="text-xl font-bold">练习记录</SheetTitle>
+            <SheetDescription>回看最近的成绩与需要加强的发音。</SheetDescription>
+          </SheetHeader>
 
           {stats && stats.weakPhonemes.length > 0 && (
             <section className="shrink-0 rounded-2xl border border-border bg-card p-3.5">
@@ -1372,11 +1713,30 @@ export default function ShadowingPracticePage() {
                       key={h.id}
                       type="button"
                       onClick={() => {
-                        if (h.sentenceId === null) return
+                        if (h.sentenceId === null) {
+                          if (!ASSET_TABS.includes(h.sourceType as SourceTab) && h.sourceType !== "CARD") return
+                          const type = h.sourceType as "ARTICLE" | "VIDEO" | "PODCAST" | "CARD"
+                          const replayId = -1_000_000_000 - h.id
+                          setActiveTab(type)
+                          setSelectedAssetId(null)
+                          if (type === "CARD") {
+                            setCardSentences((currentCards) => [makeSourceSentence(replayId, type, h.sourceTitle, h.referenceText, "", "B2"), ...currentCards])
+                          } else {
+                            setSourceSentences([makeSourceSentence(replayId, type, h.sourceTitle, h.referenceText, "", "B2")])
+                          }
+                          setCurrentId(replayId)
+                          setShowReport(false)
+                          setRightPanelView("transcript")
+                          setHistoryOpen(false)
+                          return
+                        }
                         const target = sentences.find((s) => s.id === h.sentenceId)
                         if (!target) return
                         setActiveTab(target.sourceType)
                         setCurrentId(target.id)
+                        setShowReport(false)
+                        setRightPanelView("transcript")
+                        setHistoryOpen(false)
                       }}
                       className="flex items-start gap-2 rounded-xl border border-border/70 bg-background/50 px-2 py-1.5 text-left transition-colors hover:bg-muted/60"
                     >
@@ -1417,7 +1777,8 @@ export default function ShadowingPracticePage() {
               <li>4. 针对标红的音素，按教练提示调整舌位与口型后重录</li>
             </ol>
           </details>
-        </aside>
+        </SheetContent>
+        </Sheet>
       </div>
 
       {toast && (

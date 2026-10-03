@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
@@ -27,6 +27,8 @@ import {
 } from "lucide-react"
 import {
   reviewApi,
+  planApi,
+  type StudyPlanOverview,
   type ReviewQueueCard,
   type NewWordQuiz,
   type TodayReviewSummary,
@@ -118,6 +120,7 @@ export default function CardsPage() {
   const [loading, setLoading] = useState<boolean>(true)
   const [submitting, setSubmitting] = useState<boolean>(false)
   const [todaySummary, setTodaySummary] = useState<TodayReviewSummary | null>(null)
+  const [studyPlan, setStudyPlan] = useState<StudyPlanOverview | null>(null)
   const [lastFeedback, setLastFeedback] = useState<string | null>(null)
   const [sessionCount, setSessionCount] = useState<number>(0)
 
@@ -163,6 +166,7 @@ export default function CardsPage() {
           reviewApi.getQueue(30).catch(() => [] as ReviewQueueCard[]),
           reviewApi.getNewQueue(targetBatchSize).catch(() => [] as NewWordQuiz[]),
           reviewApi.getTodaySummary().catch(() => null),
+          planApi.getTodayOverview().catch(() => null),
         ])
 
         const res = await Promise.race([fetchPromise, timeoutPromise])
@@ -173,11 +177,12 @@ export default function CardsPage() {
           return
         }
 
-        const [revCards, learnCards, summary] = res
+        const [revCards, learnCards, summary, plan] = res
 
         setReviewQueue(revCards || [])
         setLearnQueue(learnCards || [])
         setTodaySummary(summary)
+        setStudyPlan(plan)
 
         setReviewIndex(0)
         setIsFlipped(false)
@@ -655,6 +660,7 @@ export default function CardsPage() {
       setTimeout(() => setLastFeedback(null), 3000)
 
       setSessionCount((prev) => prev + 1)
+      setStudyPlan((prev) => prev ? { ...prev, today: { ...prev.today, vocab: { ...prev.today.vocab, learned: prev.today.vocab.learned + 1, isCompleted: prev.today.vocab.learned + 1 >= prev.today.vocab.target } } } : null)
       setCompletedLearnCards((prev) => {
         if (prev.some((c) => c.cardId === currentLearnCard.cardId)) return prev
         return [...prev, currentLearnCard]
@@ -764,6 +770,7 @@ export default function CardsPage() {
       setTimeout(() => setLastFeedback(null), 3000)
 
       setSessionCount((prev) => prev + 1)
+      setStudyPlan((prev) => prev ? { ...prev, today: { ...prev.today, vocab: { ...prev.today.vocab, learned: prev.today.vocab.learned + 1, isCompleted: prev.today.vocab.learned + 1 >= prev.today.vocab.target } } } : null)
       resetLearnState()
 
       if (learnIndex + 1 < learnQueue.length) {
@@ -942,6 +949,17 @@ export default function CardsPage() {
             <span className="text-[10px] font-mono text-muted-foreground block">本轮已巩固</span>
             <span className="text-sm font-bold font-mono text-primary">+{sessionCount}</span>
           </div>
+          {studyPlan && (
+            <div className="rounded-2xl border border-border bg-card px-2.5 py-1 text-right shadow-2xs">
+              <span className="text-[10px] font-mono text-muted-foreground block">今日新词目标</span>
+              <span className="text-sm font-bold font-mono text-foreground">
+                <span className={studyPlan.today.vocab.learned >= studyPlan.today.vocab.target ? "text-emerald-500 font-bold" : "text-primary"}>
+                  {studyPlan.today.vocab.learned}
+                </span>
+                <span className="text-xs text-muted-foreground font-normal"> / {studyPlan.today.vocab.target}</span>
+              </span>
+            </div>
+          )}
           <button
             onClick={() => loadAllQueues()}
             disabled={loading}
@@ -1072,7 +1090,6 @@ export default function CardsPage() {
             onGiveUp={handleChallengeGiveUp}
             onExit={exitChallenge}
             playWordAudio={playWordAudio}
-            playSentenceAudio={playSentenceAudio}
           />
         </div>
       ) : activeMode === "REVIEW" ? (
@@ -1187,13 +1204,7 @@ export default function CardsPage() {
               <div className="size-16 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center mb-4 ring-8 ring-emerald-500/5">
                 <CheckCircle2Icon className="size-8" />
               </div>
-              <div className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-1">
-                Review Queue Clear · 复习队列暂无待复习单词
-              </div>
-              <h3 className="text-xl sm:text-2xl font-extrabold text-foreground">今日暂无待巩固复习的单词闪卡</h3>
-              <p className="mt-2 text-xs sm:text-sm text-muted-foreground max-w-md leading-relaxed">
-                太棒了！当前复习队列已全部清空，或今日所有到期卡片均已稳固。您可以切换至「研习新词」开始学习新单词，或前往词书库挑选导入新词书。
-              </p>
+              <h3 className="text-xl sm:text-2xl font-extrabold text-foreground">今日暂无待复习单词</h3>
               <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
                 <button
                   onClick={() => {
@@ -1203,7 +1214,7 @@ export default function CardsPage() {
                   className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition-all shadow-xs flex items-center gap-1.5 hover:scale-105 active:scale-95 cursor-pointer"
                 >
                   <SparklesIcon className="size-3.5" />
-                  <span>前往研习新词</span>
+                  <span>学习新词</span>
                 </button>
                 <Link
                   href="/wordbooks"
@@ -1234,7 +1245,7 @@ export default function CardsPage() {
             {/* 3D 翻转卡片 */}
             <div
               onClick={handleFlipCard}
-              className="group relative cursor-pointer min-h-[330px] sm:min-h-[350px] w-full rounded-3xl border border-border/80 bg-gradient-to-b from-card via-card/95 to-card/90 p-5 sm:p-6 shadow-lg transition-all hover:border-primary/50 flex flex-col justify-between select-none"
+              className="group relative cursor-pointer h-[390px] sm:h-[410px] w-full rounded-3xl border border-border/80 bg-gradient-to-b from-card via-card/95 to-card/90 p-5 sm:p-6 shadow-lg transition-colors hover:border-primary/50 flex flex-col select-none"
             >
               {/* 卡片顶栏元数据 */}
               <div className="flex items-center justify-between gap-3 border-b border-border/60 pb-3">
@@ -1298,7 +1309,8 @@ export default function CardsPage() {
               </div>
 
               {/* 卡片中心主体内容 */}
-              <div className="py-2.5 sm:py-3.5 flex flex-col items-center justify-center text-center">
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden py-2.5 sm:py-3.5 text-center">
+                <div className="my-auto flex w-full flex-col items-center">
                 <h2 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight text-foreground font-serif">
                   {currentReviewCard.lemma}
                 </h2>
@@ -1310,7 +1322,7 @@ export default function CardsPage() {
 
                 {/* 翻转后展示背面 */}
                 {isFlipped ? (
-                  <div className="mt-3 w-full max-w-xl animate-in fade-in zoom-in-95 duration-200">
+                  <div className="mt-3 w-full max-w-xl animate-in fade-in duration-200">
                     <div className="flex items-baseline justify-center gap-2 text-primary font-bold text-sm sm:text-base">
                       <span className="text-xs font-mono px-2 py-0.5 rounded bg-primary/10">
                         {currentReviewCard.pos || "n."}
@@ -1319,31 +1331,31 @@ export default function CardsPage() {
                     </div>
 
                     {currentReviewCard.contextSentence && (
-                      <div className="mt-2.5 text-left p-3 sm:p-3.5 rounded-xl bg-muted/40 border border-border/60 transition-all hover:border-primary/40 max-h-[95px] sm:max-h-[110px] overflow-y-auto">
-                        <div className="flex justify-end mb-1.5">
+                      <div className="mt-2.5 text-left p-3 sm:p-3.5 rounded-xl bg-muted/40 border border-border/60 transition-colors hover:border-primary/40">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="min-w-0 flex-1 text-xs sm:text-sm text-foreground leading-relaxed font-serif">
+                            {currentReviewCard.contextSentence}
+                          </p>
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation()
                               playSentenceAudio(currentReviewCard.contextSentence!)
                             }}
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold transition-all ${
+                            className={`inline-flex shrink-0 items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold transition-all ${
                               isPlayingSentence
                                 ? "bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/30 animate-pulse"
                                 : "bg-primary/10 text-primary hover:bg-primary/20 hover:scale-105"
                             }`}
-                            title="点击朗读原生语境句 (快捷键 S)"
+                            title="重听例句 (快捷键 S)"
                           >
                             <Volume2Icon className={`size-3 ${isPlayingSentence ? "animate-bounce" : ""}`} />
-                            <span className="text-[10px]">{isPlayingSentence ? "朗读中..." : "朗读原句"}</span>
+                            <span className="text-[10px]">{isPlayingSentence ? "朗读中..." : "重听例句"}</span>
                             <kbd className="hidden sm:inline-block rounded bg-primary-foreground/20 px-1 py-0.2 font-mono text-[9px]">
                               S
                             </kbd>
                           </button>
                         </div>
-                        <p className="text-xs sm:text-sm text-foreground leading-relaxed font-serif">
-                          {currentReviewCard.contextSentence}
-                        </p>
                         {currentReviewCard.contextTranslation && (
                           <p className="mt-1 text-xs text-muted-foreground">
                             {currentReviewCard.contextTranslation}
@@ -1409,17 +1421,16 @@ export default function CardsPage() {
                     </div>
                   )
                 )}
+                </div>
               </div>
 
               {/* 卡片底栏提示 */}
-              <div className="flex items-center justify-center gap-1.5 pt-3 border-t border-border/60 text-xs text-muted-foreground">
+              <div className="flex h-11 shrink-0 items-center justify-center gap-1.5 border-t border-border/60 text-center text-xs text-muted-foreground">
                 <RotateCcwIcon className="size-3" />
                 <span>
                   {isFlipped
-                    ? autoSpeak
-                      ? "释义已播音 · 按 [1-4] 评分 · [D] 默此词 · [W] 读词 · [S] 读句"
-                      : "按 [1-4] 评分 · [D] 默此词 · [W] 读词 · [S] 读句"
-                    : "点击卡片或按空格键 [Space] 翻转释义 · [D] 直接默单词 · [W] 读词"}
+                    ? "1–4 评分 · D 默写 · W 读词 · S 读句"
+                    : "点击或按 Space 翻面 · D 默写 · W 读词"}
                 </span>
               </div>
             </div>
@@ -1493,7 +1504,9 @@ export default function CardsPage() {
               <AwardIcon className="size-7" />
             </div>
             <div className="text-xs font-mono font-bold text-primary uppercase tracking-wider">
-              Group Completed · 本组 ({completedLearnCards.length || learnBatchSize} 词) 研习完毕
+              {studyPlan?.today.vocab.isCompleted
+                ? `今日新词配额达成 · 已学 ${studyPlan.today.vocab.learned} / ${studyPlan.today.vocab.target} 词`
+                : `Group Completed · 本组 (${completedLearnCards.length || learnBatchSize} 词) 研习完毕`}
             </div>
             <h2 className="text-xl sm:text-2xl font-extrabold text-foreground tracking-tight mt-1">
               本组新词研习完毕！
@@ -1780,12 +1793,15 @@ export default function CardsPage() {
                   </div>
 
                   {displayingLearnCard.sampleSentence && (
-                    <div className="mt-1.5 text-left p-2.5 sm:p-3 rounded-xl bg-muted/40 border border-border/60 transition-all hover:border-primary/40 shadow-2xs max-h-[72px] sm:max-h-[82px] overflow-y-auto">
-                      <div className="flex justify-end mb-1">
+                    <div className="mt-1.5 text-left p-2.5 sm:p-3 rounded-xl bg-muted/40 border border-border/60 transition-colors hover:border-primary/40 shadow-2xs">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="min-w-0 flex-1 text-xs sm:text-sm text-foreground leading-relaxed font-serif">
+                          {displayingLearnCard.sampleSentence}
+                        </p>
                         <button
                           type="button"
                           onClick={() => playSentenceAudio(displayingLearnCard.sampleSentence!)}
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all ${
+                          className={`inline-flex shrink-0 items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all ${
                             isPlayingSentence
                               ? "bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/30 animate-pulse"
                               : "bg-primary/10 text-primary hover:bg-primary/20 hover:scale-105"
@@ -1799,9 +1815,6 @@ export default function CardsPage() {
                           </kbd>
                         </button>
                       </div>
-                      <p className="text-xs sm:text-sm text-foreground leading-relaxed font-serif">
-                        {displayingLearnCard.sampleSentence}
-                      </p>
                       {displayingLearnCard.sampleTranslation && (
                         <p className="mt-0.5 text-xs text-muted-foreground font-sans">
                           {displayingLearnCard.sampleTranslation}

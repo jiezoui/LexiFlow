@@ -73,8 +73,7 @@ export default function SignInPage() {
 
           {/* 标题 */}
           <div className="mb-10 text-center">
-            <h1 className="mb-2 text-3xl font-bold tracking-tight">欢迎回来</h1>
-            <p className="text-sm text-muted-foreground">登入账号，继续你的研习进度</p>
+            <h1 className="text-3xl font-bold tracking-tight">登录</h1>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
