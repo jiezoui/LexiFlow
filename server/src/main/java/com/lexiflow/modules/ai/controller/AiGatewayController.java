@@ -8,6 +8,7 @@ import com.lexiflow.modules.ai.dto.AiFetchModelsRequest;
 import com.lexiflow.modules.ai.dto.AiTestConnectionRequest;
 import com.lexiflow.modules.ai.service.AiConfigService;
 import com.lexiflow.modules.ai.service.AiGatewayService;
+import com.lexiflow.modules.ai.service.AiUsagePolicy;
 import com.lexiflow.modules.ai.vo.AiConfigVo;
 import com.lexiflow.modules.ai.vo.AiExplainVo;
 import com.lexiflow.modules.ai.vo.AiModelDetectionVo;
@@ -28,6 +29,7 @@ public class AiGatewayController {
 
     private final AiGatewayService aiGatewayService;
     private final AiConfigService aiConfigService;
+    private final AiUsagePolicy usagePolicy;
 
     @Operation(
             summary = "读取账号级 AI 配置",
@@ -64,6 +66,15 @@ public class AiGatewayController {
         return Result.success(aiConfigService.clearProvider(userId, provider));
     }
 
+    @Operation(summary = "删除自定义供应商", security = @SecurityRequirement(name = "BearerAuth"))
+    @DeleteMapping("/config/providers/{provider}")
+    public Result<AiConfigVo> deleteCustomProvider(
+            @Parameter(description = "自定义供应商标识")
+            @PathVariable("provider") String provider) {
+        Long userId = UserContext.requireCurrentUserId();
+        return Result.success(aiConfigService.deleteCustomProvider(userId, provider));
+    }
+
     @Operation(summary = "测试 API Key 与模型连通性", description = "测试目标服务商、Base URL、API Key 与模型的联通延迟并校验鉴权有效性")
     @PostMapping("/test-connection")
     public Result<AiTestConnectionVo> testConnection(@RequestBody AiTestConnectionRequest request) {
@@ -94,6 +105,7 @@ public class AiGatewayController {
     )
     @PostMapping("/explain")
     public Result<AiExplainVo> explainWord(@Valid @RequestBody AiExplainRequest request) {
+        usagePolicy.requireEnabled(UserContext.requireCurrentUserId(), AiUsagePolicy.Scope.WORD_EXPLAIN);
         AiExplainVo vo = aiGatewayService.explainWord(request);
         return Result.success(vo);
     }

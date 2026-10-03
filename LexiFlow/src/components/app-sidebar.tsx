@@ -14,8 +14,10 @@ import {
   BrainIcon,
   HeadphonesIcon,
   LayoutDashboardIcon,
+  NewspaperIcon,
   PodcastIcon,
   SparklesIcon,
+  TargetIcon,
   VideoIcon,
 } from "lucide-react"
 
@@ -52,10 +54,12 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 
   const items = [
     { title: "今日概览", url: "/dashboard", icon: <LayoutDashboardIcon /> },
+    { title: "学习计划", url: "/plan", icon: <TargetIcon /> },
     { title: "闪卡复习", url: "/cards", icon: <BrainIcon /> },
     { title: "词书库", url: "/wordbooks", icon: <BookOpenIcon /> },
     { title: "生词本", url: "/vocab", icon: <BookmarkCheckIcon />, badge: vocabCount },
     { title: "语境文章", url: "/reading/story", icon: <SparklesIcon /> },
+    { title: "外刊研读", url: "/reading", icon: <NewspaperIcon /> },
     { title: "视频精听", url: "/videos", icon: <VideoIcon /> },
     { title: "影子跟读", url: "/practice/shadowing", icon: <HeadphonesIcon /> },
     { title: "播客订阅", url: "/podcasts", icon: <PodcastIcon /> },

@@ -8,13 +8,15 @@
 
 import { aiApi, type AiAccountConfig, type AiConfigSavePayload } from "@/lib/api-client"
 
-export type AiProviderId =
+export type BuiltinAiProviderId =
   | "deepseek"
   | "openai"
   | "siliconflow"
   | "claude"
   | "ollama"
   | "custom"
+
+export type AiProviderId = BuiltinAiProviderId | (string & {})
 
 export interface ProviderPreset {
   id: AiProviderId
@@ -28,7 +30,7 @@ export interface ProviderPreset {
   badge?: string
 }
 
-export const AI_PROVIDER_PRESETS: Record<AiProviderId, ProviderPreset> = {
+export const AI_PROVIDER_PRESETS: Record<BuiltinAiProviderId, ProviderPreset> = {
   deepseek: {
     id: "deepseek",
     name: "DeepSeek (深度求索)",
@@ -106,6 +108,7 @@ export const AI_PROVIDER_PRESETS: Record<AiProviderId, ProviderPreset> = {
 }
 
 export interface SingleProviderConfig {
+  displayName?: string
   apiKey: string
   apiHost: string
   selectedModel: string
@@ -114,8 +117,10 @@ export interface SingleProviderConfig {
 
 export interface AiSettings {
   activeProvider: AiProviderId
-  providers: Record<AiProviderId, SingleProviderConfig>
+  providers: Record<string, SingleProviderConfig>
   enableReadingAi: boolean
+  enableStoryAi: boolean
+  enableSubtitleAi: boolean
   enableFlashcardAi: boolean
   temperature: number
 }
@@ -123,7 +128,7 @@ export interface AiSettings {
 const STORAGE_KEY = "lexiflow_ai_settings_v1"
 
 export function getDefaultAiSettings(): AiSettings {
-  const providers: Record<AiProviderId, SingleProviderConfig> = {
+  const providers: Record<string, SingleProviderConfig> = {
     deepseek: {
       apiKey: "",
       apiHost: AI_PROVIDER_PRESETS.deepseek.defaultHost,
@@ -166,8 +171,24 @@ export function getDefaultAiSettings(): AiSettings {
     activeProvider: "deepseek",
     providers,
     enableReadingAi: true,
+    enableStoryAi: true,
+    enableSubtitleAi: true,
     enableFlashcardAi: true,
     temperature: 0.3,
+  }
+}
+
+export function getProviderPreset(provider: string): ProviderPreset {
+  const preset = Object.prototype.hasOwnProperty.call(AI_PROVIDER_PRESETS, provider)
+    ? AI_PROVIDER_PRESETS[provider as BuiltinAiProviderId]
+    : null
+  return preset ?? {
+    id: provider,
+    name: provider,
+    description: "",
+    defaultHost: "",
+    defaultModel: "",
+    presetModels: [],
   }
 }
 
@@ -209,19 +230,22 @@ export function saveAiSettings(settings: AiSettings): void {
 
 /** 把后端返回的账号配置合并进本地缓存，保持两处一致 */
 export function applyServerAiConfig(account: AiAccountConfig): AiSettings {
-  const settings = getAiSettings()
+  const settings = getDefaultAiSettings()
   settings.activeProvider = (account.activeProvider as AiProviderId) || settings.activeProvider
   settings.temperature = account.temperature ?? settings.temperature
   settings.enableReadingAi = account.enableReadingAi ?? settings.enableReadingAi
+  settings.enableStoryAi = account.enableStoryAi ?? settings.enableStoryAi
+  settings.enableSubtitleAi = account.enableSubtitleAi ?? settings.enableSubtitleAi
   settings.enableFlashcardAi = account.enableFlashcardAi ?? settings.enableFlashcardAi
 
   for (const entry of account.providers ?? []) {
     const pid = entry.provider as AiProviderId
-    if (!(pid in AI_PROVIDER_PRESETS)) continue
+    const preset = getProviderPreset(pid)
     settings.providers[pid] = {
+      displayName: entry.displayName ?? settings.providers[pid]?.displayName,
       apiKey: entry.apiKey ?? "",
-      apiHost: entry.apiHost || AI_PROVIDER_PRESETS[pid].defaultHost,
-      selectedModel: entry.selectedModel || AI_PROVIDER_PRESETS[pid].defaultModel,
+      apiHost: entry.apiHost || preset.defaultHost,
+      selectedModel: entry.selectedModel || preset.defaultModel,
       customModels: entry.customModels ?? [],
     }
   }
@@ -236,9 +260,12 @@ export function toSavePayload(settings: AiSettings): AiConfigSavePayload {
     activeProvider: settings.activeProvider,
     temperature: settings.temperature,
     enableReadingAi: settings.enableReadingAi,
+    enableStoryAi: settings.enableStoryAi,
+    enableSubtitleAi: settings.enableSubtitleAi,
     enableFlashcardAi: settings.enableFlashcardAi,
     providers: (Object.keys(settings.providers) as AiProviderId[]).map((pid) => ({
       provider: pid,
+      displayName: settings.providers[pid].displayName,
       apiKey: settings.providers[pid].apiKey,
       apiHost: settings.providers[pid].apiHost,
       selectedModel: settings.providers[pid].selectedModel,
@@ -253,7 +280,7 @@ export async function loadAiSettingsFromServer(): Promise<AiSettings> {
   return applyServerAiConfig(account)
 }
 
-/** 把当前本地配置持久化到账号 */
+/** 以账号保存结果为准，同步更新本地缓存 */
 export async function saveAiSettingsToServer(settings: AiSettings): Promise<AiSettings> {
   const account = await aiApi.saveConfig(toSavePayload(settings))
   return applyServerAiConfig(account)
@@ -268,8 +295,10 @@ export function getActiveAiConfig(): {
 } {
   const settings = getAiSettings()
   const provider = settings.activeProvider
-  const pConfig = settings.providers[provider] || getDefaultAiSettings().providers[provider]
-  const preset = AI_PROVIDER_PRESETS[provider]
+  const preset = getProviderPreset(provider)
+  const pConfig = settings.providers[provider] || getDefaultAiSettings().providers[provider] || {
+    apiKey: "", apiHost: preset.defaultHost, selectedModel: preset.defaultModel, customModels: [],
+  }
 
   const apiHost = pConfig.apiHost || preset.defaultHost
   const apiKey = pConfig.apiKey || ""

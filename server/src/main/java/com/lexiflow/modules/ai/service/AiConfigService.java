@@ -32,4 +32,7 @@ public interface AiConfigService {
      * 清除某供应商已保存的凭据。
      */
     AiConfigVo clearProvider(Long userId, String provider);
+
+    /** 删除当前账号添加的自定义供应商。 */
+    AiConfigVo deleteCustomProvider(Long userId, String provider);
 }

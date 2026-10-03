@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lexiflow.modules.ai.model.AiResolvedConfig;
 import com.lexiflow.modules.ai.service.AiConfigStore;
 import com.lexiflow.modules.ai.service.AiGatewayService;
+import com.lexiflow.modules.ai.service.AiUsagePolicy;
 import com.lexiflow.modules.translation.TranslationProperties;
 import com.lexiflow.modules.translation.model.TranslationItem;
 import com.lexiflow.modules.translation.model.TranslationResult;
@@ -34,6 +35,7 @@ public class AiGatewayTranslationProvider implements TranslationProvider {
     private final TranslationProperties properties;
     private final AiGatewayService aiGatewayService;
     private final AiConfigStore configStore;
+    private final AiUsagePolicy usagePolicy;
     private final ObjectMapper objectMapper;
 
     /** 单批字幕条数上限，避免长视频一次性撑爆上下文 */
@@ -44,10 +46,12 @@ public class AiGatewayTranslationProvider implements TranslationProvider {
     public AiGatewayTranslationProvider(TranslationProperties properties,
                                         AiGatewayService aiGatewayService,
                                         AiConfigStore configStore,
+                                        AiUsagePolicy usagePolicy,
                                         ObjectMapper objectMapper) {
         this.properties = properties;
         this.aiGatewayService = aiGatewayService;
         this.configStore = configStore;
+        this.usagePolicy = usagePolicy;
         this.objectMapper = objectMapper;
     }
 
@@ -88,10 +92,14 @@ public class AiGatewayTranslationProvider implements TranslationProvider {
             return List.of();
         }
 
+        if (!usagePolicy.isEnabled(userId, AiUsagePolicy.Scope.ACCOUNT_SUBTITLE)) {
+            throw new IllegalStateException("账号模型字幕翻译已关闭");
+        }
+
         AiResolvedConfig config = configStore.resolve(userId, null, null, null, null);
         if (!config.configured()) {
             throw new IllegalStateException(
-                    "尚未配置 AI 模型，无法进行字幕翻译，请先到「设置 · AI 助理与大语言模型中心」填写 API Key");
+                    "尚未配置 AI 模型，无法进行字幕翻译，请先到「系统设置 · 模型设置」填写 API Key");
         }
 
         List<TranslationResult> results = new ArrayList<>(items.size());

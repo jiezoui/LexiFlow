@@ -31,4 +31,9 @@ public interface AiGatewayService {
      * 通用 LLM 对话生成接口，同时支持 OpenAI 兼容协议与 Anthropic Messages 协议
      */
     String generateText(String systemPrompt, String userPrompt, String provider, String model, String apiKey, String apiHost);
+
+    default String generateText(String systemPrompt, String userPrompt, String provider, String model,
+                                String apiKey, String apiHost, int maxTokens) {
+        return generateText(systemPrompt, userPrompt, provider, model, apiKey, apiHost);
+    }
 }

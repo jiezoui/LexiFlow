@@ -19,6 +19,10 @@ public class AiConfigSaveRequest {
 
     private Boolean enableReadingAi;
 
+    private Boolean enableStoryAi;
+
+    private Boolean enableSubtitleAi;
+
     private Boolean enableFlashcardAi;
 
     @Schema(description = "各供应商配置明细，只需提交需要落库的项")
@@ -30,6 +34,7 @@ public class AiConfigSaveRequest {
 
         @Schema(description = "供应商标识", example = "deepseek")
         private String provider;
+        private String displayName;
 
         @Schema(description = "API Key；若与已存值一致或为掩码占位则忽略本次写入")
         private String apiKey;

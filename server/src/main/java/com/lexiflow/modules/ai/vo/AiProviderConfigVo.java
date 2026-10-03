@@ -19,6 +19,7 @@ import java.util.List;
 public class AiProviderConfigVo {
 
     private String provider;
+    private String displayName;
 
     private String apiKey;
 

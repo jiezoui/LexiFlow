@@ -792,6 +792,12 @@ public class AiGatewayServiceImpl implements AiGatewayService {
 
     @Override
     public String generateText(String systemPrompt, String userPrompt, String providerInput, String modelInput, String apiKeyInput, String apiHostInput) {
+        return generateText(systemPrompt, userPrompt, providerInput, modelInput, apiKeyInput, apiHostInput, 2500);
+    }
+
+    @Override
+    public String generateText(String systemPrompt, String userPrompt, String providerInput, String modelInput,
+                               String apiKeyInput, String apiHostInput, int maxTokens) {
         // 调用方未传凭据时回落到账号已保存的 AI 配置，避免各业务模块重复透传 Key
         AiResolvedConfig cfg = configStore.resolve(
                 UserContext.getCurrentUserId(), providerInput, apiHostInput, apiKeyInput, modelInput);
@@ -800,16 +806,16 @@ public class AiGatewayServiceImpl implements AiGatewayService {
                 cfg.provider(), cfg.model(), cfg.source());
 
         if (!cfg.configured()) {
-            throw new RuntimeException("尚未配置 AI 模型，请先到「设置 · AI 助理与大语言模型中心」填写 API Key");
+            throw new RuntimeException("尚未配置 AI 模型，请先到「系统设置 · 模型设置」填写 API Key");
         }
 
         try {
             String endpoint = buildEndpoint(cfg.apiHost(), cfg.isAnthropic() ? "/messages" : "/chat/completions");
 
-            ObjectNode root = buildChatBody(cfg, systemPrompt, userPrompt, 2500, 0.3, false);
+            ObjectNode root = buildChatBody(cfg, systemPrompt, userPrompt, Math.min(6000, Math.max(2500, maxTokens)), 0.3, false);
 
             HttpRequest.Builder builder = requestBuilder(endpoint, cfg)
-                    .timeout(Duration.ofSeconds(45))
+                    .timeout(Duration.ofSeconds(maxTokens > 2500 ? 90 : 45))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(root)));
 

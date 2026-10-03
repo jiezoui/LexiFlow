@@ -2,47 +2,58 @@
 
 import * as React from "react"
 import {
-  SparklesIcon,
   CheckIcon,
-  CheckCircle2Icon,
+  ExternalLinkIcon,
   EyeIcon,
   EyeOffIcon,
-  ExternalLinkIcon,
-  RefreshCwIcon,
-  KeyIcon,
-  ServerIcon,
-  CpuIcon,
-  ShieldCheckIcon,
-  SlidersIcon,
-  RotateCcwIcon,
-  SaveIcon,
-  TriangleAlertIcon,
   Loader2Icon,
+  PlusIcon,
+  RefreshCwIcon,
+  RotateCcwIcon,
   Trash2Icon,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
-import { Badge } from "@/components/ui/badge"
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card"
 import {
   AI_PROVIDER_PRESETS,
   type AiProviderId,
   type AiSettings,
+  applyServerAiConfig,
+  getProviderPreset,
   getAiSettings,
   getDefaultAiSettings,
   loadAiSettingsFromServer,
   saveAiSettingsToServer,
+  toSavePayload,
 } from "@/lib/ai-config"
 import { aiApi, type AiModelDetection } from "@/lib/api-client"
+import { cn } from "@/lib/utils"
 
-function getErrorMessage(error: unknown, fallback: string): string {
+const builtinProviders = Object.keys(AI_PROVIDER_PRESETS).filter((id) => id !== "custom") as AiProviderId[]
+const builtinLabels: Record<string, string> = {
+  deepseek: "DeepSeek",
+  siliconflow: "硅基流动",
+  openai: "OpenAI",
+  claude: "Claude",
+  ollama: "Ollama",
+  custom: "自定义",
+}
+
+function providerLabel(id: string, customName?: string) {
+  if (id === "custom") return customName?.trim() || "自定义供应商"
+  return builtinLabels[id] ?? customName ?? id
+}
+
+function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
 }
 
@@ -51,11 +62,23 @@ export function AiSettingsTab() {
   const [showKey, setShowKey] = React.useState(false)
   const [fetchingModels, setFetchingModels] = React.useState(false)
   const [detection, setDetection] = React.useState<AiModelDetection | null>(null)
-  const [savedSuccess, setSavedSuccess] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
+  const [savedSuccess, setSavedSuccess] = React.useState(false)
   const [saveError, setSaveError] = React.useState<string | null>(null)
+  const [customModelInput, setCustomModelInput] = React.useState("")
+  const [addingProvider, setAddingProvider] = React.useState(false)
+  const [adding, setAdding] = React.useState(false)
+  const [addError, setAddError] = React.useState<string | null>(null)
+  const [deleteOpen, setDeleteOpen] = React.useState(false)
+  const [deleting, setDeleting] = React.useState(false)
+  const [deleteError, setDeleteError] = React.useState<string | null>(null)
+  const [newProvider, setNewProvider] = React.useState({
+    name: "",
+    apiHost: "",
+    apiKey: "",
+    selectedModel: "",
+  })
 
-  // 初始化：以账号下保存的配置为准，回填并覆盖本地缓存
   React.useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -63,110 +86,130 @@ export function AiSettingsTab() {
         const fromServer = await loadAiSettingsFromServer()
         if (!cancelled) setSettings(fromServer)
       } catch {
-        // 后端不可达时退回本地缓存，保证面板仍可编辑
         if (!cancelled) setSettings(getAiSettings())
       }
     })()
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [])
 
   const activeProvider = settings.activeProvider
-  const preset = AI_PROVIDER_PRESETS[activeProvider]
-  const currentProviderConfig = settings.providers[activeProvider] || {
+  const preset = getProviderPreset(activeProvider)
+  const isBuiltin = builtinProviders.includes(activeProvider)
+  const legacyCustom = settings.providers.custom
+  const showLegacyCustom = activeProvider === "custom" || Boolean(
+    legacyCustom?.apiKey || legacyCustom?.displayName || legacyCustom?.customModels?.length ||
+    (legacyCustom?.apiHost && legacyCustom.apiHost !== AI_PROVIDER_PRESETS.custom.defaultHost) ||
+    (legacyCustom?.selectedModel && legacyCustom.selectedModel !== AI_PROVIDER_PRESETS.custom.defaultModel),
+  )
+  const providerIds = [
+    ...builtinProviders,
+    ...(showLegacyCustom ? ["custom"] : []),
+    ...Object.keys(settings.providers).filter((id) => id !== "custom" && !builtinProviders.includes(id)),
+  ]
+  const currentProviderConfig = settings.providers[activeProvider] ?? {
     apiKey: "",
     apiHost: preset.defaultHost,
     selectedModel: preset.defaultModel,
     customModels: [],
   }
+  const providerName = providerLabel(activeProvider, currentProviderConfig.displayName)
 
-  /**
-   * 自动探测：填入 API Key（或切换供应商 / 修改接口地址）后延迟发起一次真实探测。
-   * 探测本身会请求上游 /models 接口，因此成功即代表凭据、地址与网络三者都可用，
-   * 无需再单独提供一个"测试连通性"按钮；失败时下方会如实给出原因。
-   */
-  React.useEffect(() => {
+  const candidateModels = React.useMemo(() => {
+    const list: string[] = []
+    const add = (value?: string) => {
+      const model = value?.trim()
+      if (model && !list.includes(model)) list.push(model)
+    }
+    add(currentProviderConfig.selectedModel)
+    for (const model of preset.presetModels) add(model)
+    for (const model of currentProviderConfig.customModels ?? []) add(model)
+    if (detection?.ok) for (const model of detection.models ?? []) add(model)
+    return list
+  }, [currentProviderConfig.selectedModel, currentProviderConfig.customModels, preset.presetModels, detection])
+
+  const triggerDetection = React.useCallback(async () => {
     const isOllama = activeProvider === "ollama"
     const apiKey = (currentProviderConfig.apiKey ?? "").trim()
     const apiHost = (currentProviderConfig.apiHost ?? "").trim()
-
     if (!isOllama && !apiKey) {
       setDetection(null)
       return
     }
-
     setFetchingModels(true)
-    const timer = setTimeout(async () => {
-      try {
-        const result = await aiApi.fetchModels({
-          provider: activeProvider,
-          apiHost,
-          apiKey,
+    try {
+      const result = await aiApi.fetchModels({ provider: activeProvider, apiHost, apiKey })
+      setDetection(result)
+      if (result.ok && result.models.length > 0) {
+        setSettings((prev) => {
+          if (prev.activeProvider !== activeProvider || !prev.providers[activeProvider]) return prev
+          const current = prev.providers[activeProvider]?.selectedModel
+          if (current && (result.models.includes(current) || preset.presetModels.includes(current))) return prev
+          return {
+            ...prev,
+            providers: {
+              ...prev.providers,
+              [activeProvider]: { ...prev.providers[activeProvider], selectedModel: result.models[0] },
+            },
+          }
         })
-        setDetection(result)
-        // 探测成功时后端已自动选定模型，这里同步回本地，使阅读器立刻可用
-        if (result.ok && result.models.length > 0) {
-          setSettings((prev) => {
-            const current = prev.providers[activeProvider]?.selectedModel
-            if (current && result.models.includes(current)) return prev
-            return {
-              ...prev,
-              providers: {
-                ...prev.providers,
-                [activeProvider]: {
-                  ...prev.providers[activeProvider],
-                  selectedModel: result.models[0],
-                },
-              },
-            }
-          })
-        }
-      } catch (e) {
-        setDetection({
-          ok: false,
-          status: "REQUEST_FAILED",
-          message: e instanceof Error ? e.message : "探测请求失败",
-          endpoint: apiHost,
-          httpStatus: null,
-          elapsedMs: 0,
-          models: [],
-          detectedAt: Date.now(),
-        })
-      } finally {
-        setFetchingModels(false)
       }
-    }, 700)
+    } catch (error) {
+      setDetection({
+        ok: false,
+        status: "REQUEST_FAILED",
+        message: errorMessage(error, "检测失败"),
+        endpoint: apiHost,
+        httpStatus: null,
+        elapsedMs: 0,
+        models: [],
+        detectedAt: Date.now(),
+      })
+    } finally {
+      setFetchingModels(false)
+    }
+  }, [activeProvider, currentProviderConfig.apiKey, currentProviderConfig.apiHost, preset.presetModels])
 
+  React.useEffect(() => {
+    const apiKey = (currentProviderConfig.apiKey ?? "").trim()
+    if (activeProvider !== "ollama" && !apiKey) {
+      setDetection(null)
+      return
+    }
+    const timer = setTimeout(() => { void triggerDetection() }, 700)
     return () => clearTimeout(timer)
-    // updateCurrent/ setSettings 为稳定引用，不纳入依赖避免循环触发
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProvider, currentProviderConfig.apiKey, currentProviderConfig.apiHost])
+  }, [activeProvider, currentProviderConfig.apiKey, currentProviderConfig.apiHost, triggerDetection])
 
-  // 切换供应商
-  const handleSelectProvider = (pid: AiProviderId) => {
-    setSettings((prev) => ({
-      ...prev,
-      activeProvider: pid,
-    }))
-    setDetection(null)
-  }
-
-  // 更新当前供应商的某项配置
   const updateCurrentConfig = (updates: Partial<typeof currentProviderConfig>) => {
     setSettings((prev) => ({
       ...prev,
       providers: {
         ...prev.providers,
-        [activeProvider]: {
-          ...currentProviderConfig,
-          ...updates,
-        },
+        [activeProvider]: { ...prev.providers[activeProvider], ...updates },
       },
     }))
+    setSaveError(null)
   }
 
-  // 保存设置：写入账号后再回读，确保落库结果与界面一致
+  const handleSelectProvider = (id: AiProviderId) => {
+    setAddingProvider(false)
+    setSettings((prev) => ({ ...prev, activeProvider: id }))
+    setDetection(null)
+    setShowKey(false)
+    setCustomModelInput("")
+    setSaveError(null)
+  }
+
+  const handleAddCustomModel = () => {
+    const model = customModelInput.trim()
+    if (!model) return
+    const customModels = currentProviderConfig.customModels ?? []
+    updateCurrentConfig({
+      selectedModel: model,
+      customModels: customModels.includes(model) ? customModels : [...customModels, model],
+    })
+    setCustomModelInput("")
+  }
+
   const handleSave = async () => {
     setSaving(true)
     setSaveError(null)
@@ -175,338 +218,290 @@ export function AiSettingsTab() {
       setSettings(persisted)
       setSavedSuccess(true)
       setTimeout(() => setSavedSuccess(false), 2000)
-    } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "保存失败，请检查登录状态")
+    } catch (error) {
+      setSaveError(errorMessage(error, "保存失败"))
     } finally {
       setSaving(false)
     }
   }
 
-  // 清空当前供应商已保存的密钥
   const handleClearKey = async () => {
     updateCurrentConfig({ apiKey: "" })
     setDetection(null)
     try {
       await aiApi.clearProvider(activeProvider)
-    } catch {
-      // 后端未连通时仅清本地，下次保存会覆盖
+    } catch (error) {
+      setSaveError(errorMessage(error, "清除密钥失败"))
     }
   }
 
-  // 重置当前供应商为默认
-  const handleResetProvider = () => {
-    updateCurrentConfig({
-      apiHost: preset.defaultHost,
-      selectedModel: preset.defaultModel,
-    })
+  const handleAddProvider = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const name = newProvider.name.trim()
+    const apiHost = newProvider.apiHost.trim()
+    const apiKey = newProvider.apiKey.trim()
+    const selectedModel = newProvider.selectedModel.trim()
+    if (!name || !apiHost || !apiKey || !selectedModel) {
+      setAddError("请填写全部字段")
+      return
+    }
+    try {
+      const url = new URL(apiHost)
+      if (!["http:", "https:"].includes(url.protocol)) throw new Error()
+    } catch {
+      setAddError("接口地址须为 HTTP 或 HTTPS URL")
+      return
+    }
+    const id = `custom_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+    const next: AiSettings = {
+      ...settings,
+      activeProvider: id,
+      providers: {
+        ...settings.providers,
+        [id]: { displayName: name, apiHost, apiKey, selectedModel, customModels: [] },
+      },
+    }
+    setAdding(true)
+    setAddError(null)
+    try {
+      const persisted = applyServerAiConfig(await aiApi.saveConfig(toSavePayload(next)))
+      setSettings(persisted)
+      setAddingProvider(false)
+      setNewProvider({ name: "", apiHost: "", apiKey: "", selectedModel: "" })
+      setDetection(null)
+    } catch (error) {
+      setAddError(errorMessage(error, "添加失败"))
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  const handleDeleteProvider = async () => {
+    if (isBuiltin) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      const persisted = applyServerAiConfig(await aiApi.deleteProvider(activeProvider))
+      setSettings(persisted)
+      setDetection(null)
+      setShowKey(false)
+      setCustomModelInput("")
+      setDeleteOpen(false)
+      setSaveError(null)
+    } catch (error) {
+      setDeleteError(errorMessage(error, "删除失败"))
+    } finally {
+      setDeleting(false)
+    }
   }
 
   return (
-    <div className="space-y-6">
-      {/* 1. 标题区：不再使用卡片容器，标题直接作为页面的一部分 */}
-      <div className="flex flex-col items-center gap-3 pb-1 pt-2">
-        <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-          <SparklesIcon className="size-5 text-primary" />
-          <span>AI 助理与大语言模型中心</span>
-        </h2>
-        <Badge
-          variant="outline"
-          className="flex items-center gap-1 border-emerald-500/30 bg-background/80 px-2.5 py-1 font-mono text-[11px] text-emerald-600 dark:text-emerald-400"
-        >
-          <ShieldCheckIcon className="size-3.5" />
-          <span>凭据托管于账号 · 换设备登录即刻可用</span>
-        </Badge>
-      </div>
+    <>
+      <div className="overflow-hidden rounded-xl border border-border/70 bg-card md:grid md:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className="border-b border-border/70 bg-muted/20 md:border-b-0 md:border-r">
+          <div className="px-4 pb-2 pt-5 text-xs font-medium text-muted-foreground">供应商</div>
+          <nav aria-label="AI 供应商" className="flex gap-1 overflow-x-auto px-2 pb-2 md:block md:space-y-0.5 md:overflow-visible">
+            {providerIds.map((id) => {
+              const provider = settings.providers[id]
+              const selected = !addingProvider && id === activeProvider
+              const name = providerLabel(id, provider?.displayName)
+              const configured = id === "ollama" || Boolean(provider?.apiKey)
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  aria-current={selected ? "true" : undefined}
+                  onClick={() => handleSelectProvider(id)}
+                  className={cn(
+                    "flex min-w-36 shrink-0 items-center justify-between gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:w-full md:min-w-0",
+                    selected ? "bg-background font-semibold text-foreground shadow-xs" : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
+                  )}
+                >
+                  <span className="min-w-0 truncate">{name}</span>
+                  <span className={cn("size-1.5 shrink-0 rounded-full", configured ? "bg-emerald-500" : "bg-border")} aria-label={configured ? "已配置" : "未配置"} />
+                </button>
+              )
+            })}
+          </nav>
+          <div className="border-t border-border/70 p-2">
+            <Button
+              variant="ghost"
+              aria-current={addingProvider ? "true" : undefined}
+              className={cn("w-full justify-start gap-2 text-sm", addingProvider && "bg-background font-semibold")}
+              onClick={() => { setAddError(null); setShowKey(false); setAddingProvider(true) }}
+            >
+              <PlusIcon className="size-4" />添加供应商
+            </Button>
+          </div>
+        </aside>
 
-      {/* 2. 供应商选择网格 (Provider Selector) */}
-      <div className="space-y-2.5">
-        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
-          选择模型供应商 (Model Provider)
-        </label>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-          {(Object.keys(AI_PROVIDER_PRESETS) as AiProviderId[]).map((pid) => {
-            const p = AI_PROVIDER_PRESETS[pid]
-            const isSelected = activeProvider === pid
-            const hasKey = !!settings.providers[pid]?.apiKey
-
-            return (
-              <button
-                key={pid}
-                type="button"
-                onClick={() => handleSelectProvider(pid)}
-                className={`relative flex flex-col items-start p-3 rounded-2xl border text-left transition-all cursor-pointer select-none ${
-                  isSelected
-                    ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary"
-                    : "border-border/70 bg-card hover:bg-muted/50 hover:border-border"
-                }`}
-              >
-                {p.badge && (
-                  <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full mb-1.5 font-medium ${
-                    isSelected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-                  }`}>
-                    {p.badge}
-                  </span>
-                )}
-                <span className="text-xs font-bold text-foreground leading-snug line-clamp-1">
-                  {p.name.split(" ")[0]}
-                </span>
-                <span className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">
-                  {pid === "ollama" ? "本地无需 Key" : hasKey ? "● 已配置 Key" : "○ 待配置"}
-                </span>
-
-                {isSelected && (
-                  <div className="absolute top-2 right-2 size-4 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
-                    <CheckIcon className="size-2.5 stroke-[3]" />
+        <div className="min-w-0">
+          {addingProvider ? (
+            <form onSubmit={handleAddProvider}>
+              <div className="flex items-center justify-between gap-4 border-b border-border/70 px-5 py-5 sm:px-7">
+                <h3 className="text-lg font-semibold tracking-tight">添加供应商</h3>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setAddingProvider(false)}>取消</Button>
+              </div>
+              <div className="space-y-7 px-5 py-6 sm:px-7">
+                <section className="space-y-4" aria-labelledby="new-connection-heading">
+                  <h4 id="new-connection-heading" className="text-sm font-semibold">连接</h4>
+                  <div className="space-y-1.5">
+                    <label htmlFor="new-provider-name" className="text-xs font-medium text-muted-foreground">名称</label>
+                    <Input id="new-provider-name" autoFocus maxLength={80} value={newProvider.name} onChange={(event) => setNewProvider((prev) => ({ ...prev, name: event.target.value }))} placeholder="供应商名称" />
                   </div>
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* 3. 核心凭据配置卡片 */}
-      <Card>
-        <CardHeader className="pb-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <CardTitle className="text-base flex items-center gap-2">
-                <span>{preset.name} 参数设置</span>
-              </CardTitle>
-              <CardDescription className="text-xs">
-                {preset.description}
-              </CardDescription>
+                  <div className="space-y-1.5">
+                    <label htmlFor="new-provider-key" className="text-xs font-medium text-muted-foreground">API Key</label>
+                    <div className="relative">
+                      <Input id="new-provider-key" type={showKey ? "text" : "password"} autoComplete="off" value={newProvider.apiKey} onChange={(event) => setNewProvider((prev) => ({ ...prev, apiKey: event.target.value }))} className="pr-10 font-mono text-xs" placeholder="输入 API Key" />
+                      <button type="button" onClick={() => setShowKey(!showKey)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={showKey ? "隐藏密钥" : "显示密钥"}>
+                        {showKey ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="new-provider-host" className="text-xs font-medium text-muted-foreground">Base URL</label>
+                    <Input id="new-provider-host" type="url" value={newProvider.apiHost} onChange={(event) => setNewProvider((prev) => ({ ...prev, apiHost: event.target.value }))} className="font-mono text-xs" placeholder="https://example.com/v1" />
+                  </div>
+                </section>
+                <section className="space-y-3 border-t border-border/70 pt-6" aria-labelledby="new-model-heading">
+                  <h4 id="new-model-heading" className="text-sm font-semibold">模型</h4>
+                  <div className="space-y-1.5">
+                    <label htmlFor="new-provider-model" className="text-xs font-medium text-muted-foreground">模型 ID</label>
+                    <Input id="new-provider-model" value={newProvider.selectedModel} onChange={(event) => setNewProvider((prev) => ({ ...prev, selectedModel: event.target.value }))} className="font-mono text-xs" placeholder="输入模型 ID" />
+                  </div>
+                </section>
+                {addError && <p role="alert" className="text-xs text-destructive">{addError}</p>}
+              </div>
+              <div className="flex justify-end border-t border-border/70 px-5 py-4 sm:px-7">
+                <Button type="submit" disabled={adding} className="min-w-24">
+                  {adding && <Loader2Icon className="size-4 animate-spin" />}
+                  {adding ? "添加中" : "添加"}
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <>
+          <div className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-5 sm:px-7">
+            <div className="min-w-0">
+              <h3 className="truncate text-lg font-semibold tracking-tight">{providerName}</h3>
             </div>
-
             {preset.apiKeyUrl && (
-              <a
-                href={preset.apiKeyUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-primary hover:underline font-medium"
-              >
-                <span>获取 API Key</span>
-                <ExternalLinkIcon className="size-3" />
+              <a href={preset.apiKeyUrl} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                获取密钥 <ExternalLinkIcon className="size-3" />
               </a>
             )}
           </div>
-        </CardHeader>
 
-        <CardContent className="space-y-5">
-          {/* API Key */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold flex items-center gap-1.5">
-                <KeyIcon className="size-3.5 text-muted-foreground" />
-                <span>API 密钥 (API Key)</span>
-              </label>
-              <div className="flex items-center gap-3">
-                {activeProvider === "ollama" && (
-                  <span className="text-[11px] text-muted-foreground">Ollama 本地部署无需真实 Key</span>
-                )}
-                {currentProviderConfig.apiKey && (
-                  <button
-                    type="button"
-                    onClick={handleClearKey}
-                    className="text-[11px] text-muted-foreground hover:text-destructive inline-flex items-center gap-1"
-                    title="清空该供应商已保存的密钥"
-                  >
-                    <Trash2Icon className="size-2.5" />
-                    <span>清空密钥</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="relative">
-              <Input
-                type={showKey ? "text" : "password"}
-                placeholder={activeProvider === "ollama" ? "ollama (本地免鉴权)" : "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
-                value={currentProviderConfig.apiKey}
-                onChange={(e) => updateCurrentConfig({ apiKey: e.target.value })}
-                className="font-mono text-xs pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowKey(!showKey)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1 transition-colors"
-                title={showKey ? "隐藏密钥" : "显示密钥"}
-              >
-                {showKey ? <EyeOffIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
-              </button>
-            </div>
-          </div>
-
-          {/* Base URL (API Host) */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold flex items-center gap-1.5">
-                <ServerIcon className="size-3.5 text-muted-foreground" />
-                <span>接口地址 (Base URL)</span>
-              </label>
-              <button
-                type="button"
-                onClick={handleResetProvider}
-                className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                title="重置为官方推荐 Base URL"
-              >
-                <RotateCcwIcon className="size-2.5" />
-                <span>恢复默认地址</span>
-              </button>
-            </div>
-            <Input
-              type="text"
-              placeholder={preset.defaultHost}
-              value={currentProviderConfig.apiHost}
-              onChange={(e) => updateCurrentConfig({ apiHost: e.target.value })}
-              className="font-mono text-xs"
-            />
-            <span className="text-[11px] text-muted-foreground block">
-              支持填写第三方反向代理、云中转网关或局域网私有端口。
-            </span>
-          </div>
-
-          {/* Model Selection */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold flex items-center gap-1.5">
-                <CpuIcon className="size-3.5 text-muted-foreground" />
-                <span>主用模型 (Model ID)</span>
-              </label>
-              {/* 不再提供手动拉取按钮：填入凭据后自动探测，能拉到即说明配置可用 */}
-              <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                {fetchingModels ? (
-                  <>
-                    <Loader2Icon className="size-3 animate-spin" />
-                    正在探测服务端
-                  </>
-                ) : detection?.ok ? (
-                  <>
-                    <CheckCircle2Icon className="size-3 text-emerald-500" />
-                    已连接 · {detection.models.length} 个可用 · {detection.elapsedMs}ms
-                  </>
-                ) : detection ? (
-                  <>
-                    <TriangleAlertIcon className="size-3 text-amber-500" />
-                    探测未通过
-                  </>
-                ) : activeProvider !== "ollama" && !currentProviderConfig.apiKey ? (
-                  "填写 API Key 后自动探测"
-                ) : (
-                  "等待探测"
-                )}
-              </span>
-            </div>
-
-            {/* 可用模型由凭据自动探测并自动选定，这里只做结果展示 */}
-            <div className="flex items-center justify-between rounded-xl border border-border/50 bg-muted/20 px-3 py-2">
-              <span className="font-mono text-xs text-foreground">
-                {currentProviderConfig.selectedModel || "等待自动检测"}
-              </span>
-              <span className="text-[11px] text-muted-foreground">
-                {fetchingModels
-                  ? "检测中"
-                  : detection?.ok
-                    ? "自动选定"
-                    : "未检测到可用模型"}
-              </span>
-            </div>
-
-            {/* 探测结论：失败时给出真实原因，而不是静默清空 */}
-            {detection && (
-              <div
-                className={`rounded-xl border px-3 py-2 text-[11px] leading-relaxed ${
-                  detection.ok
-                    ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
-                    : "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-400"
-                }`}
-              >
-                <div className="flex items-start gap-1.5">
-                  {detection.ok ? (
-                    <CheckCircle2Icon className="mt-0.5 size-3 shrink-0" />
-                  ) : (
-                    <TriangleAlertIcon className="mt-0.5 size-3 shrink-0" />
-                  )}
-                  <div className="space-y-0.5">
-                    <p className="font-medium">{detection.message}</p>
-                    <p className="font-mono text-muted-foreground break-all">
-                      {detection.endpoint}
-                      {detection.httpStatus ? ` · HTTP ${detection.httpStatus}` : ""}
-                    </p>
+          <div className="space-y-7 px-5 py-6 sm:px-7">
+            <section className="space-y-4" aria-labelledby="connection-heading">
+              <h4 id="connection-heading" className="text-sm font-semibold">连接</h4>
+              {activeProvider !== "ollama" && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <label htmlFor="provider-key" className="text-xs font-medium text-muted-foreground">API Key</label>
+                    {currentProviderConfig.apiKey && (
+                      <button type="button" onClick={() => void handleClearKey()} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive">
+                        <Trash2Icon className="size-3" />清除
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <Input id="provider-key" type={showKey ? "text" : "password"} autoComplete="off" value={currentProviderConfig.apiKey} onChange={(event) => updateCurrentConfig({ apiKey: event.target.value })} className="pr-10 font-mono text-xs" placeholder="输入 API Key" />
+                    <button type="button" onClick={() => setShowKey(!showKey)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={showKey ? "隐藏密钥" : "显示密钥"}>
+                      {showKey ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
+                    </button>
                   </div>
                 </div>
+              )}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="provider-host" className="text-xs font-medium text-muted-foreground">Base URL</label>
+                  {isBuiltin && (
+                    <button type="button" onClick={() => updateCurrentConfig({ apiHost: preset.defaultHost })} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                      <RotateCcwIcon className="size-3" />恢复默认
+                    </button>
+                  )}
+                </div>
+                <Input id="provider-host" type="url" value={currentProviderConfig.apiHost} onChange={(event) => updateCurrentConfig({ apiHost: event.target.value })} className="font-mono text-xs" placeholder="https://example.com/v1" />
               </div>
+            </section>
+
+            <section className="space-y-3 border-t border-border/70 pt-6" aria-labelledby="model-heading">
+              <div className="flex items-center justify-between gap-3">
+                <h4 id="model-heading" className="text-sm font-semibold">模型</h4>
+                <button type="button" onClick={() => void triggerDetection()} disabled={fetchingModels || (activeProvider !== "ollama" && !currentProviderConfig.apiKey)} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40">
+                  <RefreshCwIcon className={cn("size-3.5", fetchingModels && "animate-spin")} />{fetchingModels ? "检测中" : "检测模型"}
+                </button>
+              </div>
+              {detection && (
+                <p role="status" className={cn("text-xs", detection.ok ? "text-muted-foreground" : "text-destructive")}>
+                  {detection.ok ? `已连接 · ${detection.models.length} 个模型` : detection.message}
+                </p>
+              )}
+              <div className="max-h-52 overflow-y-auto rounded-md border border-border/70">
+                {candidateModels.map((model) => (
+                  <button key={model} type="button" onClick={() => updateCurrentConfig({ selectedModel: model })} className={cn("flex w-full items-center justify-between gap-3 border-b border-border/60 px-3.5 py-2.5 text-left font-mono text-xs transition-colors last:border-b-0 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", currentProviderConfig.selectedModel === model && "bg-muted/60 font-semibold")}>
+                    <span className="min-w-0 break-all">{model}</span>
+                    {currentProviderConfig.selectedModel === model && <CheckIcon className="size-3.5 shrink-0" />}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Input aria-label="模型 ID" value={customModelInput} onChange={(event) => setCustomModelInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); handleAddCustomModel() } }} placeholder="模型 ID" className="h-9 min-w-0 flex-1 font-mono text-xs" />
+                <Button type="button" size="sm" variant="outline" onClick={handleAddCustomModel} disabled={!customModelInput.trim()}>添加模型</Button>
+              </div>
+            </section>
+
+            <details className="group border-t border-border/70 pt-5">
+              <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">使用范围</summary>
+              <div className="mt-4 space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <label htmlFor="reading-ai" className="text-sm">词句解析</label>
+                  <Switch id="reading-ai" checked={settings.enableReadingAi} onCheckedChange={(value) => setSettings((prev) => ({ ...prev, enableReadingAi: value }))} />
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <label htmlFor="story-ai" className="text-sm">语境文章</label>
+                  <Switch id="story-ai" checked={settings.enableStoryAi} onCheckedChange={(value) => setSettings((prev) => ({ ...prev, enableStoryAi: value }))} />
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <label htmlFor="subtitle-ai" className="text-sm">账号模型字幕翻译</label>
+                  <Switch id="subtitle-ai" checked={settings.enableSubtitleAi} onCheckedChange={(value) => setSettings((prev) => ({ ...prev, enableSubtitleAi: value }))} />
+                </div>
+              </div>
+            </details>
+          </div>
+          <div className="flex items-center justify-between gap-4 border-t border-border/70 px-5 py-4 sm:px-7">
+            {!isBuiltin && (
+              <Button type="button" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => { setDeleteError(null); setDeleteOpen(true) }}>
+                <Trash2Icon className="size-4" />删除供应商
+              </Button>
             )}
+            <p role="status" className="min-w-0 text-xs text-destructive">{saveError}</p>
+            <Button type="button" onClick={() => void handleSave()} disabled={saving} className="ml-auto min-w-24">
+              {saving && <Loader2Icon className="size-4 animate-spin" />}
+              {saving ? "保存中" : savedSuccess ? "已保存" : "保存"}
+            </Button>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* 4. 业务应用与功能联动开关 */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <SlidersIcon className="size-4 text-muted-foreground" />
-            <span>AI 业务应用场景联动</span>
-          </CardTitle>
-          <CardDescription className="text-xs">
-            控制 AI 深度解析在各个研习模块中的自动启用与交互形式
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <p className="text-sm font-medium">深度外刊阅读 AI 语境解析</p>
-              <p className="text-xs text-muted-foreground">
-                在阅读文章点击单词或长句时，启用 AI 语法成分、时态语态与原句深度用法的实时精析
-              </p>
-            </div>
-            <Switch
-              checked={settings.enableReadingAi}
-              onCheckedChange={(c) => setSettings({ ...settings, enableReadingAi: c })}
-            />
-          </div>
-
-          <div className="flex items-center justify-between border-t border-border/50 pt-3">
-            <div className="space-y-0.5">
-              <p className="text-sm font-medium">单词闪卡智能助记与造句</p>
-              <p className="text-xs text-muted-foreground">
-                在闪卡研习与默写通关中，智能生成词根记忆口诀与地道例句拓展
-              </p>
-            </div>
-            <Switch
-              checked={settings.enableFlashcardAi}
-              onCheckedChange={(c) => setSettings({ ...settings, enableFlashcardAi: c })}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 5. 底部保存操作栏 */}
-      <div className="flex items-center justify-between pt-2">
-        <Button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="gap-2 font-semibold text-xs px-6 cursor-pointer"
-        >
-          {saving ? (
-            <Loader2Icon className="size-4 animate-spin" />
-          ) : savedSuccess ? (
-            <CheckIcon className="size-4 text-emerald-400" />
-          ) : (
-            <SaveIcon className="size-4" />
+            </>
           )}
-          <span>{saving ? "正在保存…" : savedSuccess ? "已保存至账号并生效" : "保存 AI 模型配置"}</span>
-        </Button>
-
-        <span className="text-[11px] font-mono text-muted-foreground">
-          {saveError ? (
-            <span className="text-destructive">{saveError}</span>
-          ) : (
-            "配置随账号同步，阅读器与闪卡模块即时生效"
-          )}
-        </span>
+        </div>
       </div>
-    </div>
+      <Dialog open={deleteOpen} onOpenChange={(open) => { if (!deleting) setDeleteOpen(open) }}>
+        <DialogContent showCloseButton={!deleting}>
+          <DialogHeader>
+            <DialogTitle>删除供应商？</DialogTitle>
+            <DialogDescription>将删除“{providerName}”及其保存的密钥和模型配置。</DialogDescription>
+          </DialogHeader>
+          {deleteError && <p role="alert" className="text-xs text-destructive">{deleteError}</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={deleting} onClick={() => setDeleteOpen(false)}>取消</Button>
+            <Button type="button" variant="destructive" disabled={deleting} onClick={() => void handleDeleteProvider()}>
+              {deleting && <Loader2Icon className="size-4 animate-spin" />}
+              {deleting ? "删除中" : "删除"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

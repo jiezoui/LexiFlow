@@ -29,9 +29,12 @@ public class AiProviderConfigEntity {
     private Long userId;
 
     /**
-     * 供应商标识: deepseek / openai / siliconflow / claude / ollama / custom
+     * 供应商标识：预置 ID 或 custom_ 前缀的自定义 ID
      */
     private String provider;
+
+    /** 自定义供应商在设置页显示的名称 */
+    private String displayName;
 
     private String apiKey;
 

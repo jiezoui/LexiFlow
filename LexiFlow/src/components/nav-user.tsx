@@ -21,7 +21,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { SparklesIcon, BadgeCheckIcon, LogOutIcon, UsersIcon, SettingsIcon, LifeBuoyIcon } from "lucide-react"
+import { BadgeCheckIcon, LayoutDashboardIcon, LogOutIcon, SettingsIcon, SparklesIcon, UsersIcon } from "lucide-react"
 
 export function NavUser({
   user,
@@ -83,12 +83,12 @@ export function NavUser({
                 <SettingsIcon className="size-4 mr-2" />
                 系统设置
               </DropdownMenuItem>
-              <DropdownMenuItem render={<Link href="/support" />}>
-                <LifeBuoyIcon className="size-4 mr-2" />
-                帮助与反馈
+              <DropdownMenuItem render={<Link href="/settings?tab=ai" />}>
+                <SparklesIcon className="size-4 mr-2" />
+                模型设置
               </DropdownMenuItem>
               <DropdownMenuItem render={<Link href="/dashboard" />}>
-                <SparklesIcon className="size-4 mr-2" />
+                <LayoutDashboardIcon className="size-4 mr-2" />
                 今日研习概览
               </DropdownMenuItem>
             </DropdownMenuGroup>

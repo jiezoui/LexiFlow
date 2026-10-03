@@ -1,7 +1,10 @@
 package com.lexiflow.modules.ai.service.impl;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lexiflow.common.exception.BusinessException;
+import com.lexiflow.common.result.ResultCode;
 import com.lexiflow.modules.ai.dto.AiConfigSaveRequest;
 import com.lexiflow.modules.ai.dto.AiFetchModelsRequest;
 import com.lexiflow.modules.ai.entity.AiPreferenceEntity;
@@ -18,6 +21,7 @@ import com.lexiflow.modules.ai.vo.AiProviderConfigVo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
@@ -41,7 +45,7 @@ public class AiConfigServiceImpl implements AiConfigService {
     private final AiGatewayService aiGatewayService;
     private final ObjectMapper objectMapper;
 
-    /** 面板上可供选择的全部供应商，顺序与前端预设保持一致 */
+    /** 预置供应商，顺序与前端保持一致 */
     private static final List<String> KNOWN_PROVIDERS =
             List.of("deepseek", "siliconflow", "openai", "claude", "ollama", "custom");
 
@@ -65,6 +69,20 @@ public class AiConfigServiceImpl implements AiConfigService {
             }
         }
 
+        // 已保存的自定义供应商与预置项一起返回，保证跨设备和刷新后可回显。
+        List<AiProviderConfigEntity> customProviders = providerConfigMapper.selectList(
+                new LambdaQueryWrapper<AiProviderConfigEntity>()
+                        .eq(AiProviderConfigEntity::getUserId, userId)
+                        .notIn(AiProviderConfigEntity::getProvider, KNOWN_PROVIDERS)
+                        .orderByAsc(AiProviderConfigEntity::getCreatedAt));
+        for (AiProviderConfigEntity entity : customProviders) {
+            AiProviderConfigVo vo = toVo(entity.getProvider(), entity);
+            providerVos.add(vo);
+            if (entity.getProvider().equals(activeProvider)) {
+                activeVo = vo;
+            }
+        }
+
         return AiConfigVo.builder()
                 .activeProvider(activeProvider)
                 .activeModel(activeVo != null ? activeVo.getSelectedModel() : null)
@@ -72,6 +90,8 @@ public class AiConfigServiceImpl implements AiConfigService {
                 .temperature(pref != null && pref.getTemperature() != null
                         ? pref.getTemperature().doubleValue() : 0.3)
                 .enableReadingAi(pref == null || pref.getEnableReadingAi() == null || pref.getEnableReadingAi() == 1)
+                .enableStoryAi(pref == null || pref.getEnableStoryAi() == null || pref.getEnableStoryAi() == 1)
+                .enableSubtitleAi(pref == null || pref.getEnableSubtitleAi() == null || pref.getEnableSubtitleAi() == 1)
                 .enableFlashcardAi(pref == null || pref.getEnableFlashcardAi() == null || pref.getEnableFlashcardAi() == 1)
                 .providers(providerVos)
                 .build();
@@ -95,6 +115,8 @@ public class AiConfigServiceImpl implements AiConfigService {
                     .activeProvider(resolveActiveProvider(request))
                     .temperature(toDecimal(request != null ? request.getTemperature() : null, 0.3))
                     .enableReadingAi(toFlag(request != null ? request.getEnableReadingAi() : null))
+                    .enableStoryAi(toFlag(request != null ? request.getEnableStoryAi() : null))
+                    .enableSubtitleAi(toFlag(request != null ? request.getEnableSubtitleAi() : null))
                     .enableFlashcardAi(toFlag(request != null ? request.getEnableFlashcardAi() : null))
                     .createdAt(LocalDateTime.now())
                     .updatedAt(LocalDateTime.now())
@@ -109,6 +131,12 @@ public class AiConfigServiceImpl implements AiConfigService {
             }
             if (request != null && request.getEnableReadingAi() != null) {
                 pref.setEnableReadingAi(toFlag(request.getEnableReadingAi()));
+            }
+            if (request != null && request.getEnableStoryAi() != null) {
+                pref.setEnableStoryAi(toFlag(request.getEnableStoryAi()));
+            }
+            if (request != null && request.getEnableSubtitleAi() != null) {
+                pref.setEnableSubtitleAi(toFlag(request.getEnableSubtitleAi()));
             }
             if (request != null && request.getEnableFlashcardAi() != null) {
                 pref.setEnableFlashcardAi(toFlag(request.getEnableFlashcardAi()));
@@ -157,6 +185,29 @@ public class AiConfigServiceImpl implements AiConfigService {
         return getConfig(userId);
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AiConfigVo deleteCustomProvider(Long userId, String provider) {
+        if (!StringUtils.hasText(provider)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST.getCode(), "供应商不能为空");
+        }
+        String id = provider.toLowerCase().trim();
+        if (KNOWN_PROVIDERS.contains(id) && !"custom".equals(id)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST.getCode(), "预置供应商不能删除");
+        }
+        providerConfigMapper.delete(new LambdaQueryWrapper<AiProviderConfigEntity>()
+                .eq(AiProviderConfigEntity::getUserId, userId)
+                .eq(AiProviderConfigEntity::getProvider, id));
+
+        AiPreferenceEntity pref = configStore.findPreference(userId);
+        if (pref != null && id.equals(pref.getActiveProvider())) {
+            pref.setActiveProvider(AiConfigStoreImpl.DEFAULT_PROVIDER);
+            pref.setUpdatedAt(LocalDateTime.now());
+            preferenceMapper.updateById(pref);
+        }
+        return getConfig(userId);
+    }
+
     private void upsertProvider(Long userId, AiConfigSaveRequest.ProviderEntry entry) {
         String provider = entry.getProvider().toLowerCase().trim();
         AiProviderConfigEntity existing = configStore.findProvider(userId, provider);
@@ -165,6 +216,7 @@ public class AiConfigServiceImpl implements AiConfigService {
             AiProviderConfigEntity created = AiProviderConfigEntity.builder()
                     .userId(userId)
                     .provider(provider)
+                    .displayName(entry.getDisplayName())
                     .apiKey(entry.getApiKey() != null ? entry.getApiKey().trim() : "")
                     .apiHost(StringUtils.hasText(entry.getApiHost())
                             ? entry.getApiHost().trim() : AiConfigStoreImpl.defaultHostFor(provider))
@@ -182,6 +234,9 @@ public class AiConfigServiceImpl implements AiConfigService {
         // Key 允许留空提交：表示"沿用已保存的凭据"，避免前端把掩码或空串覆盖上去
         if (entry.getApiKey() != null && !entry.getApiKey().isBlank()) {
             existing.setApiKey(entry.getApiKey().trim());
+        }
+        if (StringUtils.hasText(entry.getDisplayName())) {
+            existing.setDisplayName(entry.getDisplayName().trim());
         }
         if (StringUtils.hasText(entry.getApiHost())) {
             existing.setApiHost(entry.getApiHost().trim());
@@ -206,6 +261,9 @@ public class AiConfigServiceImpl implements AiConfigService {
         try {
             AiProviderConfigEntity entity = configStore.findProvider(userId, provider);
             if (entity == null) {
+                if (!KNOWN_PROVIDERS.contains(provider)) {
+                    return;
+                }
                 entity = AiProviderConfigEntity.builder()
                         .userId(userId)
                         .provider(provider)
@@ -259,6 +317,7 @@ public class AiConfigServiceImpl implements AiConfigService {
 
         return AiProviderConfigVo.builder()
                 .provider(provider)
+                .displayName(entity != null ? entity.getDisplayName() : null)
                 .apiKey(apiKey)
                 .apiHost(entity != null && StringUtils.hasText(entity.getApiHost())
                         ? entity.getApiHost() : AiConfigStoreImpl.defaultHostFor(provider))

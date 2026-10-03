@@ -35,6 +35,10 @@ public class AiPreferenceEntity {
 
     private Integer enableReadingAi;
 
+    private Integer enableStoryAi;
+
+    private Integer enableSubtitleAi;
+
     private Integer enableFlashcardAi;
 
     private LocalDateTime createdAt;

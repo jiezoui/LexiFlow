@@ -31,6 +31,10 @@ public class AiConfigVo {
 
     private Boolean enableReadingAi;
 
+    private Boolean enableStoryAi;
+
+    private Boolean enableSubtitleAi;
+
     private Boolean enableFlashcardAi;
 
     @Schema(description = "各供应商配置明细")
