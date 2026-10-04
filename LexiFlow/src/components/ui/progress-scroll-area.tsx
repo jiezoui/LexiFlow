@@ -74,6 +74,7 @@ export const ProgressScrollArea = forwardRef<HTMLDivElement, ProgressScrollAreaP
         if (typeof viewportRef === "function") {
           viewportRef(node)
         } else if (viewportRef && "current" in viewportRef) {
+          // eslint-disable-next-line react-hooks/immutability
           ;(viewportRef as React.MutableRefObject<HTMLDivElement | null>).current = node
         }
       },

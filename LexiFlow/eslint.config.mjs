@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored third-party animation components:
+    "src/components/login/animated-characters.tsx",
   ]),
 ]);
 

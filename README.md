@@ -1,243 +1,254 @@
 # 语脉 · LexiFlow
 
-LexiFlow 是一个面向二语习得者的多模态智能研习系统。平台将词书记忆、真实分级语境阅读、YouTube 与本地视频精听、播客收录、AI 影子跟读发音评测以及 FSRS 记忆算法排期串联至同一闭环中。
+LexiFlow 是面向中文英语学习者的语境学习系统。词书学习、阅读和音视频精听产生的生词进入同一个词库，并由 FSRS 安排复习。系统保留词语出现时的句子、来源和媒体时间点，方便回到原语境学习。
+
+## 主要功能
+
+| 模块 | 功能 |
+| --- | --- |
+| 词汇与复习 | 词书计划、生词管理、本地词典查询、词卡练习与 FSRS 复习排期 |
+| 阅读 | 文章阅读、划词查询、语境采词与 AI 辅助内容生成 |
+| 视频精听 | 本地视频上传、YouTube 导入与订阅、字幕处理、逐句播放与查词 |
+| 播客精听 | RSS 订阅、节目列表、站内播放与按需转写 |
+| 影子跟读 | 录音转写、音素对齐、发音评测与反馈；需要单独启动语音服务 |
+| 模型配置 | 配置第三方模型服务及使用范围；外部 API 由使用者自行提供凭据 |
+
+部分功能依赖网络、模型下载或第三方服务。只启动前端和核心后端时，媒体转写与语音评测等能力不可用。
+
+## 项目结构
+
+| 路径 | 说明 |
+| --- | --- |
+| [LexiFlow/](./LexiFlow/) | Next.js 16、React 19 前端，默认端口 `3000` |
+| [server/](./server/) | Spring Boot 3.2 后端，默认端口 `8080` |
+| [media-worker/](./media-worker/) | Python 媒体任务进程，负责 FFmpeg 处理和 Whisper 转写 |
+| [speech-bridge/](./speech-bridge/) | FastAPI 语音服务，默认端口 `8100` |
+| [material/](./material/) | 词典数据和参考资料 |
+| [scripts/](./scripts/) | 模型下载、数据同步与语音服务脚本 |
+
+浏览器通过 Next.js 的 `/api/*` 路径访问核心后端；`/api/speech/*` 由 Next.js 路由转发至语音服务。媒体 Worker 通过后端内部接口领取任务，不直接连接数据库。
+
+## 环境与模型要求
+
+### 1. 基础环境
+- **Node.js**：`>= 20.9.0`（建议 Node.js 22），包管理器使用 `pnpm`（`11.4.0`）
+- **JDK**：`17`（Java 17 LTS，OpenJDK / Eclipse Temurin）
+- **Maven**：`>= 3.8.0`
+- **MySQL**：`8.0+`（字符集 `utf8mb4`，可本地安装或使用 Docker 启动）
+- **Docker**（可选）：用于一键运行 MySQL、Media Worker、LibreTranslate 容器
+
+### 2. 本地 AI 模型资产清单
+项目中的媒体转写与语音评测依赖以下本地模型，支持离线运行（无需消耗付费云端 Token）：
+
+| 模型类型 | 模型标识 / 权重来源 | 参数量 / 磁盘体积 | 许可证 | 作用与调用模块 |
+| :--- | :--- | :--- | :--- | :--- |
+| **ASR 语音转写** | `Systran/faster-whisper-small` (CTranslate2) | ~484 MB | MIT | 视频/播客字幕提取 (`media-worker`)、影子跟读识别 (`speech-bridge`) |
+| **音素 CTC 对齐** | `facebook/wav2vec2-lv-60-espeak-cv-ft` | ~1.2 GB | Apache-2.0 | 音素级强制对齐与 GOP 发音优度评测 (`speech-bridge`) |
+| **音素字典与引擎** | `espeak-ng` (Windows DLL / Linux 包) | ~15 MB | GPL-3.0+ | 参考文本转 IPA 音素及本地参考音兜底（未安装时自动降级） |
+
+> **提示**：为方便国内开发者快速部署，项目在 `scripts/download-speech-models.ps1` 中默认配置了 `https://hf-mirror.com` 国内镜像端点，下载的模型文件统一缓存在仓库内的 `.deploy-cache/speech-models` 中，不占用系统盘 C 盘空间。
 
 ---
 
-## 系统拓扑与服务概览
+## 本地与容器化启动指南
 
-```text
-[ 客户端浏览器 (Next.js 16 :3000) ]
-   │
-   ├── /api/speech/** ─────► [ Python 语音桥接服务 (FastAPI :8100) ]
-   │                           └── PyTorch / Wav2Vec2 CTC / faster-whisper (发音评测)
-   │
-   └── /api/** ────────────► [ Spring Boot 核心服务 (:8080) ]
-                               ├── MySQL 8.0+ (:3306) (业务数据持久化，Flyway 自动迁移)
-                               ├── Redis (:6379) (可选缓存 / 频控)
-                               │
-                               ├── 异步任务分发 ──► [ Python 媒体 Worker ]
-                               │                     └── FFmpeg / faster-whisper (视频 ASR)
-                               │
-                               └── 翻译适配层 ───► [ 本地 LibreTranslate (:5000) 或 OpenAI/DeepSeek API ]
+以下所有命令均以仓库根目录为起点。
+
+### 1. 准备数据库 (MySQL 8)
+
+**方式 A：使用 Docker 容器启动（推荐，无需手动安装 MySQL）**
+```powershell
+docker run -d --name lexiflow-mysql `
+  -p 3306:3306 `
+  -e MYSQL_ROOT_PASSWORD=root `
+  -e MYSQL_DATABASE=lexiflow_db `
+  mysql:8.0 `
+  --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
 ```
 
-### 端口速查表
+**方式 B：本地安装的 MySQL**
+启动 MySQL 服务后执行建库脚本：
+```sql
+CREATE DATABASE IF NOT EXISTS lexiflow_db
+  DEFAULT CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+```
 
-| 组件 | 对应目录 | 默认端口 | 职责说明 |
-| :--- | :--- | :--- | :--- |
-| **前端工作台** | `LexiFlow/` | `3000` | Next.js 16 (App Router) 交互界面，自动反向代理 API |
-| **核心后端** | `server/` | `8080` | Spring Boot 3 业务调度、数据持久化、JWT 鉴权、RSS 解析 |
-| **语音桥接** | `speech-bridge/` | `8100` | 影子跟读 AI 评测、GOP 音素发音打分、参考音生成 |
-| **媒体 Worker** | `media-worker/` | 独立进程 | 领取本地视频与音频转写任务，执行 Whisper ASR 与时间戳切分 |
-| **翻译服务** | Docker / 云端 API | `5000` / HTTPS | 视频双语字幕及标题翻译（支持 LibreTranslate / DeepSeek / OpenAI） |
-| **MySQL 数据库**| 宿主机 / 容器 | `3306` | 系统核心数据存储（`lexiflow_db`） |
-| **Redis 缓存** | 宿主机 / 容器 | `6379` | 任务调度与高频缓存（可选推荐） |
+> **注意**：后端启动时由 Flyway 自动执行 [迁移脚本](./server/src/main/resources/db/migration/) 中的 `V1` 至 `V15` 版本建表与数据初始化，**无需手动导入** `schema.sql`。如需更多示例数据，可在建库后按需导入 [seed.sql](./server/src/main/resources/db/seed.sql)。
 
 ---
 
-## 环境依赖与安装指南
+### 2. 启动核心后端 (Spring Boot)
 
-为降低启动门槛，系统支持**分层按需部署**：
-- 若仅需体验**Web 工作台、词典、生词本、分级阅读、播客收录与 YouTube 订阅**，仅需安装【基础环境】。
-- 若需进一步使用**本地视频 Whisper 转写**或**影子跟读 AI 评测**，可继续安装【多模态 AI 环境】。
+[application.yml](./server/src/main/resources/application.yml) 默认连接 `localhost:3306/lexiflow_db`，账号密码为 `root` / `root`。可通过修改配置文件或设置标准环境变量 `SPRING_DATASOURCE_URL`、`SPRING_DATASOURCE_USERNAME`、`SPRING_DATASOURCE_PASSWORD` 适配自己的环境。
 
-### 1. 基础环境（运行主站必选）
+```powershell
+cd server
+$env:LEXIFLOW_MEDIA_WORKER_TOKEN = "your-local-worker-token" # 启用媒体 Worker 时需保持两端一致
+mvn spring-boot:run
+```
 
-| 依赖软件 | 最低版本要求 | 推荐版本 | 作用 |
-| :--- | :--- | :--- | :--- |
-| **Node.js** | `>= 20.9.0` | `20.x LTS` 或 `22.x` | 运行 Next.js 前端应用 |
-| **pnpm** | `>= 9.0.0` | 最新稳定版 | 前端高性能包管理器 |
-| **JDK** | `17` | `Java 17 LTS` (OpenJDK / Temurin) | 运行 Spring Boot 后端 |
-| **Maven** | `>= 3.8.0` | `3.9.x` | 后端项目依赖解析与构建 |
-| **MySQL** | `>= 8.0` | `8.0+` | 核心数据库（要求 `utf8mb4` 字符集） |
-| **Redis** | `>= 6.0` | `7.x` | 缓存与任务辅助队列（本地可选用默认配置） |
+- API 服务地址：`http://localhost:8080`
+- Swagger 接口文档：`http://localhost:8080/swagger-ui.html`
 
-#### 常用包管理器一键安装指令
+---
 
-- **Windows (Winget)**:
+### 3. 启动前端工作台 (Next.js)
+
+新开终端窗口，进入 `LexiFlow` 目录：
+
+```powershell
+cd LexiFlow
+corepack enable
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+打开浏览器访问 `http://localhost:3000`。
+- 前端 Next.js 路由已内置代理：`/api/*` 自动转发至 `8080` 核心后端，`/api/speech/*` 自动转发至 `8100` 语音桥接服务。
+
+---
+
+### 4. AI 模型的下载与缓存管理
+
+为确保影子跟读与媒体转写功能正常且首次调用不超时，建议提前下载模型权重。
+
+在仓库根目录下运行下载脚本：
+```powershell
+# 方式 1：一键下载全部所需模型（Whisper + 音素模型，通过国内 hf-mirror 极速拉取）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\download-speech-models.ps1 -Model all
+
+# 方式 2：按需下载单个模型
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\download-speech-models.ps1 -Model whisper   # 仅下载 faster-whisper-small (~484MB)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\download-speech-models.ps1 -Model phoneme   # 仅下载 wav2vec2-lv-60-espeak-cv-ft (~1.2GB)
+```
+
+- **存储位置**：模型文件将保存在仓库根目录下的 `.deploy-cache\speech-models\` 目录（该目录已被 `.gitignore` 忽略，不会提交到 Git）。
+- **完整性自检**：脚本附带 SHA-256 指纹核验与音素词表对齐校验。
+
+---
+
+### 5. 启动影子跟读语音服务 (`speech-bridge`)
+
+影子跟读模块采用本地神经网络推理，提供发音准确度、完整度、流利度三维打分与逐音素强制对齐。
+
+#### 步骤 1：一键安装环境
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup-speech-bridge.ps1
+```
+该脚本会在 `speech-bridge\.venv` 建立独立的虚拟环境，并安装 PyTorch 2.3.1 (CPU 版)、transformers、faster-whisper、phonemizer 等所需依赖，不污染全局 Python。
+
+#### 步骤 2：启动服务
+```powershell
+# 启动语音服务（监听 8100 端口）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-speech-bridge.ps1
+
+# 需要停止服务时执行：
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-speech-bridge.ps1 -Stop
+```
+
+#### 步骤 3：离线自检与验收
+在不需要麦克风、无需启动服务的情况下，可直接运行端到端自检脚本验证整个模型打分链路：
+```powershell
+.\speech-bridge\.venv\Scripts\python.exe speech-bridge\selftest.py
+```
+- 服务运行状态：`http://127.0.0.1:8100/health`
+- 交互式接口文档：`http://127.0.0.1:8100/docs`
+
+---
+
+### 6. 启动媒体 Worker (`media-worker`)
+
+用于异步处理本地视频切片、转码、内嵌字幕提取以及基于 faster-whisper 的带逐词时间戳 ASR 转写。Worker 通过安全令牌与后端通信，不直接连接数据库。
+
+#### 选项 A：使用 Docker 容器运行（推荐）
+免除在宿主机配置 Python 3.11 及 FFmpeg 的复杂步骤：
+
+```powershell
+# 1. 构建 Docker 镜像
+docker build -t lexiflow-media-worker:local ./media-worker
+
+# 2. 创建数据卷缓存 Whisper 模型（避免容器重启重复下载 484MB 权重）
+docker volume create lexiflow-whisper-cache
+
+# 3. 启动 Worker 容器
+# 注意：容器内连接宿主机后端请使用 host.docker.internal；Worker Token 必须与后端配置一致
+docker run -d --name lexiflow-media-worker --restart unless-stopped `
+  -e LEXIFLOW_API_BASE=http://host.docker.internal:8080 `
+  -e LEXIFLOW_MEDIA_WORKER_TOKEN=your-local-worker-token `
+  -v lexiflow-whisper-cache:/root/.cache/huggingface `
+  lexiflow-media-worker:local
+```
+
+#### 选项 B：本地 Python 原生运行
+需先确保系统已安装 Python 3.11+ 以及 `ffmpeg` 和 `ffprobe`（并已加入系统 `PATH`）：
+
+```powershell
+cd media-worker
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+$env:LEXIFLOW_API_BASE = "http://localhost:8080"
+$env:LEXIFLOW_MEDIA_WORKER_TOKEN = "your-local-worker-token"
+.\.venv\Scripts\python.exe worker.py
+```
+
+---
+
+### 7. 配置翻译与大语言模型 (LLM)
+
+#### A. 字幕与文本翻译通道
+- **方案 1：Docker 运行本地离线 LibreTranslate 容器（零 API 成本）**
   ```powershell
-  winget install OpenJS.NodeJS.LTS
-  winget install EclipseAdoptium.Temurin.17.JDK
-  winget install Apache.Maven
-  winget install Oracle.MySQL
-  npm install -g pnpm
+  docker run -d --name lexiflow-libretranslate --restart unless-stopped `
+    -p 5000:5000 `
+    -e LT_LOAD_ONLY=en,zh `
+    libretranslate/libretranslate:latest
   ```
+  启动后在后端 `application.yml` 中配置 `LEXIFLOW_LIBRETRANSLATE_URL=http://localhost:5000` 即可。
+- **方案 2：云端大模型翻译**
+  设置环境变量 `LEXIFLOW_OPENAI_TRANSLATION_API_KEY` 及对应的 Base URL 与 Model ID。
 
-- **macOS (Homebrew)**:
-  ```bash
-  brew install node pnpm openjdk@17 maven mysql redis
-  brew services start mysql
-  brew services start redis
-  ```
-
-- **Linux (Ubuntu/Debian)**:
-  ```bash
-  sudo apt-get update
-  sudo apt-get install -y openjdk-17-jdk maven mysql-server redis-server
-  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-  sudo apt-get install -y nodejs
-  sudo npm install -g pnpm
-  ```
+#### B. 外部模型多供应商接入 (AI 辅助生成与语境拓展)
+系统内置多供应商管理架构（支持 OpenAI 兼容协议、DeepSeek、SiliconFlow、Claude、Ollama 等）：
+- 打开前端 `http://localhost:3000/settings/models`（模型配置页面）；
+- 直接填入你的 API Key、Base URL，并指定需要使用的模型 ID 与业务启用范围（如生词解析、阅读辅助、语境生成等）；凭据均保存在本地，无需硬编码入库。
 
 ---
 
-### 2. 多模态 AI 扩展依赖（按需选用）
+## 常用检查与排错
 
-#### A. 视频转写工坊 (`media-worker`)
-- **Python**: `3.10` ~ `3.11`
-- **FFmpeg**: 系统需配置全局 `ffmpeg` 并在环境变量 `PATH` 中可执行。
-  - Windows: `winget install Gyan.FFmpeg`
-  - macOS: `brew install ffmpeg`
-  - Linux: `sudo apt-get install -y ffmpeg`
+```powershell
+# 1. 前端代码质量与构建检查
+cd LexiFlow
+pnpm lint
+pnpm build
 
-#### B. 影子跟读语音评测 (`speech-bridge`)
-- **Python**: `3.10` ~ `3.11`
-- **PyTorch**: `>= 2.3.1`（推荐 CPU 或 CUDA 11.8/12.1）
-- **espeak-ng**: 用于音素提取（若未安装，系统将平滑降级使用基础音标引擎）。
-  - Windows: `winget install eSpeak-ng.eSpeak-ng`
-  - Linux: `sudo apt-get install -y espeak-ng`
+# 2. 后端单元测试与接口集成测试
+cd server
+mvn test
 
----
+# 3. 语音服务与模型健康检查
+Invoke-RestMethod http://127.0.0.1:8100/health
+```
 
-## 快速启动指南
+### 常见排错说明：
+- **接口连不上 (Connection Refused)**：确认 Spring Boot `8080` 端口已处于 LISTENING 状态；若前端与后端部署在不同机器，需修改前端 `LEXIFLOW_API_BASE`。
+- **语音评测报 503**：确认 `speech-bridge` 是否在 `8100` 端口运行；可查看 `http://127.0.0.1:8100/health` 中的模型加载状态。
+- **媒体转写任务停滞**：检查 Worker 容器或进程日志，确认两端的 `LEXIFLOW_MEDIA_WORKER_TOKEN` 完全一致，并确保 FFmpeg 正常可用。
+- **模型下载慢或中断**：脚本已集成 `hf-mirror.com`，若仍受网络波动影响，可单独指定 `-HfEndpoint` 参数或手动解压权重到 `.deploy-cache/speech-models`。
 
-### 第一步：准备数据库
+## 第三方资源与内容权利
 
-1. 启动 MySQL 服务，创建 `lexiflow_db` 数据库：
-   ```sql
-   CREATE DATABASE IF NOT EXISTS lexiflow_db
-     DEFAULT CHARACTER SET utf8mb4
-     COLLATE utf8mb4_unicode_ci;
-   ```
-2. 后端集成了 Flyway 迁移工具，**无需手动导入初始 SQL**。服务启动时将自动依次执行 `V1` 至 `V9` 脚本建立完整架构。
-3. （可选）如需载入常用词汇与示例数据，可在数据库建好后按需执行 `server/src/main/resources/db/seed.sql`。
+项目使用 Next.js、Spring Boot、MyBatis-Plus、Flyway 等框架，FSRS 参考算法，以及 ECDICT、Tatoeba、Open English WordNet 等语言数据。语音与媒体流程使用 Whisper、Wav2Vec2、FFmpeg、yt-dlp 等工具或模型。Cherry Studio 与 Chatbox 属于模型配置界面的设计参考，并非本项目运行依赖。部分能力还会访问模型供应商、YouTube、播客 RSS、在线语音或词汇发音服务。
 
----
+各项资源的来源、版本、许可、使用方式和分发条件详见 [开源及第三方资源清单](./开源及第三方资源清单.md)。第三方模型权重、音视频、字幕、例句和在线服务各自受其原始许可或服务条款约束；本项目代码的取得不等于取得这些内容的再分发权。使用外部 API 时，请自行配置凭据并遵守提供方条款。
 
-### 第二步：启动核心后端 (Spring Boot)
+仓库根目录当前没有统一的项目许可证文件；[LexiFlow/LICENSE](./LexiFlow/LICENSE) 位于前端子目录，不能据此推定整个仓库采用相同许可。对外发布或复用代码前应先核实各目录的授权与第三方资源义务。
 
-1. 进入 `server` 目录：
-   ```powershell
-   cd server
-   ```
-2. 确认 `server/src/main/resources/application.yml` 中的 MySQL 账号密码（默认配置为 `root` / `root`，可按实际环境或通过环境变量 `SPRING_DATASOURCE_USERNAME`、`SPRING_DATASOURCE_PASSWORD` 修改）。
-3. 编译并启动服务：
-   ```powershell
-   mvn spring-boot:run
-   ```
-   启动成功后输出 `Started LexiFlowApplication in ... seconds`。
-   - API 服务地址：`http://localhost:8080`
-   - Swagger 交互文档：`http://localhost:8080/swagger-ui.html`
+## 更多文档
 
----
-
-### 第三步：启动前端工作台 (Next.js)
-
-1. 新建终端窗口，进入 `LexiFlow` 目录：
-   ```powershell
-   cd LexiFlow
-   ```
-2. 安装依赖（优先使用 `pnpm`）：
-   ```powershell
-   pnpm install
-   ```
-3. 启动开发服务器：
-   ```powershell
-   pnpm run dev
-   ```
-4. 打开浏览器访问：`http://localhost:3000`。
-   - 前端已预设 API 代理规则，访问 `/api/*` 会自动转发至 `8080` 后端，访问 `/api/speech/*` 会转发至 `8100` 语音桥接服务。
-
----
-
-### 第四步：启动多模态扩展服务（可选）
-
-#### 选项 A：启动影子跟读语音桥接服务 (`speech-bridge`)
-
-项目提供现成的一键初始化与启动脚本：
-
-- **自动化初始化（创建虚拟环境并下载权重）**：
-  ```powershell
-  powershell -ExecutionPolicy Bypass -File scripts\setup-speech-bridge.ps1
-  ```
-- **启动语音服务**：
-  ```powershell
-  powershell -ExecutionPolicy Bypass -File scripts\start-speech-bridge.ps1
-  ```
-  服务启动后运行于 `http://localhost:8100`，访问前端 `/practice/shadowing` 即可直接录音跟读并获得发音综合评分。
-
-#### 选项 B：启动媒体 Worker (`media-worker`)
-
-用于自动对本地上传的视频和按需进入精听的播客音频进行 Whisper ASR 转写：
-
-- **方式 1：本地 Python 直接运行**
-  ```powershell
-  cd media-worker
-  python -m venv .venv
-  .venv\Scripts\activate
-  pip install -r requirements.txt
-  python worker.py
-  ```
-- **方式 2：Docker 容器运行**
-  ```powershell
-  docker build -t lexiflow-media-worker:local ./media-worker
-  docker volume create lexiflow-whisper-cache
-  docker run -d --name lexiflow-media-worker --restart unless-stopped `
-    -e LEXIFLOW_API_BASE=http://host.docker.internal:8080 `
-    -e LEXIFLOW_MEDIA_WORKER_TOKEN=change-me-in-production `
-    -v lexiflow-whisper-cache:/root/.cache/huggingface `
-    lexiflow-media-worker:local
-  ```
-
-#### 选项 C：配置字幕与标题翻译通道
-
-支持两种方案（二选一）：
-1. **云端 LLM 翻译（推荐，零本地资源占用）**：
-   在环境变量中设置 `LEXIFLOW_OPENAI_TRANSLATION_API_KEY`（如 DeepSeek、OpenAI），后端会自动调用大模型翻译中文字幕与标题。
-2. **本地离线 LibreTranslate**：
-   ```powershell
-   docker run -d --name lexiflow-libretranslate --restart unless-stopped `
-     -p 5000:5000 `
-     -e LT_LOAD_ONLY=en,zh `
-     libretranslate/libretranslate:latest
-   ```
-
----
-
-## 核心研习模块概览
-
-1. **多模态视频精听库 (`/videos`)**：
-   - 顶栏同排工具区：导入 YouTube、本地视频大文件分片秒传、`中 / A` 标题双语翻译切换、创作者即时筛选。
-   - YouTube 频道免 Key 订阅：直接输入 `@handle`（如 `@TED`、`@BBCLearningEnglish`）或导入 OPML 订阅文件，直连官方公开 Atom/RSS 获取最新 15 篇单集，支持“在库检测”与“一键导入精听”。
-2. **独立播客精听库 (`/podcasts`)**：
-   - 支持公开 RSS 节目源服务端订阅、持久化与更新；点击单集会留在站内进入音频精听工作台，首次进入时按需调用 Whisper 生成逐句双语文本，原始节目链接保留为次级入口。
-3. **AI 影子跟读工坊 (`/practice/shadowing`)**：
-   - 采用 CTC 前向-后向算法强行对齐音素，结合发音优度（GOP）模型输出流利度、完整度、发音准确率三维雷达数据与逐词颜色标注。
-4. **FSRS 智能记忆复习 (`/cards`) 与生词本 (`/vocab`)**：
-   - 基于自由间隔重复调度算法（FSRS），根据遗忘曲线自动动态规划最佳复习间隔。
-5. **真实语境分级阅读与 AI 采词 (`/reading`)**：
-   - 聚合分级外刊、即时词形还原与双语例句溯源。
-
----
-
-## 常见排错与注意事项 (FAQ)
-
-1. **MySQL 提示 Public Key Retrieval 错误？**
-   - 确保 JDBC 连接串包含 `allowPublicKeyRetrieval=true&useSSL=false`。当前代码已默认包含该参数。
-2. **前端页面发起请求报 500 或连接拒绝？**
-   - 确认 Spring Boot 后端 `8080` 端口已启动。若是在不同主机运行，请检查 `LexiFlow/next.config.ts` 中的 rewrite 代理目标地址。
-3. **YouTube 频道动态提示网络超时或解析失败？**
-   - YouTube 官方 RSS 与公共主页在部分地区需科学网络环境支持。若使用本地代理，可为 JVM 或宿主机设置 `http.proxyHost` 与 `http.proxyPort`。
-4. **影子跟读录音时报 503 或评测不可用？**
-   - 影子跟读前端默认具备健全的服务降级策略。若未启动 `speech-bridge`（端口 8100），仍可正常回放原生参考音频；启动 `speech-bridge` 后将自动激活 AI 评测。
-
----
-
-## 相关技术文档
-
-- [视频模块架构与开发文档](./视频模块开发文档.md)
-- [影子跟读模块部署与验收记录](./SHADOWING-DEPLOY.md)
-- [产品定位与业务规范](./PRODUCT.md)
-- [媒体 Worker 内部说明](./media-worker/README.md)
-- [第三方素材与许可证引用](./material/参考资料与引用出处.md)
+- [开源及第三方资源清单](./开源及第三方资源清单.md)
+- [产品说明](./PRODUCT.md)
+- [前端说明](./LexiFlow/README.md)
+- [媒体 Worker 说明](./media-worker/README.md)
+- [语音服务说明](./speech-bridge/README.md)

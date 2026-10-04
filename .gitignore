@@ -49,5 +49,6 @@ __pycache__/
 *.py[cod]
 .deploy-*.log
 # Local docs and scratch files
+reports/
 SHADOWING-DEPLOY.md
 视频模块开发文档.md

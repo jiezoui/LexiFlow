@@ -156,7 +156,7 @@ export const GlobeCanvas: React.FC<GlobeCanvasProps> = ({ parallaxX, parallaxY }
 
         // Smooth consistent particle size without jarring glitter flashing
         surfaceSizes[pIdx] = 1.0 + Math.random() * 0.85;
-        let alpha = 0.4 + 0.55 * Math.max(0, combinedNoise + 0.3);
+        const alpha = 0.4 + 0.55 * Math.max(0, combinedNoise + 0.3);
 
         surfaceAlphas[pIdx] = alpha;
         surfaceNoises[pIdx] = combinedNoise;
@@ -911,10 +911,7 @@ export const GlobeCanvas: React.FC<GlobeCanvasProps> = ({ parallaxX, parallaxY }
     // 12. ANIMATION LOOP & MOUSE PARALLAX
     // ==========================================
     let animationFrameId: number;
-    let clock = new THREE.Clock();
-
-    let curParallaxX = 0;
-    let curParallaxY = 0;
+    const clock = new THREE.Clock();
 
     const baseRotX = 0.38;
     const baseRotZ = -0.26;
