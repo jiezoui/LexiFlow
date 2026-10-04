@@ -12,9 +12,6 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // Vendored third-party components
-    "src/components/ui/globe.tsx",
-    "src/components/globe-demo.tsx",
   ]),
 ]);
 
