@@ -91,15 +91,6 @@ const tooltipStyle = {
   boxShadow: "0 4px 12px rgba(0, 0, 0, 0.08)",
 }
 
-function SectionLabel({ index, children }: { index: string; children: React.ReactNode }) {
-  return (
-    <p className="font-mono text-[10px] font-medium tracking-[.18em] text-muted-foreground uppercase">
-      <span className="mr-2.5 font-semibold text-foreground">{index}</span>
-      {children}
-    </p>
-  )
-}
-
 function Metric({
   icon: Icon,
   label,
@@ -244,8 +235,7 @@ function ActivityHeatmap({ calendar }: { calendar: HeatmapCalendar }) {
         {/* 左侧：365天热力图方阵 */}
         <div className="min-w-0">
           <div>
-            <SectionLabel index="04">ANNUAL ACTIVITY FOOTPRINT</SectionLabel>
-            <h2 className="mt-1.5 text-lg font-semibold tracking-tight text-foreground">全年学习足迹</h2>
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">全年学习足迹</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
               365 天持续记录 · 色阶深浅对应当日复习、采词与研习投入量
             </p>
@@ -313,7 +303,7 @@ function ActivityHeatmap({ calendar }: { calendar: HeatmapCalendar }) {
         <div className="flex flex-col justify-between border-t lg:border-t-0 lg:border-l border-border/60 pt-5 lg:pt-0 lg:pl-7">
           <div>
             <div className="flex items-center justify-between">
-              <SectionLabel index="04.1">ANNUAL DIGEST</SectionLabel>
+              <span className="text-xs font-semibold text-foreground">年度研习提炼</span>
               <span className="font-mono text-[11px] text-muted-foreground">{calendar.year} 年度</span>
             </div>
 
@@ -478,7 +468,7 @@ function StudyPlanGoalTracking({ plan }: { plan: StudyPlanOverview }) {
     <section className="rounded-xl border border-border/70 bg-card p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border/60 pb-3.5">
         <div className="flex items-center gap-3">
-          <SectionLabel index="01">STUDY PLAN</SectionLabel>
+          <span className="text-xs font-semibold text-foreground">学习计划达成</span>
           <span className="text-xs text-muted-foreground truncate">
             主词书: <strong className="text-foreground">{macro.wordbookTitle}</strong>
           </span>
@@ -600,14 +590,13 @@ function MultimodalSection({ data }: { data: MultimodalStats }) {
       <section className="flex flex-col justify-between rounded-xl border border-border/70 bg-card p-5 sm:p-6">
         <div>
           <div className="flex items-center justify-between">
-            <SectionLabel index="02">MULTIMODAL TIME</SectionLabel>
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">
+              三维研习时间分配
+            </h2>
             <span className="font-mono text-xs text-muted-foreground">
               累计 <strong className="text-foreground">{totalHours}</strong> 小时
             </span>
           </div>
-          <h2 className="mt-1.5 text-lg font-semibold tracking-tight text-foreground">
-            三维研习时间分配
-          </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             闪卡巩固、口语跟读与语境阅读的精力分布
           </p>
@@ -652,14 +641,13 @@ function MultimodalSection({ data }: { data: MultimodalStats }) {
       <section className="flex flex-col justify-between rounded-xl border border-border/70 bg-card p-5 sm:p-6">
         <div>
           <div className="flex items-center justify-between">
-            <SectionLabel index="03">SHADOWING ACOUSTICS</SectionLabel>
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">
+              影子跟读声学质量
+            </h2>
             <span className="font-mono text-xs text-muted-foreground">
               均分 <strong className="text-foreground">{avgOverall > 0 ? avgOverall : "—"}</strong>
             </span>
           </div>
-          <h2 className="mt-1.5 text-lg font-semibold tracking-tight text-foreground">
-            影子跟读声学质量
-          </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             发音准确度（实线）与语流连贯度（虚线）演进
           </p>
@@ -750,14 +738,13 @@ function FsrsSection({ fsrs }: { fsrs: FsrsStats }) {
       <section className="flex flex-col justify-between rounded-xl border border-border/70 bg-card p-5 sm:p-6">
         <div>
           <div className="flex items-center justify-between">
-            <SectionLabel index="05">FSRS DEPTH</SectionLabel>
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">
+              FSRS 记忆深度分布
+            </h2>
             <span className="font-mono text-xs text-muted-foreground">
               总纳管 <strong className="text-foreground">{nf.format(fsrs.totalCards)}</strong> 词
             </span>
           </div>
-          <h2 className="mt-1.5 text-lg font-semibold tracking-tight text-foreground">
-            FSRS 记忆深度分布
-          </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             依据 DSR 遗忘模型科学刻画词汇从初识到完全掌握的层级
           </p>
@@ -804,14 +791,13 @@ function FsrsSection({ fsrs }: { fsrs: FsrsStats }) {
       <section className="flex flex-col justify-between rounded-xl border border-border/70 bg-card p-5 sm:p-6">
         <div>
           <div className="flex items-center justify-between">
-            <SectionLabel index="06">DUE FORECAST</SectionLabel>
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">
+              未来 7 天到期负荷预测
+            </h2>
             <span className="font-mono text-xs text-muted-foreground">
               今日待复习: <strong className="text-foreground">{dueToday}</strong> 词
             </span>
           </div>
-          <h2 className="mt-1.5 text-lg font-semibold tracking-tight text-foreground">
-            未来 7 天到期负荷预测
-          </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             基于复习间隔推演未来一周待复核卡片数
           </p>
@@ -954,13 +940,9 @@ export function AnalyticsDashboard() {
       {/* 头部标题与年份选择器 */}
       <header className="flex flex-col gap-3 border-b border-border/70 pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <SectionLabel index="LF / 03">LEARNING INTELLIGENCE</SectionLabel>
-          <h1 className="mt-1.5 text-2xl font-bold tracking-tight sm:text-3xl text-foreground">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl text-foreground">
             学习数据与多模态全景
           </h1>
-          <p className="mt-1 text-xs text-muted-foreground">
-            融合 FSRS 记忆深度、影子跟读声学质量与全周期研习数据
-          </p>
         </div>
         <div className="flex items-center gap-2">
           <label className="flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs">
@@ -1075,8 +1057,7 @@ export function AnalyticsDashboard() {
             <section className="min-w-0 rounded-xl border border-border/70 bg-card p-5 sm:p-6">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <SectionLabel index="07">ACTIVITY TREND</SectionLabel>
-                  <h2 className="mt-1.5 text-lg font-semibold tracking-tight text-foreground">
+                  <h2 className="text-lg font-semibold tracking-tight text-foreground">
                     学习节奏与时间投入
                   </h2>
                   <p className="mt-0.5 text-xs text-muted-foreground">
@@ -1177,8 +1158,7 @@ export function AnalyticsDashboard() {
             <section className="min-w-0 rounded-xl border border-border/70 bg-card p-5 sm:p-6">
               <div className="flex items-center justify-between border-b border-border/60 pb-3">
                 <div>
-                  <SectionLabel index="08">RECENT LEDGER</SectionLabel>
-                  <h2 className="mt-1 text-base font-semibold text-foreground">最近 7 日明细</h2>
+                  <h2 className="text-base font-semibold text-foreground">最近 7 日明细</h2>
                 </div>
                 <span className="font-mono text-xs text-muted-foreground">{year}</span>
               </div>
