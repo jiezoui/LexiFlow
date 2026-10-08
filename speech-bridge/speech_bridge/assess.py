@@ -18,15 +18,10 @@
 --------------
 ``wav2vec2-lv-60-espeak-cv-ft`` 是 espeak 音素集的 CTC 模型。我们取
 ``log_softmax(logits)`` 后，对**参考音素序列**做动态规划，求在
-「允许重复帧、允许 blank 间隔」约束下的最大后验路径：
-
-    D[t][j] = max( D[t-1][j-1] + p[t][seq[j]],      # 从上一音素推进
-                   D[t-1][j]   + p[t][seq[j]],      # 同一音素延续 (重复帧)
-                   D[t-1][j-1] + p_blank )          # 经 blank 过渡
-
-由此得到每个参考音素所「占据」的帧区间与平均后验概率，即 GOP。
-把 GOP 对数后验映射到 0~100 分（见 ``GOP_*`` 常量），即可得到可解释的
-「哪个音素读得好 / 读得差」。
+「允许重复帧、允许 blank 间隔」约束下所有合法路径的概率和。
+在对数空间执行前向—后向递推，得到状态边缘后验，并围绕后验峰值提取
+帧区间。音素评分融合状态后验峰值映射与区间平均发射对数概率排名；
+它是项目启发式评分，不等同于经人工标签校准的正确发音概率。
 """
 
 from __future__ import annotations
@@ -303,10 +298,11 @@ def ctc_forced_align(
     # （CTC 的重复标签约束：相同音素必须经由中间 blank 过渡。）
     # 注意这里是**包含式**闸门：满足条件才允许跳过；早期版本误写成排除式，
     # 导致大量合法对齐被丢弃、γ 不归一化、GOP 分数整体塌陷。
+    # 比较 token id，而非音素位置编号；相邻重复标签必须经过 blank。
     allow_skip = np.zeros(L, dtype=bool)
     if L > 2:
-        allow_skip[2:] = (state_phoneme[2:] >= 0) & (
-            state_phoneme[2:] != state_phoneme[:-2]
+        allow_skip[2:] = (state_token[2:] != blank_id) & (
+            state_token[2:] != state_token[:-2]
         )
 
     # 帧 t 上各状态的发射对数概率
