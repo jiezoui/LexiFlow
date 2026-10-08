@@ -434,6 +434,11 @@ function SentenceWorkspace({
       const result = await speechApi.score(captured.blob, sentence.text, "en")
       setAssessment(result)
 
+      if (!result.engine.phoneme_alignment) {
+        setSaveNotice("仅词级参考分，未计入练习历史与今日打卡")
+        return
+      }
+
       // 落库 + 计入打卡。保存失败不阻断评测展示，只提示。
       try {
         await shadowingApi.submitAttempt({
@@ -701,6 +706,11 @@ function SentenceWorkspace({
               {/* 评测结果 */}
               {assessment && !isEvaluating && (
                 <>
+                  {!assessment.engine.phoneme_alignment && (
+                    <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                      音素模型本次未能可靠对齐，仅展示词级参考分；请勿将其用于判断具体音素发音。
+                    </div>
+                  )}
                   {saveNotice && (
                     <div
                       className={`flex items-center gap-1.5 px-1 text-[11px] ${
@@ -715,8 +725,6 @@ function SentenceWorkspace({
                         <CheckCircle2Icon className="size-3.5 text-emerald-600 dark:text-emerald-400" />
                       )}
                       <span>{saveNotice}</span>
-                      {!assessment.engine.phoneme_alignment &&
-                        " · 本次为词级评分"}
                     </div>
                   )}
 

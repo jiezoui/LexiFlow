@@ -282,9 +282,9 @@ function WordChip({
               key={`${p.phoneme}-${i}`}
               title={`/${p.phoneme}/ 得分 ${p.score}${
                 p.rank ? ` · 模型排名第 ${p.rank}` : ""
-              }${p.posterior ? ` · 后验 ${(p.posterior * 100).toFixed(1)}%` : ""}`}
+              }${p.posterior ? ` · 目标音素声学概率几何均值 ${(p.posterior * 100).toFixed(1)}%` : ""}`}
               className={`rounded-md border px-1.5 py-0.5 font-mono text-[11px] ${
-                TONE_CLASS[scoreTone(p.score)]
+                TONE_CLASS[p.status === "POOR" ? "poor" : p.status === "FAIR" ? "fair" : "good"]
               }`}
             >
               {p.phoneme}
@@ -330,21 +330,15 @@ export function ShadowingVerdict({
   const praises = useMemo(() => suggestions.filter((s) => s.type === "PRAISE"), [suggestions])
   const fixes = useMemo(() => suggestions.filter((s) => s.type !== "PRAISE"), [suggestions])
 
-  const perfectWords = useMemo(
-    () => words.filter((w) => w.status === "CORRECT" && w.score >= 85),
-    [words]
-  )
-
-  /** 需要关注的词：漏读 / 误读 / 词或音素得分偏低。 */
+  /** 需要核对的词：ASR 漏读 / 替换或开发集阈值筛出的明显音素问题。 */
   const problemRows = useMemo(() => {
     return words
       .map((word) => {
         const worst = worstPhoneme(word)
         const isMissing = word.status === "OMISSION"
         const isWrong = word.status === "SUBSTITUTION"
-        const lowWord = word.score > 0 && word.score < 65
-        const lowPhoneme = worst !== null && worst.score < 60
-        return { word, worst, urgent: isMissing || isWrong, hit: isMissing || isWrong || lowWord || lowPhoneme }
+        const lowPhoneme = word.phonemes.some((p) => p.status === "POOR")
+        return { word, worst, urgent: isMissing || isWrong, hit: isMissing || isWrong || lowPhoneme }
       })
       .filter((row) => row.hit)
       .sort((a, b) => {
@@ -392,8 +386,8 @@ export function ShadowingVerdict({
       return "整句发音准确、语流连贯，可继续保持或进入下一句练习。"
     }
     const parts: string[] = []
-    if (weakestPhoneme && weakestPhoneme.score < 75) {
-      parts.push(`重点关注 /${weakestPhoneme.phoneme.replace(/^\/|\/$/g, "")}/（均分 ${weakestPhoneme.score}）的发音`)
+    if (weakestPhoneme && weakestPhoneme.score < engine.severe_phone_error_threshold) {
+      parts.push(`建议回听 /${weakestPhoneme.phoneme.replace(/^\/|\/$/g, "")}/（声学分 ${weakestPhoneme.score}）`)
     }
     if (weakestMetric[1] < 80) {
       parts.push(`可侧重提升「${weakestMetric[0]}」`)
@@ -405,7 +399,7 @@ export function ShadowingVerdict({
       return "整体表现良好，点击待改进词可试听原音对照。"
     }
     return `${parts.join("，")}。`
-  }, [scores.overall, problemRows.length, weakestPhoneme, weakestMetric, timing])
+  }, [scores.overall, problemRows.length, weakestPhoneme, weakestMetric, timing, engine.severe_phone_error_threshold])
   const prosodyHint =
     acoustic.pitch_range_semitones !== null
       ? `基频跨度 ${acoustic.pitch_range_semitones} 半音`
@@ -494,10 +488,10 @@ export function ShadowingVerdict({
               <BadgeCheckIcon className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-semibold text-emerald-900 dark:text-emerald-100">
-                  发音标准完整
+                  未发现明显问题
                 </p>
                 <p className="text-[11px] text-muted-foreground">
-                  本句未检测到明显漏读、误读或低分音素，可继续保持。
+                  本句未筛出明显漏读、替换或严重低分音素；可继续练习。
                 </p>
               </div>
             </div>
@@ -506,7 +500,7 @@ export function ShadowingVerdict({
               <div className="flex items-center justify-between border-b border-border/60 px-3.5 py-2">
                 <span className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <AlertTriangleIcon className="size-3 text-amber-500" />
-                  待改进发音
+                  待核对的词
                   <span className="rounded-full bg-rose-500/15 px-1.5 text-[10px] font-bold text-rose-600 dark:text-rose-400">
                     {problemRows.length}
                   </span>
@@ -529,13 +523,11 @@ export function ShadowingVerdict({
                     : ""
                   const hint =
                     row.word.status === "OMISSION"
-                      ? "整词漏读：词尾 -s / -ed / -t / -d 请完整发音"
+                      ? "ASR 未识别出该词，请回听确认是否漏读"
                       : row.word.status === "SUBSTITUTION"
-                      ? `识别为「${row.word.actual_word ?? "其它词"}」${
-                          phoneme ? `，注意 /${phoneme}/ 发音` : ""
-                        }`
+                      ? `识别为「${row.word.actual_word ?? "其它词"}」，请回听确认是否实际读错`
                       : (phoneme && phonemeHints.get(phoneme)) ||
-                        `/${phoneme}/ 得分 ${Math.round(row.worst?.score ?? 0)}，点击试听标准发音`
+                        `/${phoneme}/ 声学分 ${Math.round(row.worst?.score ?? 0)}，请回听核对`
                   return (
                     <ProblemRow
                       key={`${row.word.word}-${i}`}
@@ -763,8 +755,8 @@ export function ShadowingVerdict({
             <div className="mt-2 flex flex-col gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
               <p>
                 <span className="font-semibold text-foreground">准确度</span>
-                ：对参考音素串与录音做 CTC 前向-后向强制对齐，取每个音素在所属帧的边缘后验概率（GOP），
-                并融合该音素在帧内的排名；再与词级语音相似度、ASR 置信度加权。
+                ：对参考音素串与录音做 CTC Viterbi 对齐，计算目标音素在所属帧的模型概率几何均值，
+                再与词级语音相似度、ASR 置信度加权。音素分是辅助反馈，不是发音正确的概率。
               </p>
               <p>
                 <span className="font-semibold text-foreground">完整度</span>
@@ -780,7 +772,9 @@ export function ShadowingVerdict({
               </p>
               <p className="flex items-center gap-1">
                 <SparklesIcon className="size-3" />
-                {engine.asr} {engine.phoneme_alignment ? "· 音素级对齐" : ""} · 评测耗时 {result.processing_ms} ms
+                {engine.asr} · {engine.phoneme_alignment
+                  ? `Viterbi 音素对齐（覆盖 ${Math.round(engine.phoneme_coverage * 100)}%）`
+                  : "音素链路不可用，仅词级评分"} · 评测耗时 {result.processing_ms} ms
               </p>
             </div>
           </details>

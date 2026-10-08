@@ -1334,6 +1334,7 @@ export interface ShadowingAssessment {
     filler_count: number
     poor_phonemes: number
     total_phonemes: number
+    evaluated_phonemes: number
   }
   timing: SpeechTiming
   acoustic: SpeechAcoustic
@@ -1344,6 +1345,12 @@ export interface ShadowingAssessment {
     asr_elapsed_ms: number
     phoneme_model: string | null
     phoneme_alignment: boolean
+    scoring_method: "viterbi_ctc" | "word_level_fallback"
+    phoneme_coverage: number
+    phoneme_failure_reason: string | null
+    asr_reference_prompt: boolean
+    reference_word_match_ratio: number
+    severe_phone_error_threshold: number
   }
   processing_ms: number
 }

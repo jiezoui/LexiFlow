@@ -45,15 +45,21 @@ curl -X POST http://127.0.0.1:8100/score_pronunciation \
 总分 = 准确度×0.50 + 完整度×0.30 + 流利度×0.20
 ```
 
-- **准确度**：对参考音素串与音频做 **CTC 前向-后向强制对齐**，边缘化所有合法
-  对齐路径，得到每个音素在其帧上的真实后验（GOP）；再融合**帧内排名**
-  （模型是多语言大词表，绝对后验会被近音符号稀释）、词级语音相似度与 ASR 置信度。
+- **准确度**：对参考音素串与音频做 **CTC Viterbi 对齐**，取每个音素在所选帧上的
+  目标发射概率几何均值，映射到 0–100 分，再与词级相似度及 ASR 置信度加权。
+  音素分是启发式声学证据，并非发音正确概率。旧前向—后向 + 排名算法保留作对照。
 - **完整度**：词级动态规划对齐中的漏读比例，多读词额外扣分。
 - **流利度**：语速偏离、句内长停顿、有效语音占比、犹豫填充词。
 
+ASR 转写不注入参考句提示，以减少把漏读内容补回的风险。录音太短、过轻、
+严重削波、未识别到语音，或四词以上句子的词级精确匹配率低于 25% 时，评分端点
+返回 `422` 和重录原因。最后一种情况无法区分实际读错与 ASR 误识别。音素模型、G2P
+或对齐不可用时，结果明确标为 `word_level_fallback`，不生成伪音素错误。
+只有 ASR 词级匹配正确的词才显示音素反馈；替换词和漏读词只显示词级问题。
+
 关键实现在 [`speech_bridge/assess.py`](speech_bridge/assess.py)，
-其正确性由 [`tools/test_ctc_align.py`](tools/test_ctc_align.py) 与
-「按 CTC 定义暴力枚举」对拍验证（γ 逐元素误差 ~1e-15，每帧 γ 之和恒为 1.0）。
+Viterbi 路径由 [`tests/test_assess_v2.py`](tests/test_assess_v2.py) 的小状态穷举验证；
+保留的前向—后向实现可用 [`../scripts/verify_ctc_numerics.py`](../scripts/verify_ctc_numerics.py) 复核。
 
 ## 配置
 
@@ -79,17 +85,13 @@ $py = "$R\speech-bridge\.venv\Scripts\python.exe"
 # 端到端（合成参考音走完整链路，无需麦克风、无需服务在跑）
 & $py "$R\speech-bridge\selftest.py"
 
-# CTC 强制对齐正确性：与「按定义暴力枚举全部合法对齐路径」逐元素对拍
-& $py "$R\speech-bridge\tools\test_ctc_align.py"
+# Viterbi 路径与可靠性回归
+Push-Location $R
+& $py -m unittest discover -s speech-bridge\tests -p test_assess_v2.py -v
 
-# 判别力：读对 / 读成别的句子 / 漏读后半 —— 分数必须拉得开
-& $py "$R\speech-bridge\tools\test_discrimination.py"
-
-# REST 接口验收（需服务已运行）
-& $py "$R\speech-bridge\tools\test_api.py"
-
-# 音素模型解码诊断（排查某个音素为何得分低时用）
-& $py "$R\speech-bridge\tools\diag_phoneme.py"
+# REST 自启服务验收（需有 scratch/tts_sample.wav）
+& $py scripts\verify_speech_api.py
+Pop-Location
 ```
 
 ## 平台注意事项

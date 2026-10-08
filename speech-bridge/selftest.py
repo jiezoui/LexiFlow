@@ -91,7 +91,7 @@ def step_4_asr(mono) -> object:
     section("4. ASR 转写（faster-whisper + 词级时间戳）")
     from speech_bridge import asr as asr_mod
 
-    transcript = asr_mod.transcribe(mono, language="en", initial_prompt=REFERENCE)
+    transcript = asr_mod.transcribe(mono, language="en", initial_prompt=None)
     print(f"引擎        : {transcript.engine} / {transcript.model}")
     print(f"语言        : {transcript.language} (p={transcript.language_probability:.2f})")
     print(f"耗时        : {transcript.elapsed_ms} ms")
@@ -105,7 +105,7 @@ def step_4_asr(mono) -> object:
 
 
 def step_5_alignment(mono) -> None:
-    section("5. 音素级 CTC 强制对齐（GOP）")
+    section("5. 音素级 CTC Viterbi 对齐（线上评分口径）")
     processor, _model = assess_mod.load_phoneme_model()
     words = phon_mod.word_phonemes(REFERENCE)
     flat: list[tuple[str, int]] = []
@@ -116,7 +116,7 @@ def step_5_alignment(mono) -> None:
 
     t0 = time.time()
     try:
-        aligned = assess_mod.ctc_forced_align(mono, flat)
+        aligned = assess_mod.ctc_viterbi_align(mono, flat)
     except Exception as exc:  # noqa: BLE001
         print(f"对齐失败: {type(exc).__name__}: {exc}")
         return
@@ -125,13 +125,13 @@ def step_5_alignment(mono) -> None:
     print(f"参考音素 {len(flat)} 个（其中 {mapped} 个可在模型词表中找到）")
     print(f"成功对齐 {len(aligned)} 个，耗时 {t_elapsed:.2f}s")
     print()
-    print("  位置  音素   帧区间        后验     排名   音素得分")
+    print("  位置  音素   帧区间      发射概率   排名   音素得分")
     for pos in sorted(aligned):
         ph, f0, f1, post, rank = aligned[pos]
-        score = assess_mod.phoneme_score(post, rank)
+        score = assess_mod.gop_to_score(post)
         print(f"  {pos:>4}  {ph:<6} [{f0:>4},{f1:>4}]   {post:.4f}   {rank:>3}   {score:6.1f}")
 
-    scores = [assess_mod.phoneme_score(v[3], v[4]) for v in aligned.values()]
+    scores = [assess_mod.gop_to_score(v[3]) for v in aligned.values()]
     if scores:
         print()
         print(f"音素得分: 均值 {sum(scores) / len(scores):.1f}  "

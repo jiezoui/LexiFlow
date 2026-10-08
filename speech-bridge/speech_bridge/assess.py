@@ -1,4 +1,4 @@
-"""发音评测核心：音素级 CTC 强制对齐 + GOP 打分 + 流利度/韵律分析。
+"""发音评测核心：音素级 CTC 对齐 + 声学打分 + 流利度/韵律分析。
 
 评分模型
 --------
@@ -7,8 +7,8 @@
 ============  ======  ==========================================================
 维度          权重    依据
 ============  ======  ==========================================================
-准确度        50%     ① 参考音素串与音频的 **CTC 强制对齐** 得到的逐音素后验概率
-                      （GOP, Goodness of Pronunciation）
+准确度        50%     ① 参考音素串与音频的 **CTC Viterbi 对齐** 后计算目标音素
+                      在所属帧的平均发射对数概率（启发式声学分）
                       ② 词级语音相似度（双 metaphone 风格音素编辑距离）
 完整度        30%     词级对齐中的漏读比例（参考词未被识别）
 流利度        20%     语速偏离度、内部停顿、犹豫填充词、VAD 语音占比
@@ -17,11 +17,10 @@
 音素级对齐细节
 --------------
 ``wav2vec2-lv-60-espeak-cv-ft`` 是 espeak 音素集的 CTC 模型。我们取
-``log_softmax(logits)`` 后，对**参考音素序列**做动态规划，求在
-「允许重复帧、允许 blank 间隔」约束下所有合法路径的概率和。
-在对数空间执行前向—后向递推，得到状态边缘后验，并围绕后验峰值提取
-帧区间。音素评分融合状态后验峰值映射与区间平均发射对数概率排名；
-它是项目启发式评分，不等同于经人工标签校准的正确发音概率。
+``log_softmax(logits)`` 后，对**参考音素序列**做 Viterbi 动态规划，
+找到满足重复标签和 blank 约束的最大概率路径。线上评分使用
+该路径上的目标音素发射概率；保留原前向—后向
+算法供实验复核。两者均为启发式声学证据，并非发音正确概率。
 """
 
 from __future__ import annotations
@@ -37,7 +36,7 @@ from . import config
 
 LOG = logging.getLogger("speech-bridge.assess")
 
-# ── GOP → 百分制 的标定常量 ─────────────────────────────────────────────────
+# ── 启发式声学概率 → 百分制；保留旧常量名兼容实验脚本 ──────────────────
 GOP_LOG_FLOOR = -6.9
 GOP_LOG_CEIL = -0.05
 
@@ -53,6 +52,10 @@ WEIGHT_GOP_RANK = 0.4
 # 帧内排名 → 得分（排名 1 满分，之后快速衰减）
 RANK_SCORES = {1: 100.0, 2: 88.0, 3: 76.0, 4: 64.0, 5: 52.0, 6: 42.0}
 RANK_SCORE_DEFAULT = 30.0
+
+# SpeechOcean762 开发集上预先选出的 Viterbi 严重音素错误阈值；
+# 它只用于筛查“人工音素分 < 1/2”的明显问题，非正确概率分界线。
+VITERBI_SEVERE_ERROR_THRESHOLD = 8.0
 
 # 音节化近似：元音音素计数（用于语速与音素配额）
 VOWEL_PHONEMES = set("aeiouæɑɒɔəɜɛɪʊʌɐiːuːɑːɔːɜːɛːeɪaɪɔɪoʊaʊəʊɚɝyøœɨɯ")
@@ -124,6 +127,14 @@ class ShadowingAssessment:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+class UnreliableRecording(ValueError):
+    """录音无法可靠评测；API 应请求重录，而不是返回误导性数字。"""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
 
 
 # ── 音素 CTC 模型 ───────────────────────────────────────────────────────────
@@ -244,14 +255,8 @@ def ctc_forced_align(
     下标是**输入序列中的原始位置**，因此调用方可以「按位置取值」而无需依赖
     顺序消费——即使部分音素被跳过，其余音素仍能正确归位。
 
-    为什么不用 Viterbi
-    ------------------
-    Viterbi 只取「单一最优路径」。在缺少 blank 约束的简化 DP 下，它会把音素
-    压进错误的帧——短音素（如 central 的 /l/）被挤到 blank 主导的帧上，后验
-    接近 0，于是**发音完全正确的参考音**也拿不到分数。
-
-    正确做法是在完整 CTC 网格（含 blank 与重复帧）上做前后向，逐帧边缘化
-    所有合法对齐：
+    此方法保留作实验对照。它在完整 CTC 网格（含 blank 与重复帧）上逐帧
+    边缘化所有合法对齐：
 
         α[t][s] = (α[t-1][s] + α[t-1][s-1] (+ α[t-1][s-2])) · p(y_s | t)
         β[t][s] = Σ_{s' ∈ {s, s+1, s+2}} β[t+1][s'] · p(y_{s'} | t+1)
@@ -259,8 +264,8 @@ def ctc_forced_align(
 
     其中 ``s → s+2`` 的跳过转移**当且仅当两侧都是非 blank 且音素不同**时允许
     （``allow_skip``）。早期版本把该闸门写反，导致 γ 不归一化、GOP 整体塌陷；
-    向量化实现已用「按 CTC 定义枚举全部单调对齐路径」的暴力程序回归验证，
-    γ 逐元素误差约 1e-15。
+    向量化实现已用「按 CTC 定义枚举全部单调对齐路径」的暴力程序回归验证。
+    状态占用后验仅表示**给定参考串**时的对齐不确定性，不表示发音正确率。
 
     同时返回该音素在所属帧的**帧内排名**（1 = 模型最想输出的音素），
     用于大词表下的分数融合（见 ``WEIGHT_GOP_RANK``）。
@@ -281,10 +286,9 @@ def ctc_forced_align(
         return {}
 
     S = len(seq)
-    if S > T:  # 音频过短，按比例抽稀参考音素
-        step = S / T
-        seq = [seq[min(S - 1, int(i * step))] for i in range(T)]
-        S = len(seq)
+    # 相邻相同 token 必须有一个 blank 帧；不可偷偷抽稀参考串。
+    if T < S + sum(seq[i][2] == seq[i - 1][2] for i in range(1, S)):
+        return {}
 
     # CTC 扩展状态序列: blank, y0, blank, y1, …, blank
     L = 2 * S + 1
@@ -391,6 +395,65 @@ def ctc_forced_align(
     return results
 
 
+def ctc_viterbi_align(
+    audio: np.ndarray, reference_phonemes: list[tuple[str, int]]
+) -> dict[int, tuple[str, int, int, float, int]]:
+    """对齐参考音素，返回每个音素的帧段、目标发射概率几何均值和排名。
+
+    返回值第四项是 ``exp(mean(log p(token | frame)))``，不是 CTC 路径
+    占用后验。该分数与 SpeechOcean762 对照实验中的 Viterbi 基线同口径。
+    """
+    if not reference_phonemes or audio.size < config.SAMPLE_RATE // 10:
+        return {}
+    _, model = load_phoneme_model()
+    log_probs = _log_probs(audio)
+    T, V = log_probs.shape
+    blank_id = int(getattr(model.config, "pad_token_id", 0) or 0)
+    seq = [(pos, ph, int(idx)) for pos, (ph, idx) in enumerate(reference_phonemes)
+           if idx is not None and 0 <= idx < V and idx != blank_id]
+    if not seq:
+        return {}
+    ids = [item[2] for item in seq]
+    S = len(ids)
+    if T < S + sum(ids[i] == ids[i - 1] for i in range(1, S)):
+        return {}
+
+    L = 2 * S + 1
+    labels = np.full(L, blank_id, dtype=np.int64)
+    labels[1::2] = ids
+    allow_skip = np.zeros(L, dtype=bool)
+    allow_skip[2:] = (labels[2:] != blank_id) & (labels[2:] != labels[:-2])
+    dp = np.full((T, L), -np.inf, dtype=np.float64)
+    back = np.zeros((T, L), dtype=np.int8)
+    dp[0, 0] = log_probs[0, blank_id]
+    dp[0, 1] = log_probs[0, ids[0]]
+    for t in range(1, T):
+        choices = np.full((3, L), -np.inf, dtype=np.float64)
+        choices[0] = dp[t - 1]
+        choices[1, 1:] = dp[t - 1, :-1]
+        choices[2, 2:] = np.where(allow_skip[2:], dp[t - 1, :-2], -np.inf)
+        back[t] = np.argmax(choices, axis=0)
+        dp[t] = np.max(choices, axis=0) + log_probs[t, labels]
+    state = L - 1 if dp[-1, L - 1] >= dp[-1, L - 2] else L - 2
+    if not np.isfinite(dp[-1, state]):
+        return {}
+    states = np.empty(T, dtype=np.int64)
+    for t in range(T - 1, -1, -1):
+        states[t] = state
+        state -= int(back[t, state])
+
+    result: dict[int, tuple[str, int, int, float, int]] = {}
+    for k, (pos, ph, token_id) in enumerate(seq):
+        frames = np.flatnonzero(states == 2 * k + 1)
+        if frames.size == 0:
+            return {}
+        mean_dist = log_probs[frames].mean(axis=0)
+        rank = int(np.count_nonzero(mean_dist > mean_dist[token_id])) + 1
+        emission = float(np.exp(mean_dist[token_id]))
+        result[pos] = (ph, int(frames[0]), int(frames[-1]), emission, rank)
+    return result
+
+
 def rank_to_score(rank: int) -> float:
     """帧内排名 → 0~100 分。"""
     if rank <= 1:
@@ -407,7 +470,7 @@ def phoneme_score(posterior: float, rank: int) -> float:
 
 
 def gop_to_score(posterior: float) -> float:
-    """把 GOP 后验概率映射到 0~100。"""
+    """把 0–1 声学证据映射到 0–100；旧实验接口名称保持兼容。"""
     if posterior <= 0:
         return 0.0
     logp = math.log(posterior)
@@ -598,7 +661,7 @@ def assess(
     asr_engine: str | None = None,
     transcript=None,
     acoustic: dict | None = None,
-    phoneme_timings: list[tuple[str, int, int, float]] | None = None,
+    phoneme_timings: dict[int, tuple[str, int, int, float, int]] | None = None,
     frame_ms: float = 20.0,
 ) -> ShadowingAssessment:
     """执行完整评测。``transcript``/``acoustic`` 可由调用方复用以免重复计算。"""
@@ -613,13 +676,23 @@ def assess(
     # 先裁掉首尾静音：前端录音的收尾静音与 TTS 的尾部空白会污染
     # 语音占比、语速分母与词级时间戳，必须先剔除再评测。
     audio, trimmed_head_ms, trimmed_tail_ms = audio_mod.trim_silence(audio)
+    if audio.size < config.SAMPLE_RATE // 4:
+        raise UnreliableRecording("TOO_SHORT", "有效录音不足 0.25 秒，请重新录制")
+    if not np.all(np.isfinite(audio)):
+        raise UnreliableRecording("INVALID_AUDIO", "录音数据异常，请重新录制")
+    rms = float(np.sqrt(np.mean(audio.astype(np.float64) ** 2)))
+    if rms < 10 ** (-45 / 20):
+        raise UnreliableRecording("TOO_QUIET", "录音音量过低，请靠近麦克风重录")
+    if float(np.mean(np.abs(audio) >= 0.985)) > 0.05:
+        raise UnreliableRecording("CLIPPING", "录音削波严重，请降低输入音量重录")
 
     if transcript is None:
         transcript = asr_mod.transcribe(
             audio,
             language=language,
             engine=asr_engine,
-            initial_prompt=reference_text,
+            # 参考句只供事后比较；提示 ASR 容易把漏读词补进转写。
+            initial_prompt=None,
         )
 
     if acoustic is None:
@@ -627,8 +700,17 @@ def assess(
 
     ref_words = normalize(reference_text)
     hyp_words = normalize(transcript.text)
+    if not hyp_words:
+        raise UnreliableRecording("NO_TRANSCRIPT", "未识别到清晰语音，请重新录制")
 
     alignment = align_words(ref_words, hyp_words)
+    exact_word_matches = sum(status == "CORRECT" for status, _, _, _ in alignment)
+    reference_match_ratio = exact_word_matches / len(ref_words) if ref_words else 0.0
+    if len(ref_words) >= 4 and reference_match_ratio < 0.25:
+        raise UnreliableRecording(
+            "CONTENT_MISMATCH",
+            "转写与参考句差异过大，无法可靠区分读错和识别误差；请对照原句重录",
+        )
 
     # 词级时间戳索引（用于回填每个参考词的起止时间）
     hyp_timings: dict[str, list] = {}
@@ -644,31 +726,46 @@ def assess(
     for wp in wps:
         ipa_by_word.setdefault(wp.word.lower(), []).append(wp)
 
-    # 音素级 GOP（整句一次前向）
+    # 音素级对齐（整句一次模型前向）
+    phoneme_failure_reason = None
+    expected_phonemes = sum(len(wp.model_phonemes or wp.phonemes) for wp in wps)
     if phoneme_timings is None:
         # 先把每个音素解析到模型词表条目（「音素 → 词表条目」的唯一口径处）。
         # 若模型尚未就绪则这里会抛错，由下面的 except 降级为词级评分。
         try:
+            if not phon_mod.espeak_status()["available"]:
+                phoneme_failure_reason = "G2P_UNAVAILABLE"
+                raise RuntimeError("espeak-ng 不可用，禁止用拼写近似音素做发音诊断")
             processor, _model = load_phoneme_model()
             flat: list[tuple[str, int]] = []
             for wp in wps:
                 for ph in wp.model_phonemes or wp.phonemes:
                     idx, _key = resolve_phoneme(processor, ph)
                     flat.append((ph, idx if idx is not None else -1))
-            phoneme_timings = ctc_forced_align(audio, flat)
+            mapped = sum(idx >= 0 for _, idx in flat)
+            if not flat or mapped / len(flat) < 0.9:
+                phoneme_failure_reason = "G2P_VOCAB_COVERAGE"
+                phoneme_timings = {}
+            else:
+                phoneme_timings = ctc_viterbi_align(audio, flat)
+                if len(phoneme_timings) / len(flat) < 0.9:
+                    phoneme_failure_reason = "CTC_ALIGNMENT_COVERAGE"
+                    phoneme_timings = {}
         except Exception as exc:  # noqa: BLE001 - 音素模型不可用时降级为词级评分
             LOG.warning("CTC 强制对齐失败，降级为词级评分: %s", exc)
-            phoneme_timings = []
+            phoneme_failure_reason = phoneme_failure_reason or "PHONEME_MODEL_ERROR"
+            phoneme_timings = {}
 
-    # 把 GOP 结果按「全局音素下标」切片回每个词
-    gop_map: dict[int, tuple[str, int, int, float]] = phoneme_timings or {}
+    # 把对齐结果按「全局音素下标」切片回每个词
+    gop_map: dict[int, tuple[str, int, int, float, int]] = phoneme_timings or {}
+    phoneme_coverage = len(gop_map) / expected_phonemes if expected_phonemes else 0.0
     global_pos = 0
 
     words_out: list[WordScore] = []
     counts = {
         "correct": 0, "substitution": 0, "omission": 0, "insertion": 0,
         "total_reference": len(ref_words), "filler_count": 0,
-        "poor_phonemes": 0, "total_phonemes": 0,
+        "poor_phonemes": 0, "total_phonemes": 0, "evaluated_phonemes": 0,
     }
     used_hyp: dict[str, int] = {}
 
@@ -706,8 +803,8 @@ def assess(
             entry = gop_map.get(global_pos)
             global_pos += 1
             rank: int | None = None
-
-            if entry is not None:
+            # 词被识别为其他词或漏读时，参考串强制对齐的音素段不可靠。
+            if entry is not None and status == "CORRECT":
                 # 对齐结果里记录的是**模型词表写法**（如 ɑː），而参考音素可能是
                 # 其未加长音的写法（ɑ）；用候选集合判等，避免因书写差异误判。
                 got_ph, f0, f1, post, rk = entry
@@ -717,16 +814,18 @@ def assess(
                 from .phonemize import phoneme_candidates
 
                 if got_ph == ph or got_ph in phoneme_candidates(ph):
-                    score = phoneme_score(post, rk)
+                    score = gop_to_score(post)
                 else:
-                    post, score = 0.0, 0.0
-                if status in {"SUBSTITUTION", "OMISSION"}:
-                    # 整词读错/漏读：其音素即使声学证据尚可也不应拿高分
-                    score *= 0.35
+                    continue
             else:
-                post, score, start_ms, end_ms = 0.0, 0.0, 0, 0
+                continue
 
-            p_status = "GOOD" if score >= 75 else ("FAIR" if score >= 55 else "POOR")
+            counts["evaluated_phonemes"] += 1
+
+            p_status = (
+                "POOR" if score < VITERBI_SEVERE_ERROR_THRESHOLD
+                else ("FAIR" if score < 55 else "GOOD")
+            )
             if p_status == "POOR":
                 counts["poor_phonemes"] += 1
 
@@ -738,7 +837,7 @@ def assess(
                 )
             )
 
-        # 词得分：音素均分（有 GOP 时）与语音相似度的加权
+        # 词得分：音素均分（可用时）与语音相似度的加权
         phoneme_avg = (
             sum(p.score for p in ph_scores) / len(ph_scores) if ph_scores else None
         )
@@ -787,10 +886,10 @@ def assess(
     # ── 维度汇总 ────────────────────────────────────────────────────────────
     total_ref = max(1, counts["total_reference"])
 
-    if counts["total_phonemes"] and gop_map:
+    if counts["evaluated_phonemes"]:
         gop_mean = sum(
             p.score for ws in words_out for p in ws.phonemes
-        ) / max(1, counts["total_phonemes"])
+        ) / counts["evaluated_phonemes"]
     else:
         gop_mean = None
 
@@ -861,6 +960,12 @@ def assess(
             "asr_elapsed_ms": transcript.elapsed_ms,
             "phoneme_model": config.PHONEME_MODEL if gop_map else None,
             "phoneme_alignment": bool(gop_map),
+            "scoring_method": "viterbi_ctc" if gop_map else "word_level_fallback",
+            "phoneme_coverage": round(phoneme_coverage, 4),
+            "phoneme_failure_reason": phoneme_failure_reason,
+            "asr_reference_prompt": False,
+            "reference_word_match_ratio": round(reference_match_ratio, 4),
+            "severe_phone_error_threshold": VITERBI_SEVERE_ERROR_THRESHOLD,
         },
         processing_ms=int((time.perf_counter() - t_start) * 1000),
     )
@@ -940,14 +1045,14 @@ def _build_timing(transcript, acoustic: dict, activity=None, extra: dict | None 
 
 def _grade(overall: float) -> tuple[str, str]:
     if overall >= 90:
-        return "EXCELLENT", "优秀 · 接近母语者水平"
+        return "EXCELLENT", "优秀 · 本次练习得分较高"
     if overall >= 80:
-        return "GOOD", "良好 · 发音基本准确"
+        return "GOOD", "良好 · 可继续练习细节"
     if overall >= 70:
-        return "FAIR", "中等 · 部分音素需纠正"
+        return "FAIR", "中等 · 建议回听并对照原句"
     if overall >= 60:
-        return "PASS", "及格 · 存在系统性发音问题"
-    return "NEEDS_WORK", "需改进 · 建议放慢速度逐词打磨"
+        return "PASS", "需练习 · 可放慢速度再读"
+    return "NEEDS_WORK", "需改进 · 请对照原句重读"
 
 
 # ── 反馈建议生成 ────────────────────────────────────────────────────────────
@@ -1001,7 +1106,8 @@ def _build_suggestions(
         for p in ws.phonemes:
             phoneme_pool.setdefault(p.phoneme, []).append(p.score)
     worst = sorted(
-        ((ph, sum(v) / len(v), len(v)) for ph, v in phoneme_pool.items() if sum(v) / len(v) < 70),
+        ((ph, sum(v) / len(v), len(v)) for ph, v in phoneme_pool.items()
+         if sum(v) / len(v) < VITERBI_SEVERE_ERROR_THRESHOLD),
         key=lambda x: x[1],
     )[:4]
 
@@ -1010,9 +1116,9 @@ def _build_suggestions(
             {
                 "type": "PHONEME",
                 "target": ph,
-                "severity": "HIGH" if avg < 50 else "MEDIUM",
-                "title": f"音素 /{ph}/ 需要重点打磨（得分 {avg:.0f}）",
-                "detail": _articulation_hint(ph),
+                "severity": "MEDIUM",
+                "title": f"音素 /{ph}/ 声学证据较弱（得分 {avg:.0f}）",
+                "detail": "建议回听并对照标准发音；模型提示不等于确定的发音错误。" + _articulation_hint(ph),
                 "practiceWords": _example_words(ph),
             }
         )
@@ -1025,7 +1131,7 @@ def _build_suggestions(
                 "target": ", ".join(ws.word for ws in bad_words[:6]),
                 "severity": "MEDIUM",
                 "title": f"{len(bad_words)} 个词被识别为其他词",
-                "detail": "这些词的元音或重音位置可能偏移，建议先单独慢读再到句中连读。",
+                "detail": "ASR 将这些词识别成了其他词；请回听录音，确认是实际读错还是识别误差。",
                 "practiceWords": [ws.word for ws in bad_words[:6]],
             }
         )
@@ -1037,7 +1143,7 @@ def _build_suggestions(
                 "target": f"{counts['omission']} 词漏读",
                 "severity": "HIGH" if counts["omission"] > 2 else "MEDIUM",
                 "title": "存在吞音/漏读",
-                "detail": "英语中词尾的 -s/-ed/-t/-d 必须发音，否则会改变时态与单复数含义。建议按意群分段跟读并刻意延长词尾。",
+                "detail": "ASR 未识别出这些参考词；请回听录音，确认是否漏读，再按意群分段重读。",
                 "practiceWords": [
                     ws.word for ws in words if ws.status == "OMISSION"
                 ][:6],

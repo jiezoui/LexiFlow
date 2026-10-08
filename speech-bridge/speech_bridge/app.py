@@ -42,7 +42,7 @@ LOG = logging.getLogger("speech-bridge")
 
 app = FastAPI(
     title="LexiFlow 影子跟读语音桥接服务",
-    description="本地化 ASR + 音素级发音评测（faster-whisper + wav2vec2-espeak GOP）",
+    description="本地化 ASR + 音素级发音评测（faster-whisper + wav2vec2-espeak CTC Viterbi）",
     version=config.VERSION,
 )
 
@@ -218,6 +218,11 @@ async def score_pronunciation(
             target_text,
             language=language,
             asr_engine=engine,
+        )
+    except assess_mod.UnreliableRecording as exc:
+        return JSONResponse(
+            status_code=422,
+            content={"success": False, "error": str(exc), "code": exc.code},
         )
     except Exception as exc:  # noqa: BLE001
         LOG.exception("发音评测失败")
