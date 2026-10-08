@@ -52,14 +52,18 @@ public final class StoryGenerationPolicy {
         };
     }
 
-    public static String assessDifficulty(String text, Profile profile, BigDecimal nonTargetRareRate) {
-        double average = StoryNlpUtil.averageSentenceWords(text);
-        double rareLimit = switch (profile.level()) {
+    public static double rareRateLimitPercent(Profile profile) {
+        return switch (profile.level()) {
             case "A2" -> 8;
             case "B1" -> 12;
             case "B2" -> 18;
             default -> 25;
         };
+    }
+
+    public static String assessDifficulty(String text, Profile profile, BigDecimal nonTargetRareRate) {
+        double average = StoryNlpUtil.averageSentenceWords(text);
+        double rareLimit = rareRateLimitPercent(profile);
         if (nonTargetRareRate != null && nonTargetRareRate.doubleValue() > rareLimit) return "ABOVE";
         double upper = switch (profile.level()) {
             case "A2" -> 17;

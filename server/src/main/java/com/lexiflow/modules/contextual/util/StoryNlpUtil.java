@@ -27,6 +27,25 @@ public final class StoryNlpUtil {
      * 简单英文字词切分正则
      */
     private static final Pattern WORD_PATTERN = Pattern.compile("[a-zA-Z]+('[a-zA-Z]+)?");
+    private static final Map<String, String> IRREGULAR_LEMMAS = Map.ofEntries(
+            Map.entry("am", "be"), Map.entry("is", "be"), Map.entry("are", "be"),
+            Map.entry("was", "be"), Map.entry("were", "be"), Map.entry("been", "be"),
+            Map.entry("said", "say"), Map.entry("went", "go"), Map.entry("gone", "go"),
+            Map.entry("had", "have"), Map.entry("did", "do"), Map.entry("done", "do"),
+            Map.entry("made", "make"), Map.entry("got", "get"), Map.entry("gotten", "get"),
+            Map.entry("saw", "see"), Map.entry("seen", "see"),
+            Map.entry("took", "take"), Map.entry("taken", "take"),
+            Map.entry("came", "come"), Map.entry("found", "find"),
+            Map.entry("knew", "know"), Map.entry("known", "know"),
+            Map.entry("thought", "think"), Map.entry("told", "tell"),
+            Map.entry("bought", "buy"), Map.entry("brought", "bring"),
+            Map.entry("met", "meet"), Map.entry("left", "leave"),
+            Map.entry("ate", "eat"), Map.entry("eaten", "eat"),
+            Map.entry("gave", "give"), Map.entry("given", "give"),
+            Map.entry("wrote", "write"), Map.entry("written", "write"),
+            Map.entry("ran", "run"), Map.entry("spoke", "speak"),
+            Map.entry("spoken", "speak")
+    );
 
     /**
      * 将包含 [[surface|lemma]] 标记的内容转换为面向读者阅读或朗读的纯文本
@@ -119,8 +138,22 @@ public final class StoryNlpUtil {
         List<String> lemmas = new ArrayList<>();
         if (!StringUtils.hasText(textClean)) return lemmas;
         Matcher matcher = WORD_PATTERN.matcher(textClean);
-        while (matcher.find()) lemmas.add(approximateLemmatize(matcher.group().toLowerCase()));
+        while (matcher.find()) {
+            String surface = matcher.group();
+            // Names inside a sentence are not evidence of reading-level vocabulary.
+            if (Character.isUpperCase(surface.charAt(0)) && !isSentenceStart(textClean, matcher.start())) continue;
+            lemmas.add(approximateLemmatize(surface.toLowerCase()));
+        }
         return lemmas;
+    }
+
+    private static boolean isSentenceStart(String text, int wordStart) {
+        for (int i = wordStart - 1; i >= 0; i--) {
+            char previous = text.charAt(i);
+            if (Character.isWhitespace(previous)) continue;
+            return previous == '.' || previous == '!' || previous == '?';
+        }
+        return true;
     }
 
     /**
@@ -176,9 +209,10 @@ public final class StoryNlpUtil {
      * 规则式轻量词形还原 (Porter/Lemmatizer 启发式降维)
      */
     public static String approximateLemmatize(String word) {
-        if (word == null || word.length() <= 3) {
-            return word == null ? "" : word;
-        }
+        if (word == null) return "";
+        String irregular = IRREGULAR_LEMMAS.get(word);
+        if (irregular != null) return irregular;
+        if (word.length() <= 3) return word;
         // 简单后缀规则
         if (word.endsWith("ies") && word.length() > 4) {
             return word.substring(0, word.length() - 3) + "y";

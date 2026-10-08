@@ -51,6 +51,15 @@ class StoryNlpUtilTest {
         assertThat(StoryNlpUtil.approximateLemmatize("running")).isEqualTo("run");
         assertThat(StoryNlpUtil.approximateLemmatize("boxes")).isEqualTo("box");
         assertThat(StoryNlpUtil.approximateLemmatize("cat")).isEqualTo("cat");
+        assertThat(StoryNlpUtil.approximateLemmatize("was")).isEqualTo("be");
+        assertThat(StoryNlpUtil.approximateLemmatize("said")).isEqualTo("say");
+    }
+
+    @Test
+    void difficultyWordsIgnoreNamesWithinSentencesButKeepOrdinaryWords() {
+        assertThat(StoryNlpUtil.wordLemmas("The teacher said Chen was at the park. Leo met a friend."))
+                .contains("the", "teacher", "say", "be", "park", "meet")
+                .doesNotContain("chen");
     }
 
     @Test

@@ -82,6 +82,99 @@ class ContextStoryServiceImplTest {
     }
 
     @Test
+    void rewriteThatMeetsLengthButBreaksDifficultyIsRejected() throws Exception {
+        when(userWordMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        String overlongSentence = "The river carried small boats across the quiet valley ".repeat(30).trim() + ".";
+        String response = new ObjectMapper().writeValueAsString(Map.of(
+                "title", "The Valley", "topic", "Nature", "contentMarked", overlongSentence,
+                "translationCn", "河流穿过安静的山谷。"));
+        when(aiGatewayService.generateText(anyString(), anyString(), isNull(), isNull(), isNull(), isNull(), eq(5000)))
+                .thenReturn("{}", response);
+
+        assertThatThrownBy(() -> service.generateStory(GenerateStoryRequest.builder()
+                .targetLevel("B1").targetCount(1).customLemmas(List.of("river")).build(), 42L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("句长或非目标低频词比例");
+        verify(aiGatewayService, times(2)).generateText(anyString(), anyString(), isNull(), isNull(), isNull(), isNull(), eq(5000));
+        verifyNoInteractions(storyMapper, storyWordMapper);
+    }
+
+    @Test
+    void shortDraftIsExpandedBeforeSavingAndRewriteReceivesMeasuredDeficit() throws Exception {
+        when(userWordMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        ObjectMapper mapper = new ObjectMapper();
+        String shortContent = "The river carried small boats across the quiet valley. ".repeat(10).trim();
+        String additionalContent = "The river carried small boats across the quiet valley. ".repeat(20).trim();
+        String shortResponse = mapper.writeValueAsString(Map.of(
+                "title", "The Valley", "topic", "Nature", "contentMarked", shortContent,
+                "translationCn", "河流穿过安静的山谷。"));
+        String expandedResponse = mapper.writeValueAsString(Map.of(
+                "additionalParagraphEn", additionalContent,
+                "additionalParagraphCn", "后来大家一起修好了小船。"));
+        when(aiGatewayService.generateText(anyString(), anyString(), isNull(), isNull(), isNull(), isNull(), eq(5000)))
+                .thenReturn(shortResponse, expandedResponse);
+
+        service.generateStory(GenerateStoryRequest.builder()
+                .targetLevel("B1").targetCount(1).customLemmas(List.of("river")).build(), 42L);
+
+        ArgumentCaptor<String> prompts = ArgumentCaptor.forClass(String.class);
+        verify(aiGatewayService, times(2)).generateText(anyString(), prompts.capture(),
+                isNull(), isNull(), isNull(), isNull(), eq(5000));
+        assertThat(prompts.getAllValues().get(1))
+                .contains("The existing English article has 90 words")
+                .contains("Add 200-220 NEW English words")
+                .contains("Do not repeat or paraphrase old sentences");
+        ArgumentCaptor<ContextStoryEntity> saved = ArgumentCaptor.forClass(ContextStoryEntity.class);
+        verify(storyMapper).insert(saved.capture());
+        assertThat(saved.getValue().getWordCount()).isEqualTo(270);
+        assertThat(saved.getValue().getRewriteCount()).isEqualTo(1);
+    }
+
+    @Test
+    void freshRepairThatOnlyMissesLengthCanReceiveOneFinalAppend() throws Exception {
+        when(userWordMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        ObjectMapper mapper = new ObjectMapper();
+        String shortContent = "The river carried small boats across the quiet valley. ".repeat(10).trim();
+        String fresh = mapper.writeValueAsString(Map.of(
+                "title", "The Valley", "topic", "Nature", "contentMarked", shortContent,
+                "translationCn", "河流穿过安静的山谷。"));
+        String patch = mapper.writeValueAsString(Map.of(
+                "additionalParagraphEn", "The river carried small boats across the quiet valley. ".repeat(20).trim(),
+                "additionalParagraphCn", "后来大家一起修好了小船。"));
+        when(aiGatewayService.generateText(anyString(), anyString(), isNull(), isNull(), isNull(), isNull(), eq(5000)))
+                .thenReturn("{}", fresh, patch);
+
+        service.generateStory(GenerateStoryRequest.builder()
+                .targetLevel("B1").targetCount(1).customLemmas(List.of("river")).build(), 42L);
+
+        verify(aiGatewayService, times(3)).generateText(anyString(), anyString(),
+                isNull(), isNull(), isNull(), isNull(), eq(5000));
+        ArgumentCaptor<ContextStoryEntity> saved = ArgumentCaptor.forClass(ContextStoryEntity.class);
+        verify(storyMapper).insert(saved.capture());
+        assertThat(saved.getValue().getWordCount()).isEqualTo(270);
+        assertThat(saved.getValue().getRewriteCount()).isEqualTo(2);
+    }
+
+    @Test
+    void malformedAppendNeverSavesAnUnderlengthStory() throws Exception {
+        when(userWordMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        String shortContent = "The river carried small boats across the quiet valley. ".repeat(10).trim();
+        String shortResponse = new ObjectMapper().writeValueAsString(Map.of(
+                "title", "The Valley", "topic", "Nature", "contentMarked", shortContent,
+                "translationCn", "河流穿过安静的山谷。"));
+        when(aiGatewayService.generateText(anyString(), anyString(), isNull(), isNull(), isNull(), isNull(), eq(5000)))
+                .thenReturn(shortResponse, "{}", "{}");
+
+        assertThatThrownBy(() -> service.generateStory(GenerateStoryRequest.builder()
+                .targetLevel("B1").targetCount(1).customLemmas(List.of("river")).build(), 42L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("未达到目标词复现或篇幅要求");
+        verify(aiGatewayService, times(3)).generateText(anyString(), anyString(),
+                isNull(), isNull(), isNull(), isNull(), eq(5000));
+        verifyNoInteractions(storyMapper, storyWordMapper);
+    }
+
+    @Test
     void savedStoryContainsVerifiedOccurrencesAndTrainingProfile() throws Exception {
         when(userWordMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
         String content = "The river carried small boats across the quiet valley. ".repeat(30).trim();

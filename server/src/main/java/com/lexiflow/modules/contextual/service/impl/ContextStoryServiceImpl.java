@@ -96,20 +96,27 @@ public class ContextStoryServiceImpl implements ContextStoryService {
 
         List<String> allLemmas = targetWords.stream().map(w -> w.lemma).toList();
         String finalMarkedContent = StoryNlpUtil.autoFillMissingMarkers(parsed.contentMarked, allLemmas);
-        BigDecimal rareRate = measureNonTargetRareRate(StoryNlpUtil.stripMarkers(finalMarkedContent), allLemmas, profile);
+        VocabularyDifficulty difficulty = measureNonTargetDifficulty(StoryNlpUtil.stripMarkers(finalMarkedContent), allLemmas, profile);
+        BigDecimal rareRate = difficulty.rareRate();
         List<String> violations = checkGenerationConstraints(parsed, finalMarkedContent, targetWords, profile, rareRate, true);
 
-        // One focused rewrite is allowed. A failed rewrite never becomes a READY article.
-        if (!violations.isEmpty()) {
-            log.warn("文章初稿未达标: {}, 发起定向重写", violations);
-            String rewritePrompt = buildRewritePrompt(parsed.contentMarked, violations, targetWords, profile);
-            String rewriteResponse = aiGatewayService.generateText(systemPrompt, rewritePrompt,
+        // A short-only draft receives a continuation. Other failures trigger one fresh draft;
+        // if that draft only misses length, one continuation is allowed. Every stage is checked.
+        for (int attempt = 0; attempt < 2 && !violations.isEmpty(); attempt++) {
+            boolean append = shouldAppendForLength(violations, finalMarkedContent, profile);
+            if (attempt == 1 && !append) break;
+            log.warn("文章候选未达标: {}, 修复方式: {}", violations, append ? "追加段落" : "重新生成");
+            String repairPrompt = append
+                    ? buildAppendPrompt(finalMarkedContent, profile)
+                    : buildFreshRepairPrompt(topic, violations, targetWords, profile, difficulty);
+            String repairResponse = aiGatewayService.generateText(systemPrompt, repairPrompt,
                     req.getProvider(), req.getModel(), req.getApiKey(), req.getApiHost(), 5000);
-            parsed = parseLlmStoryResponse(rewriteResponse, topic);
-            rewriteCount = 1;
+            parsed = append ? appendStory(parsed, repairResponse) : parseLlmStoryResponse(repairResponse, topic);
+            rewriteCount++;
             finalMarkedContent = StoryNlpUtil.autoFillMissingMarkers(parsed.contentMarked, allLemmas);
-            rareRate = measureNonTargetRareRate(StoryNlpUtil.stripMarkers(finalMarkedContent), allLemmas, profile);
-            violations = checkGenerationConstraints(parsed, finalMarkedContent, targetWords, profile, rareRate, false);
+            difficulty = measureNonTargetDifficulty(StoryNlpUtil.stripMarkers(finalMarkedContent), allLemmas, profile);
+            rareRate = difficulty.rareRate();
+            violations = checkGenerationConstraints(parsed, finalMarkedContent, targetWords, profile, rareRate, true);
         }
         if (!violations.isEmpty()) {
             throw new BusinessException("文章未达到目标词复现或篇幅要求，请重试生成：" + String.join("；", violations));
@@ -465,36 +472,73 @@ public class ContextStoryServiceImpl implements ContextStoryService {
         );
     }
 
-    private String buildRewritePrompt(String previousMarkedStory, List<String> violations,
-                                      List<SelectedWordMeta> allTargets, StoryGenerationPolicy.Profile profile) {
+    private boolean shouldAppendForLength(List<String> violations, String marked,
+                                          StoryGenerationPolicy.Profile profile) {
+        return violations.size() == 1 && violations.get(0).startsWith("篇幅 ")
+                && StoryNlpUtil.countWords(StoryNlpUtil.stripMarkers(marked)) < profile.minAcceptedWords();
+    }
+
+    private String buildAppendPrompt(String marked, StoryGenerationPolicy.Profile profile) {
+        int current = StoryNlpUtil.countWords(StoryNlpUtil.stripMarkers(marked));
+        int target = (profile.minWords() + profile.maxWords()) / 2;
+        int low = Math.max(25, target - current - 10);
+        int high = Math.min(profile.maxAcceptedWords() - current, target - current + 10);
+        high = Math.max(low, high);
         return String.format("""
-                The previous article did not meet the following checks:
-                %s
-                
-                Please rewrite the complete article at CEFR %s, within %d-%d English words.
-                RULES:
-                1. Preserve the original narrative storyline and characters.
-                2. Naturally integrate every target word with [[surface|lemma]] markers.
-                3. Meet each minimum frequency exactly or exceed it: %s.
-                4. Regenerate translationCn from the rewritten English story. Use natural Chinese with the same paragraph breaks, and no [[...]] markers or English lemma hints.
-                5. Return STRICT JSON:
-                {
-                  "title": "Story Title",
-                  "topic": "Topic",
-                  "contentMarked": "Rewritten story with [[surface|lemma]] tags...",
-                  "translationCn": "中文对照翻译..."
-                }
-                
-                PREVIOUS STORY:
+                Continue the existing English story with new ending paragraph(s).
+                The existing English article has %d words. Add %d-%d NEW English words to reach about %d total English words. Count only English, not the Chinese translation or [[surface|lemma]] metadata.
+                Write new concrete events or explanations that fit the existing story. Do not repeat or paraphrase old sentences. Keep language at CEFR %s; %s
+                Do not remove existing target-word occurrences. If a target word appears in the addition, mark it as [[surface|lemma]].
+                Return STRICT JSON ONLY with these two fields:
+                {"additionalParagraphEn":"new English paragraph(s)","additionalParagraphCn":"对应的新中文段落"}
+                The Chinese text must faithfully translate the addition and use matching paragraph breaks.
+                EXISTING ENGLISH STORY:
                 %s
                 """,
-                String.join("; ", violations),
-                profile.level(),
-                profile.minWords(),
-                profile.maxWords(),
-                allTargets.stream().map(w -> w.lemma + " >= " + w.requiredCount).collect(Collectors.joining(", ")),
-                previousMarkedStory
+                current, low, high, target, profile.level(), profile.guidance(), marked
         );
+    }
+
+    private ParsedStory appendStory(ParsedStory previous, String rawPatch) {
+        try {
+            String clean = rawPatch.trim();
+            if (clean.startsWith("```json")) clean = clean.substring(7);
+            else if (clean.startsWith("```")) clean = clean.substring(3);
+            if (clean.endsWith("```")) clean = clean.substring(0, clean.length() - 3);
+            JsonNode patch = objectMapper.readTree(clean.trim());
+            String english = patch.path("additionalParagraphEn").asText("").trim();
+            String chinese = patch.path("additionalParagraphCn").asText("").trim();
+            if (!StringUtils.hasText(english) || !StringUtils.hasText(chinese)) return previous;
+            return new ParsedStory(previous.title, previous.topic,
+                    previous.contentMarked.stripTrailing() + "\n\n" + english,
+                    previous.translationCn.stripTrailing() + "\n\n" + chinese);
+        } catch (Exception exc) {
+            log.warn("追加段落解析失败: {}", exc.getMessage());
+            return previous;
+        }
+    }
+
+    private String buildFreshRepairPrompt(String topic, List<String> violations,
+                                          List<SelectedWordMeta> allTargets,
+                                          StoryGenerationPolicy.Profile profile,
+                                          VocabularyDifficulty difficulty) {
+        String avoid = difficulty.rareWords().isEmpty() ? "none identified"
+                : String.join(", ", difficulty.rareWords());
+        String requirements = allTargets.stream()
+                .map(w -> w.lemma + " >= " + w.requiredCount)
+                .collect(Collectors.joining(", "));
+        return String.format("""
+                Create a FRESH English learning article from scratch. Discard the failed draft; do not copy it.
+                Topic: %s
+                CEFR: %s. %s
+                The previous attempt failed these checks: %s.
+                Write %d-%d English words in contentMarked, aiming for about %d. Use coherent paragraphs with a new concrete event or idea in each. Use familiar high-frequency words except the required target words. Avoid these non-target words when possible: %s.
+                Target word minimum occurrences: %s. Distribute them naturally; mark all occurrences [[surface|lemma]].
+                Return STRICT JSON with title, topic, contentMarked, translationCn. The Chinese translation must match the final English paragraphs without markers.
+                """,
+                topic, profile.level(), profile.guidance(), String.join("; ", violations),
+                profile.minWords(), profile.maxWords(), (profile.minWords() + profile.maxWords()) / 2,
+                avoid, requirements);
     }
 
     private List<String> checkMissingConstraints(List<SelectedWordMeta> targets, Map<String, Integer> actualOccurrences) {
@@ -508,17 +552,19 @@ public class ContextStoryServiceImpl implements ContextStoryService {
         return missing;
     }
 
-    private BigDecimal measureNonTargetRareRate(String cleanText, List<String> targetLemmas,
-                                                StoryGenerationPolicy.Profile profile) {
+    private record VocabularyDifficulty(BigDecimal rareRate, List<String> rareWords) {}
+
+    private VocabularyDifficulty measureNonTargetDifficulty(String cleanText, List<String> targetLemmas,
+                                                             StoryGenerationPolicy.Profile profile) {
         Set<String> targets = new HashSet<>(targetLemmas);
         List<String> tokens = StoryNlpUtil.wordLemmas(cleanText).stream()
                 .filter(lemma -> lemma.length() > 2 && !targets.contains(lemma))
                 .toList();
-        if (tokens.isEmpty()) return null;
+        if (tokens.isEmpty()) return new VocabularyDifficulty(null, List.of());
         List<DictEntryEntity> entries = dictEntryMapper.selectList(new QueryWrapper<DictEntryEntity>()
                 .select("lemma", "frequency_rank")
                 .in("lemma", new HashSet<>(tokens)));
-        if (entries == null) return null;
+        if (entries == null) return new VocabularyDifficulty(null, List.of());
         Map<String, Integer> ranks = new HashMap<>();
         for (DictEntryEntity entry : entries) {
             if (StringUtils.hasText(entry.getLemma()) && entry.getFrequencyRank() != null
@@ -527,9 +573,13 @@ public class ContextStoryServiceImpl implements ContextStoryService {
             }
         }
         long covered = tokens.stream().filter(ranks::containsKey).count();
-        if (covered == 0 || covered < tokens.size() * 0.7) return null;
+        if (covered == 0 || covered < tokens.size() * 0.7) return new VocabularyDifficulty(null, List.of());
         long rare = tokens.stream().filter(token -> ranks.getOrDefault(token, 0) > StoryGenerationPolicy.rareFrequencyRank(profile)).count();
-        return BigDecimal.valueOf(rare * 100.0 / covered).setScale(2, RoundingMode.HALF_UP);
+        List<String> rareWords = tokens.stream()
+                .filter(token -> ranks.getOrDefault(token, 0) > StoryGenerationPolicy.rareFrequencyRank(profile))
+                .distinct().limit(12).toList();
+        return new VocabularyDifficulty(
+                BigDecimal.valueOf(rare * 100.0 / covered).setScale(2, RoundingMode.HALF_UP), rareWords);
     }
 
     private List<String> checkGenerationConstraints(ParsedStory story, String marked,
