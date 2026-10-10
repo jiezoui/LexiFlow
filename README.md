@@ -21,6 +21,8 @@ LexiFlow 是面向中文英语学习者的语境学习系统。词书学习、�
 - **测试账号**：`test_user`
 - **测试密码**：`123456`
 
+> **演示数据**：若需体验包含上述测试账号、522 篇精读外刊及多模态精听记录的完整数据，可将 [deploy/lexiflow_db_demo.sql](./deploy/lexiflow_db_demo.sql) 导入数据库；亦可直接启动后端由 Flyway 自动完成基础表结构初始化。
+
 ## 项目结构
 
 | 路径 | 说明 |
@@ -29,7 +31,7 @@ LexiFlow 是面向中文英语学习者的语境学习系统。词书学习、�
 | [server/](./server/) | Spring Boot 3.2 后端，默认端口 `8080` |
 | [media-worker/](./media-worker/) | Python 媒体任务进程，负责 FFmpeg 处理和 Whisper 转写 |
 | [speech-bridge/](./speech-bridge/) | FastAPI 语音服务，默认端口 `8100` |
-| [experiments/](./experiments/) | 目标词语境生成算法修复策略与独立对照实验套件（P0 / P1） |
+| [experiments/](./experiments/) | 算法对照实验套件（目标词语境生成修复 P0/P1、影子跟读发音评测） |
 | [material/](./material/) | 词典数据和参考资料 |
 | [scripts/](./scripts/) | 模型下载、数据同步与语音服务脚本 |
 
@@ -81,7 +83,7 @@ CREATE DATABASE IF NOT EXISTS lexiflow_db
   COLLATE utf8mb4_unicode_ci;
 ```
 
-> **注意**：后端启动时由 Flyway 自动执行 [迁移脚本](./server/src/main/resources/db/migration/) 中的 `V1` 至 `V15` 版本建表与数据初始化，**无需手动导入** `schema.sql`。如需更多示例数据，可在建库后按需导入 [seed.sql](./server/src/main/resources/db/seed.sql)。
+> **注意**：后端启动时由 Flyway 自动执行 [迁移脚本](./server/src/main/resources/db/migration/) 中的 `V1` 至 `V15` 版本建表与数据初始化，**无需手动导入** `schema.sql`。如需完整演示数据（含测试账号、522 篇外刊与精听记录），可在建库后导入 [deploy/lexiflow_db_demo.sql](./deploy/lexiflow_db_demo.sql)；亦可按需导入基础 [seed.sql](./server/src/main/resources/db/seed.sql)。
 
 ---
 
@@ -255,6 +257,7 @@ Invoke-RestMethod http://127.0.0.1:8100/health
 ## 更多文档
 
 - [P1 语境生成对照实验说明与复现](./experiments/story_p1/README.md)
+- [影子跟读发音评测对照实验与复现](./experiments/speech_eval/README.md)
 - [产品说明](./PRODUCT.md)
 - [前端说明](./LexiFlow/README.md)
 - [媒体 Worker 说明](./media-worker/README.md)
