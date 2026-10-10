@@ -244,13 +244,13 @@ Invoke-RestMethod http://127.0.0.1:8100/health
 - **媒体转写任务停滞**：检查 Worker 容器或进程日志，确认两端的 `LEXIFLOW_MEDIA_WORKER_TOKEN` 完全一致，并确保 FFmpeg 正常可用。
 - **模型下载慢或中断**：脚本已集成 `hf-mirror.com`，若仍受网络波动影响，可单独指定 `-HfEndpoint` 参数或手动解压权重到 `.deploy-cache/speech-models`。
 
-## 第三方资源与内容权利
+## 开源许可证与权利说明
+
+本项目源码采用 [MIT License](./LICENSE) 开源许可证。
 
 项目使用 Next.js、Spring Boot、MyBatis-Plus、Flyway 等框架，FSRS 参考算法，以及 ECDICT、Tatoeba、Open English WordNet 等语言数据。语音与媒体流程使用 Whisper、Wav2Vec2、FFmpeg、yt-dlp 等工具或模型。Cherry Studio 与 Chatbox 属于模型配置界面的设计参考，并非本项目运行依赖。部分能力还会访问模型供应商、YouTube、播客 RSS、在线语音或词汇发音服务。
 
 第三方模型权重、音视频、字幕、例句和在线服务各自受其原始许可或服务条款约束；本项目代码的取得不等于取得这些内容的再分发权。使用外部 API 时，请自行配置凭据并遵守提供方条款。
-
-仓库根目录当前没有统一的项目许可证文件；[LexiFlow/LICENSE](./LexiFlow/LICENSE) 位于前端子目录，不能据此推定整个仓库采用相同许可。对外发布或复用代码前应先核实各目录的授权与第三方资源义务。
 
 ## 更多文档
 
