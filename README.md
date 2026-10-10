@@ -31,7 +31,7 @@ LexiFlow 是面向中文英语学习者的语境学习系统。词书学习、�
 | [server/](./server/) | Spring Boot 3.2 后端，默认端口 `8080` |
 | [media-worker/](./media-worker/) | Python 媒体任务进程，负责 FFmpeg 处理和 Whisper 转写 |
 | [speech-bridge/](./speech-bridge/) | FastAPI 语音服务，默认端口 `8100` |
-| [experiments/](./experiments/) | 算法对照实验套件（目标词语境生成修复 P0/P1、影子跟读发音评测） |
+| [experiments/](./experiments/) | 算法对照实验套件（目标词语境生成修复、影子跟读发音评测） |
 | [material/](./material/) | 词典数据和参考资料 |
 | [scripts/](./scripts/) | 模型下载、数据同步与语音服务脚本 |
 
@@ -256,7 +256,7 @@ Invoke-RestMethod http://127.0.0.1:8100/health
 
 ## 更多文档
 
-- [P1 语境生成对照实验说明与复现](./experiments/story_p1/README.md)
+- [语境生成对照实验说明与复现](./experiments/story_p1/README.md)
 - [影子跟读发音评测对照实验与复现](./experiments/speech_eval/README.md)
 - [产品说明](./PRODUCT.md)
 - [前端说明](./LexiFlow/README.md)
