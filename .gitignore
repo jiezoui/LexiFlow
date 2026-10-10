@@ -50,5 +50,12 @@ __pycache__/
 .deploy-*.log
 # Local docs and scratch files
 reports/
+reports.local/
+scratch/
+storage/
+*.docx
+*.doc
+*.tmp
+scratch_*.txt
 SHADOWING-DEPLOY.md
 视频模块开发文档.md
