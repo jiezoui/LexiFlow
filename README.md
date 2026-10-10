@@ -248,13 +248,12 @@ Invoke-RestMethod http://127.0.0.1:8100/health
 
 项目使用 Next.js、Spring Boot、MyBatis-Plus、Flyway 等框架，FSRS 参考算法，以及 ECDICT、Tatoeba、Open English WordNet 等语言数据。语音与媒体流程使用 Whisper、Wav2Vec2、FFmpeg、yt-dlp 等工具或模型。Cherry Studio 与 Chatbox 属于模型配置界面的设计参考，并非本项目运行依赖。部分能力还会访问模型供应商、YouTube、播客 RSS、在线语音或词汇发音服务。
 
-各项资源的来源、版本、许可、使用方式和分发条件详见 [开源及第三方资源清单](./开源及第三方资源清单.md)。第三方模型权重、音视频、字幕、例句和在线服务各自受其原始许可或服务条款约束；本项目代码的取得不等于取得这些内容的再分发权。使用外部 API 时，请自行配置凭据并遵守提供方条款。
+第三方模型权重、音视频、字幕、例句和在线服务各自受其原始许可或服务条款约束；本项目代码的取得不等于取得这些内容的再分发权。使用外部 API 时，请自行配置凭据并遵守提供方条款。
 
 仓库根目录当前没有统一的项目许可证文件；[LexiFlow/LICENSE](./LexiFlow/LICENSE) 位于前端子目录，不能据此推定整个仓库采用相同许可。对外发布或复用代码前应先核实各目录的授权与第三方资源义务。
 
 ## 更多文档
 
-- [开源及第三方资源清单](./开源及第三方资源清单.md)
 - [P1 语境生成对照实验说明与复现](./experiments/story_p1/README.md)
 - [产品说明](./PRODUCT.md)
 - [前端说明](./LexiFlow/README.md)
