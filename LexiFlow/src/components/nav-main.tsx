@@ -1,7 +1,6 @@
 "use client"
 
-import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import {
   SidebarGroup,
   SidebarGroupLabel,
@@ -25,6 +24,7 @@ export function NavMain({
   items: NavMainItem[]
 }) {
   const pathname = usePathname()
+  const router = useRouter()
 
   return (
     <SidebarGroup className="p-0">
@@ -41,8 +41,8 @@ export function NavMain({
               <SidebarMenuButton
                 isActive={isActive}
                 tooltip={item.title}
-                render={<Link href={item.url} />}
-                className="h-11 justify-between rounded-xl px-3 text-sidebar-foreground transition-colors duration-200 hover:bg-sidebar-accent focus-visible:ring-2 active:scale-[0.99] data-active:bg-sidebar-accent data-active:font-semibold"
+                onClick={() => router.push(item.url)}
+                className="h-11 justify-between rounded-xl px-3 text-sidebar-foreground transition-colors duration-200 hover:bg-sidebar-accent focus-visible:ring-2 active:scale-[0.99] data-active:bg-sidebar-accent data-active:font-semibold cursor-pointer"
               >
                 <div className="flex min-w-0 items-center gap-3.5 [&_svg]:size-[18px]">
                   {item.icon}

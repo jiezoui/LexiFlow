@@ -2,11 +2,11 @@
 
 import * as React from "react"
 import Image from "next/image"
-import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader } from "@/components/ui/sidebar"
-import { vocabApi } from "@/lib/api-client"
+import { authApi, getToken, vocabApi } from "@/lib/api-client"
 import {
   BarChart3Icon,
   BookOpenIcon,
@@ -21,14 +21,28 @@ import {
   VideoIcon,
 } from "lucide-react"
 
-const user = {
-  name: "Lin Z.",
-  email: "lin@lexiflow.local",
-  avatar: "/avatars/user.jpg",
-}
-
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
+  const router = useRouter()
   const [vocabCount, setVocabCount] = React.useState<number | undefined>()
+  const [user, setUser] = React.useState({ name: "用户", email: "", avatar: "" })
+
+  React.useEffect(() => {
+    let mounted = true
+    if (getToken()) {
+      void authApi.getMe()
+        .then((profile) => {
+          if (mounted) {
+            setUser({
+              name: profile.nickname || profile.username,
+              email: profile.email,
+              avatar: profile.avatar || "",
+            })
+          }
+        })
+        .catch(() => {})
+    }
+    return () => { mounted = false }
+  }, [])
 
   React.useEffect(() => {
     let mounted = true
@@ -69,10 +83,16 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   return (
     <Sidebar variant="inset" {...props} className="border-r border-sidebar-border bg-sidebar">
       <SidebarHeader className="px-5 pb-4 pt-5">
-        <Link href="/dashboard" className="flex items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => router.push("/dashboard")}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") router.push("/dashboard") }}
+          className="flex cursor-pointer items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+        >
           <Image src="/logo.png" alt="语脉 Logo" width={36} height={36} className="size-9 rounded-lg object-cover" />
           <span className="truncate text-[15px] font-bold tracking-tight text-sidebar-foreground">语脉 · LexiFlow</span>
-        </Link>
+        </div>
       </SidebarHeader>
       <SidebarContent className="px-3 pt-1">
         <NavMain items={items} />

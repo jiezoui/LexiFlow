@@ -21,14 +21,9 @@ import {
   BookOpen,
   Brain,
   CalendarDays,
-  CheckCircle2,
-  Clock,
-  Flame,
   Headphones,
-  Mic,
   RefreshCw,
   Sparkles,
-  Zap,
 } from "lucide-react"
 import {
   statsApi,
@@ -40,6 +35,7 @@ import {
   type FsrsStats,
   type MultimodalStats,
 } from "@/lib/api-client"
+import styles from "./analytics-dashboard.module.css"
 
 type Range = 30 | 90 | 365
 type CountKey = "count" | "reviewCount" | "collectedCount" | "durationMinutes" | "newCards" | "reviewCards"
@@ -47,13 +43,13 @@ type CountKey = "count" | "reviewCount" | "collectedCount" | "durationMinutes" |
 const nf = new Intl.NumberFormat("zh-CN")
 const weekNames = ["一", "二", "三", "四", "五", "六", "日"]
 
-// 纯正黑白灰梯队 (Minimalist Monochromatic Scale)
+// 只为数据编码加入低饱和色，页面结构与文字仍沿用黑白灰。
 const heatColors = [
-  "bg-zinc-100 dark:bg-zinc-800/40 border border-zinc-200/50 dark:border-zinc-700/30",
-  "bg-zinc-300 dark:bg-zinc-700 border border-zinc-300 dark:border-zinc-600",
-  "bg-zinc-400 dark:bg-zinc-500 border border-zinc-400 dark:border-zinc-500",
-  "bg-zinc-600 dark:bg-zinc-300 border border-zinc-600 dark:border-zinc-300",
-  "bg-zinc-950 dark:bg-zinc-100 border border-zinc-950 dark:border-zinc-100",
+  "var(--analytics-heat-0)",
+  "var(--analytics-heat-1)",
+  "var(--analytics-heat-2)",
+  "var(--analytics-heat-3)",
+  "var(--analytics-heat-4)",
 ]
 
 function localDate(value: string) {
@@ -147,7 +143,7 @@ function Metric({
 }
 
 // ---------------------------------------------------------
-// P1.2 全年活跃热力图 (极简黑白灰 + 悬浮详情 Popover)
+// P1.2 全年活跃热力图
 // ---------------------------------------------------------
 function ActivityHeatmap({ calendar }: { calendar: HeatmapCalendar }) {
   const [hoveredDay, setHoveredDay] = React.useState<{
@@ -268,9 +264,8 @@ function ActivityHeatmap({ calendar }: { calendar: HeatmapCalendar }) {
                             key={day.date}
                             onMouseEnter={(e) => handleCellMouseEnter(day, e)}
                             onMouseLeave={handleCellMouseLeave}
-                            className={`size-[14px] rounded-[2px] cursor-pointer transition-transform hover:scale-125 hover:z-10 ${
-                              heatColors[Math.min(4, Math.max(0, day.level ?? 0))]
-                            }`}
+                            className="size-[14px] rounded-[2px] border border-border/30 cursor-pointer transition-transform hover:scale-125 hover:z-10"
+                            style={{ backgroundColor: heatColors[Math.min(4, Math.max(0, day.level ?? 0))] }}
                           />
                         ) : (
                           <span key={`blank-${row}`} className="size-[14px]" />
@@ -291,7 +286,7 @@ function ActivityHeatmap({ calendar }: { calendar: HeatmapCalendar }) {
               <span>少</span>
               <div className="flex items-center gap-1">
                 {heatColors.map((color, index) => (
-                  <span key={index} className={`size-2.5 rounded-[2px] ${color}`} />
+                  <span key={index} className="size-2.5 rounded-[2px] border border-border/30" style={{ backgroundColor: color }} />
                 ))}
               </div>
               <span>多</span>
@@ -345,10 +340,11 @@ function ActivityHeatmap({ calendar }: { calendar: HeatmapCalendar }) {
                 {weekdayStats.map((item) => (
                   <div key={item.name} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
                     <div
-                      className="w-full rounded-[1px] bg-foreground transition-all duration-300"
+                      className="w-full rounded-[1px] transition-all duration-300"
                       style={{
                         height: `${item.pct}%`,
                         opacity: item.count > 0 ? 0.85 : 0.15,
+                        backgroundColor: "var(--analytics-teal)",
                       }}
                       title={`周${item.name}: ${item.count} 次活动`}
                     />
@@ -362,14 +358,14 @@ function ActivityHeatmap({ calendar }: { calendar: HeatmapCalendar }) {
             <div className="mt-3.5 space-y-1.5 text-[11px]">
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground flex items-center gap-1.5">
-                  <span className="size-2 rounded-full bg-zinc-950 dark:bg-zinc-100" />
+                  <span className="size-2 rounded-full" style={{ backgroundColor: "var(--analytics-teal)" }} />
                   深度研习 (高频/高时长)
                 </span>
                 <span className="font-mono text-foreground font-medium">{intensityStats.high} 天</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground flex items-center gap-1.5">
-                  <span className="size-2 rounded-full bg-zinc-500" />
+                  <span className="size-2 rounded-full" style={{ backgroundColor: "var(--analytics-amber)" }} />
                   常规复查 (日常巩固)
                 </span>
                 <span className="font-mono text-foreground font-medium">{intensityStats.mid} 天</span>
@@ -386,7 +382,7 @@ function ActivityHeatmap({ calendar }: { calendar: HeatmapCalendar }) {
         </div>
       </div>
 
-      {/* 黑白灰高对比悬浮卡片 */}
+      {/* 中性高对比悬浮卡片 */}
       {hoveredDay && (
         <div
           className="fixed z-50 pointer-events-none -translate-x-1/2 -translate-y-[calc(100%+8px)] rounded-lg border border-border bg-card/95 p-3 shadow-lg backdrop-blur-md text-xs transition-opacity"
@@ -443,6 +439,7 @@ function StudyPlanGoalTracking({ plan }: { plan: StudyPlanOverview }) {
       backlog: `${today.vocab.dueReview} 待复习`,
       isDone: today.vocab.isCompleted,
       href: "/cards",
+      color: "var(--analytics-teal)",
     },
     {
       label: "影子跟读",
@@ -452,15 +449,17 @@ function StudyPlanGoalTracking({ plan }: { plan: StudyPlanOverview }) {
       backlog: "声学跟读",
       isDone: today.shadowing.isCompleted,
       href: "/practice/shadowing",
+      color: "var(--analytics-blue)",
     },
     {
-      label: "语境阅读",
+      label: "综合学习时长",
       current: today.context.currentMinutes,
       target: today.context.targetMinutes,
       unit: "分钟",
-      backlog: "故事与外刊",
+      backlog: "含阅读、复习与跟读",
       isDone: today.context.isCompleted,
       href: "/reading",
+      color: "var(--analytics-amber)",
     },
   ]
 
@@ -479,7 +478,7 @@ function StudyPlanGoalTracking({ plan }: { plan: StudyPlanOverview }) {
           </span>
           <span className="font-mono text-muted-foreground">•</span>
           <span className="text-muted-foreground">
-            {macro.daysRemaining > 0 ? `预计剩 ${macro.daysRemaining} 天 (${macro.estimatedDate})` : "已达成"}
+            {macro.daysRemaining > 0 ? `未学词覆盖约需 ${macro.daysRemaining} 天 (${macro.estimatedDate})` : "新词已覆盖"}
           </span>
         </div>
       </div>
@@ -512,8 +511,8 @@ function StudyPlanGoalTracking({ plan }: { plan: StudyPlanOverview }) {
 
               <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
                 <div
-                  className="h-full rounded-full bg-foreground transition-all duration-300"
-                  style={{ width: `${pct}%` }}
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{ width: `${pct}%`, backgroundColor: item.color }}
                 />
               </div>
 
@@ -536,7 +535,7 @@ function StudyPlanGoalTracking({ plan }: { plan: StudyPlanOverview }) {
 }
 
 // ---------------------------------------------------------
-// P0.1 多模态投入全景 (纯正黑白灰，精炼指标)
+// P0.1 多模态投入全景
 // ---------------------------------------------------------
 function MultimodalSection({ data }: { data: MultimodalStats }) {
   const flashcardMins = data.timeDistribution?.find((t) => t.category.includes("闪卡"))?.minutes ?? 0
@@ -549,23 +548,23 @@ function MultimodalSection({ data }: { data: MultimodalStats }) {
     {
       name: "闪卡复习",
       minutes: flashcardMins,
-      pct: totalMins > 0 ? Math.round((flashcardMins / totalMins) * 100) : 0,
+      pct: totalMins > 0 ? Math.round((flashcardMins / totalMins) * 1000) / 10 : 0,
       countDesc: `${nf.format(data.flashcards?.totalReviews ?? 0)} 次复习`,
-      barColor: "bg-zinc-950 dark:bg-zinc-100",
+      barColor: "var(--analytics-teal)",
     },
     {
       name: "影子跟读",
       minutes: shadowingMins,
-      pct: totalMins > 0 ? Math.round((shadowingMins / totalMins) * 100) : 0,
+      pct: totalMins > 0 ? Math.round((shadowingMins / totalMins) * 1000) / 10 : 0,
       countDesc: `${nf.format(data.shadowing?.totalAttempts ?? 0)} 句跟读`,
-      barColor: "bg-zinc-600 dark:bg-zinc-400",
+      barColor: "var(--analytics-blue)",
     },
     {
       name: "语境阅读",
       minutes: readingMins,
-      pct: totalMins > 0 ? Math.round((readingMins / totalMins) * 100) : 0,
-      countDesc: `${nf.format((data.context?.totalStories ?? 0) + (data.context?.totalArticles ?? 0))} 篇阅读`,
-      barColor: "bg-zinc-400 dark:bg-zinc-600",
+      pct: totalMins > 0 ? Math.round((readingMins / totalMins) * 1000) / 10 : 0,
+      countDesc: `${nf.format(data.context?.totalStories ?? 0)} 篇语境文章`,
+      barColor: "var(--analytics-amber)",
     },
   ]
 
@@ -598,7 +597,7 @@ function MultimodalSection({ data }: { data: MultimodalStats }) {
             </span>
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            闪卡巩固、口语跟读与语境阅读的精力分布
+            闪卡时长按复习次数估算，跟读按录音时长统计，其余学习时长计入语境输入
           </p>
 
           {/* 分段比例条 */}
@@ -607,15 +606,15 @@ function MultimodalSection({ data }: { data: MultimodalStats }) {
               {timeBreakdown.map((item) => (
                 <div
                   key={item.name}
-                  className={`h-full transition-all duration-300 ${item.barColor}`}
-                  style={{ width: `${item.pct}%` }}
+                  className="h-full transition-all duration-300"
+                  style={{ width: `${item.pct}%`, minWidth: item.minutes > 0 ? 4 : 0, backgroundColor: item.barColor }}
                 />
               ))}
             </div>
             <div className="mt-3 flex items-center justify-between text-xs">
               {timeBreakdown.map((item) => (
                 <div key={item.name} className="flex items-center gap-1.5">
-                  <span className={`size-2 rounded-full ${item.barColor}`} />
+                  <span className="size-2 rounded-full" style={{ backgroundColor: item.barColor }} />
                   <span className="text-muted-foreground">{item.name}</span>
                   <span className="font-mono text-foreground font-medium">{item.pct}%</span>
                 </div>
@@ -667,7 +666,7 @@ function MultimodalSection({ data }: { data: MultimodalStats }) {
               <strong className="font-mono text-sm text-foreground">{avgFluency > 0 ? `${avgFluency}%` : "—"}</strong>
             </div>
             <div className="rounded-md border border-border/40 bg-secondary/15 py-1.5">
-              <span className="text-[10px] text-muted-foreground block">最新语速</span>
+              <span className="text-[10px] text-muted-foreground block">最近日均语速</span>
               <strong className="font-mono text-sm text-foreground">{lastWpm > 0 ? `${lastWpm} WPM` : "—"}</strong>
             </div>
           </div>
@@ -689,7 +688,7 @@ function MultimodalSection({ data }: { data: MultimodalStats }) {
                   type="monotone"
                   dataKey="accuracy"
                   name="发音准确率"
-                  stroke="var(--foreground)"
+                  stroke="var(--analytics-teal)"
                   strokeWidth={2}
                   dot={{ r: 2 }}
                 />
@@ -697,7 +696,7 @@ function MultimodalSection({ data }: { data: MultimodalStats }) {
                   type="monotone"
                   dataKey="fluency"
                   name="语流连贯度"
-                  stroke="var(--muted-foreground)"
+                  stroke="var(--analytics-blue)"
                   strokeWidth={1.5}
                   strokeDasharray="4 4"
                   dot={{ r: 2 }}
@@ -716,20 +715,19 @@ function MultimodalSection({ data }: { data: MultimodalStats }) {
 }
 
 // ---------------------------------------------------------
-// P0.2 FSRS 记忆深度与负荷预测 (精炼黑白灰)
+// P0.2 FSRS 记忆深度与负荷预测
 // ---------------------------------------------------------
 function FsrsSection({ fsrs }: { fsrs: FsrsStats }) {
   const total = fsrs.totalCards || 1
   const stages = [
-    { name: "新词阶段", count: fsrs.newCards, pct: Math.round((fsrs.newCards / total) * 100), color: "#a1a1aa" },
-    { name: "初步习得", count: fsrs.learningCards, pct: Math.round((fsrs.learningCards / total) * 100), color: "#71717a" },
-    { name: "复习巩固", count: fsrs.reviewingCards, pct: Math.round((fsrs.reviewingCards / total) * 100), color: "#52525b" },
-    { name: "稳定记忆", count: fsrs.stableCards, pct: Math.round((fsrs.stableCards / total) * 100), color: "#27272a" },
-    { name: "完全掌握", count: fsrs.masteredCards, pct: Math.round((fsrs.masteredCards / total) * 100), color: "#09090b" },
+    { name: "新词阶段", count: fsrs.newCards, pct: Math.round((fsrs.newCards / total) * 100), color: "var(--analytics-heat-2)" },
+    { name: "初步习得", count: fsrs.learningCards, pct: Math.round((fsrs.learningCards / total) * 100), color: "var(--analytics-amber)" },
+    { name: "复习巩固", count: fsrs.reviewingCards, pct: Math.round((fsrs.reviewingCards / total) * 100), color: "var(--analytics-blue)" },
+    { name: "稳定记忆", count: fsrs.stableCards, pct: Math.round((fsrs.stableCards / total) * 100), color: "var(--analytics-plum)" },
+    { name: "完全掌握", count: fsrs.masteredCards, pct: Math.round((fsrs.masteredCards / total) * 100), color: "var(--analytics-teal)" },
   ]
 
   const forecast = fsrs.dueForecast ?? []
-  const maxDue = Math.max(1, ...forecast.map((f) => f.dueCount))
   const dueToday = forecast?.[0]?.dueCount ?? 0
 
   return (
@@ -821,8 +819,8 @@ function FsrsSection({ fsrs }: { fsrs: FsrsStats }) {
                   {forecast.map((entry, index) => (
                     <Cell
                       key={`cell-${index}`}
-                      fill="var(--foreground)"
-                      opacity={index === 0 ? 1 : 0.45}
+                      fill={index === 0 ? "var(--analytics-amber)" : "var(--analytics-teal)"}
+                      opacity={index === 0 ? 1 : 0.72}
                     />
                   ))}
                 </Bar>
@@ -912,17 +910,6 @@ export function AnalyticsDashboard() {
   const elapsed = React.useMemo(() => (calendar?.days ?? []).filter((day) => day.date <= todayKey), [calendar, todayKey])
   const period = React.useMemo(() => elapsed.slice(-range), [elapsed, range])
   const trend = React.useMemo(() => groupTrend(period, range), [period, range])
-  const quality = React.useMemo(
-    () =>
-      period
-        .filter((day) => day.retentionRate !== null && day.retentionRate !== undefined && day.newCards + day.reviewCards > 0)
-        .map((day) => ({
-          date: day.date.slice(5).replace("-", "/"),
-          rate: Math.round((day.retentionRate ?? 0) * 100),
-        })),
-    [period]
-  )
-
   const recent = elapsed.slice(-7)
   const previous = elapsed.slice(-14, -7)
   const recentCount = sum(recent, "count")
@@ -936,7 +923,7 @@ export function AnalyticsDashboard() {
   const activePeriodDays = period.filter((day) => day.count > 0).length
 
   return (
-    <main className="mx-auto w-full max-w-[1600px] space-y-5 px-4 pb-14 pt-6 sm:px-7 lg:px-9">
+    <main className={`${styles.analyticsDashboard} analytics-dashboard mx-auto w-full max-w-[1600px] space-y-5 px-4 pb-14 pt-6 sm:px-7 lg:px-9`}>
       {/* 头部标题与年份选择器 */}
       <header className="flex flex-col gap-3 border-b border-border/70 pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
@@ -1026,10 +1013,10 @@ export function AnalyticsDashboard() {
             />
             <Metric
               icon={BookOpen}
-              label="语境深度阅读"
-              value={multimodal ? nf.format((multimodal.context?.totalStories ?? 0) + (multimodal.context?.totalArticles ?? 0)) : "—"}
+              label="我的语境文章"
+              value={multimodal ? nf.format(multimodal.context?.totalStories ?? 0) : "—"}
               unit="篇"
-              subLabel={multimodal ? `AI 故事 ${multimodal.context?.totalStories ?? 0} 篇 · 外刊 ${multimodal.context?.totalArticles ?? 0} 篇` : "故事与外刊阅读"}
+              subLabel={multimodal ? `可用外刊素材 ${nf.format(multimodal.context?.totalArticles ?? 0)} 篇` : "故事与外刊阅读"}
             />
             <Metric
               icon={Brain}
@@ -1049,7 +1036,7 @@ export function AnalyticsDashboard() {
           {/* P0.2: FSRS 记忆深度与到期负荷预测 */}
           {fsrs && <FsrsSection fsrs={fsrs} />}
 
-          {/* P1.2: 全年学习足迹 (极简黑白灰热力图 + 浮动卡片) */}
+          {/* P1.2: 全年学习足迹 */}
           {calendar && <ActivityHeatmap calendar={calendar} />}
 
           {/* 学习节奏趋势图 与 最近 7 日流水明细 */}
@@ -1089,15 +1076,15 @@ export function AnalyticsDashboard() {
 
               <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1.5">
-                  <span className="size-2 rounded-full bg-foreground" />
+                  <span className="size-2 rounded-full" style={{ backgroundColor: "var(--analytics-teal)" }} />
                   复习次数
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="size-2 rounded-full bg-zinc-400" />
+                  <span className="size-2 rounded-full" style={{ backgroundColor: "var(--analytics-amber)" }} />
                   语境采词
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="h-0.5 w-3 bg-zinc-500" />
+                  <span className="h-0.5 w-3" style={{ backgroundColor: "var(--analytics-blue)" }} />
                   学习分钟
                 </span>
               </div>
@@ -1122,9 +1109,9 @@ export function AnalyticsDashboard() {
                         contentStyle={tooltipStyle}
                         cursor={{ fill: "var(--secondary)" }}
                       />
-                      <Bar yAxisId="act" dataKey="reviews" name="复习次数" stackId="a" fill="var(--foreground)" maxBarSize={16} radius={[2, 2, 0, 0]} />
-                      <Bar yAxisId="act" dataKey="collected" name="语境采词" stackId="a" fill="#a1a1aa" maxBarSize={16} radius={[2, 2, 0, 0]} />
-                      <Line yAxisId="tm" type="monotone" dataKey="minutes" name="学习分钟" stroke="#71717a" strokeWidth={1.75} dot={false} />
+                      <Bar yAxisId="act" dataKey="reviews" name="复习次数" stackId="a" fill="var(--analytics-teal)" maxBarSize={16} radius={[2, 2, 0, 0]} />
+                      <Bar yAxisId="act" dataKey="collected" name="语境采词" stackId="a" fill="var(--analytics-amber)" maxBarSize={16} radius={[2, 2, 0, 0]} />
+                      <Line yAxisId="tm" type="monotone" dataKey="minutes" name="学习分钟" stroke="var(--analytics-blue)" strokeWidth={2} dot={false} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 ) : (

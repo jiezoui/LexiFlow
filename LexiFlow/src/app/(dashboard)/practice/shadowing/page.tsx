@@ -5,12 +5,12 @@
  *
  * 端到端链路（全部本地推理，无需任何云端 API Key）：
  *
- *   麦克风 → Web Audio 采集成 16kHz 单声道 WAV
+ *   麦克风 → Web Audio 采集成 16kHz 单声道 WAV，或上传预录音频
  *        → POST /api/speech/score_pronunciation
  *             ├─ faster-whisper ASR（词级时间戳）
- *             ├─ wav2vec2-espeak 音素 CTC 前向-后向对齐（边缘化 → GOP）
+ *             ├─ wav2vec2-espeak 音素概率与 CTC Viterbi 对齐
  *             └─ 三维评分 + 音素级诊断 + 教练建议
- *        → POST /api/shadowing/attempts（落库 + 计入当日打卡）
+ *        → POST /api/shadowing/attempts（麦克风录音或主动选择计入记录的上传音频）
  *        → 刷新句库掌握度与训练统计
  *
  * 服务编排见 `src/app/api/speech/[...path]/route.ts`（Next.js 同源代理）
@@ -79,6 +79,8 @@ type PracticeSentence = Omit<ShadowingSentence, "sourceType"> & {
   startMs?: number
 }
 const ASSET_TABS: SourceTab[] = ["ARTICLE", "VIDEO", "PODCAST"]
+const MAX_AUDIO_UPLOAD_BYTES = 25 * 1024 * 1024
+const AUDIO_FILE_PATTERN = /\.(wav|mp3|flac|ogg|m4a|webm)$/i
 
 async function fetchSentenceLibrary(): Promise<ShadowingSentence[]> {
   const [all, media] = await Promise.all([
@@ -290,7 +292,11 @@ function SentenceWorkspace({
   const [isEvaluating, setIsEvaluating] = useState(false)
   const [evalError, setEvalError] = useState<string | null>(null)
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null)
+  const [recordedSource, setRecordedSource] = useState<"microphone" | "upload" | null>(null)
+  const [uploadFileName, setUploadFileName] = useState<string | null>(null)
+  const [saveUploadedAttempt, setSaveUploadedAttempt] = useState(false)
   const [saveNotice, setSaveNotice] = useState<string | null>(null)
+  const uploadInputRef = useRef<HTMLInputElement | null>(null)
 
   const [phonemes, setPhonemes] = useState<SpeechPhonemeWords | null>(null)
   const [loadingPhonemes, setLoadingPhonemes] = useState(false)
@@ -407,7 +413,11 @@ function SentenceWorkspace({
 
   const clearRecording = useCallback(() => {
     if (recordedUrl) URL.revokeObjectURL(recordedUrl)
+    audioBox.current.mine?.pause()
     setRecordedUrl(null)
+    setRecordedSource(null)
+    setUploadFileName(null)
+    setIsPlayingMine(false)
   }, [recordedUrl])
 
   const startRecording = useCallback(async () => {
@@ -420,22 +430,34 @@ function SentenceWorkspace({
     await recorder.start()
   }, [clearRecording, onReportChange, recorder, stopReference])
 
-  const stopAndEvaluate = useCallback(async () => {
-    const captured = await recorder.stop()
-    if (!captured) return
-
-    setRecordedUrl(URL.createObjectURL(captured.blob))
+  const evaluateAudio = useCallback(async (
+    audio: Blob,
+    source: "microphone" | "upload",
+    durationMs = 0,
+    fileName?: string
+  ) => {
+    clearRecording()
+    setAssessment(null)
+    setSaveNotice(null)
+    setRecordedUrl(URL.createObjectURL(audio))
+    setRecordedSource(source)
+    setUploadFileName(source === "upload" ? fileName ?? "录音文件" : null)
     onReportChange(true)
     setIsEvaluating(true)
     setEvalError(null)
     const startedAt = Date.now()
+    const shouldSaveAttempt = source === "microphone" || saveUploadedAttempt
 
     try {
-      const result = await speechApi.score(captured.blob, sentence.text, "en")
+      const result = await speechApi.score(audio, sentence.text, "en")
       setAssessment(result)
 
       if (!result.engine.phoneme_alignment) {
         setSaveNotice("仅词级参考分，未计入练习历史与今日打卡")
+        return
+      }
+      if (!shouldSaveAttempt) {
+        setSaveNotice("上传录音已完成评测，未计入练习历史与今日打卡")
         return
       }
 
@@ -470,10 +492,9 @@ function SentenceWorkspace({
           }),
           suggestionsJson: JSON.stringify(result.suggestions),
           engineJson: JSON.stringify(result.engine),
-          practiceSeconds: Math.max(
-            1,
-            Math.round((Date.now() - startedAt + captured.durationMs) / 1000)
-          ),
+          practiceSeconds: source === "upload"
+            ? Math.max(1, Math.round(result.timing.duration_seconds))
+            : Math.max(1, Math.round((Date.now() - startedAt + durationMs) / 1000)),
         })
         setSaveNotice("已记入练习历史与今日打卡")
         onSaved()
@@ -489,7 +510,31 @@ function SentenceWorkspace({
     } finally {
       setIsEvaluating(false)
     }
-  }, [onReportChange, onSaved, recorder, sentence])
+  }, [clearRecording, onReportChange, onSaved, saveUploadedAttempt, sentence])
+
+  const stopAndEvaluate = useCallback(async () => {
+    const captured = await recorder.stop()
+    if (captured) await evaluateAudio(captured.blob, "microphone", captured.durationMs)
+  }, [evaluateAudio, recorder])
+
+  const evaluateUploadedFile = useCallback(async (file: File) => {
+    if (isEvaluating || recorder.isRecording) return
+    let error: string | null = null
+    if (!file.size) error = "音频文件为空，请重新选择"
+    else if (file.size > MAX_AUDIO_UPLOAD_BYTES) error = "音频文件不能超过 25 MB"
+    else if (!AUDIO_FILE_PATTERN.test(file.name) && !file.type.startsWith("audio/")) {
+      error = "请选择 WAV、MP3、FLAC、OGG、M4A 或 WebM 音频文件"
+    }
+    if (error) {
+      clearRecording()
+      setAssessment(null)
+      setSaveNotice(null)
+      setEvalError(error)
+      onReportChange(true)
+      return
+    }
+    await evaluateAudio(file, "upload", 0, file.name)
+  }, [clearRecording, evaluateAudio, isEvaluating, onReportChange, recorder.isRecording])
 
   const seconds = Math.floor(recorder.elapsedMs / 1000)
 
@@ -639,14 +684,43 @@ function SentenceWorkspace({
               </button>
             )}
 
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a,.webm"
+              aria-label="选择预录音频进行跟读评测"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0]
+                event.currentTarget.value = ""
+                if (file) void evaluateUploadedFile(file)
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => uploadInputRef.current?.click()}
+              disabled={isEvaluating || recorder.isRecording}
+              className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+            >
+              <UploadIcon className="size-4" />
+              上传录音并评测
+            </button>
+
             {recordedUrl && !recorder.isRecording && (
               <button
                 type="button"
-                onClick={() => (isPlayingMine ? setIsPlayingMine(false) : playMine())}
+                onClick={() => {
+                  if (isPlayingMine) {
+                    audioBox.current.mine?.pause()
+                    setIsPlayingMine(false)
+                  } else {
+                    playMine()
+                  }
+                }}
                 className="inline-flex items-center gap-2 rounded-2xl border border-emerald-500/35 bg-emerald-500/10 px-4 py-3 text-xs font-bold text-emerald-700 transition-colors hover:bg-emerald-500/20 dark:text-emerald-300"
               >
                 <PlayIcon className="size-3.5" />
-                {isPlayingMine ? "回放中…" : "回放我的录音 [B]"}
+                {isPlayingMine ? "回放中…" : recordedSource === "upload" ? "回放上传录音 [B]" : "回放我的录音 [B]"}
               </button>
             )}
 
@@ -661,12 +735,31 @@ function SentenceWorkspace({
             )}
           </div>
 
+          {!recorder.isRecording && (
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={saveUploadedAttempt}
+                onChange={(event) => setSaveUploadedAttempt(event.target.checked)}
+                disabled={isEvaluating}
+                className="size-3.5 accent-primary"
+              />
+              上传录音评测后计入我的练习记录
+            </label>
+          )}
+
+          {recordedSource === "upload" && uploadFileName && (
+            <p className="max-w-full truncate text-center text-[11px] text-muted-foreground" title={uploadFileName}>
+              已使用预录音频：{uploadFileName} · 参考文本为当前句子
+            </p>
+          )}
+
           <p className="text-center font-mono text-[11px] text-muted-foreground">
             {recorder.isRecording
               ? "读完后点击「结束并评测」"
               : assessment
-              ? "查看右侧反馈，再读一次或继续下一句"
-              : "先听原声，再模仿语调与重音读一遍"}
+                ? "查看右侧反馈，再读一次或继续下一句"
+                : "可现场跟读，也可上传事先录好的音频；推荐使用 WAV 格式"}
           </p>
 
           {recorder.error && (
@@ -699,7 +792,7 @@ function SentenceWorkspace({
                     评测失败
                   </div>
                   <p className="text-xs text-muted-foreground">{evalError}</p>
-                  <p className="text-xs text-muted-foreground">请确认麦克风已授权、录音时长足够，然后重试。</p>
+                  <p className="text-xs text-muted-foreground">请检查录音内容与当前句子是否一致，确认音频格式可解码后重试。</p>
                 </div>
               )}
 

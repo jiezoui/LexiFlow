@@ -713,8 +713,16 @@ export const dictApi = {
 
 // 03. 大纲词书 API
 export const wordbookApi = {
-  list: (category?: string) =>
-    request<Wordbook[]>(category ? `/api/wordbooks?category=${category}` : "/api/wordbooks"),
+  list: async (category?: string) => {
+    const data = await request<Wordbook[]>(category ? `/api/wordbooks?category=${category}` : "/api/wordbooks")
+    return (data || []).sort((a, b) => {
+      const isTopA = a.id === 28 || a.title?.includes("国际顶刊")
+      const isTopB = b.id === 28 || b.title?.includes("国际顶刊")
+      if (isTopA && !isTopB) return -1
+      if (!isTopA && isTopB) return 1
+      return b.id - a.id
+    })
+  },
   getDetail: (id: number) =>
     request<Wordbook>(`/api/wordbooks/${id}`),
   getWords: (id: number, params?: { chapter?: number; page?: number; size?: number }) => {
@@ -925,7 +933,8 @@ export const readingApi = {
   sync: (channel?: string) =>
     request<{ channel: string; syncedCount: number; message: string }>(
       `/api/reading/sync${channel ? `?channel=${channel}` : ""}`,
-      { method: "POST" }
+      { method: "POST" },
+      30000
     ),
   getChannels: () =>
     request<ChannelStat[]>("/api/reading/channels"),
@@ -1420,7 +1429,7 @@ export const speechApi = {
   /** 核心：跟读录音发音评测 */
   score: (audio: Blob, targetText: string, language = "en") => {
     const body = new FormData()
-    body.append("audio", audio, "shadowing.wav")
+    body.append("audio", audio, typeof File !== "undefined" && audio instanceof File ? audio.name : "shadowing.wav")
     body.append("target_text", targetText)
     body.append("language", language)
     return speechJson<ShadowingAssessment>("/score_pronunciation", {

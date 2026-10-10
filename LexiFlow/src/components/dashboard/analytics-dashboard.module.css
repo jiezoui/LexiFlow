@@ -1,0 +1,23 @@
+.analyticsDashboard {
+  --analytics-teal: #3f7772;
+  --analytics-blue: #59789a;
+  --analytics-amber: #aa8053;
+  --analytics-plum: #817593;
+  --analytics-heat-0: #f1f3f2;
+  --analytics-heat-1: #deece9;
+  --analytics-heat-2: #b7d7d1;
+  --analytics-heat-3: #78ada4;
+  --analytics-heat-4: #3f7772;
+}
+
+:global(.dark) .analyticsDashboard {
+  --analytics-teal: #85bdb5;
+  --analytics-blue: #9ab6d4;
+  --analytics-amber: #d5af7d;
+  --analytics-plum: #b3a6c9;
+  --analytics-heat-0: #202526;
+  --analytics-heat-1: #2a4744;
+  --analytics-heat-2: #3a6761;
+  --analytics-heat-3: #5e9a91;
+  --analytics-heat-4: #85bdb5;
+}

@@ -106,16 +106,23 @@ public interface StatsActivityMapper {
     java.util.Map<String, Object> selectShadowingSummary(@Param("userId") Long userId);
 
     /**
-     * 查询最近 N 条影子跟读历史走势。
+     * 查询最近 N 个练习日的影子跟读日均分，避免一天多次练习挤满趋势图。
      */
     @Select("""
-            SELECT id, overall_score, accuracy_score, fluency_score, words_per_minute, source_title, created_at
+            SELECT MAX(id) AS id,
+                   ROUND(AVG(overall_score), 2) AS overall_score,
+                   ROUND(AVG(accuracy_score), 2) AS accuracy_score,
+                   ROUND(AVG(fluency_score), 2) AS fluency_score,
+                   ROUND(AVG(words_per_minute), 1) AS words_per_minute,
+                   CONCAT('日均 ', COUNT(*), ' 句') AS source_title,
+                   MAX(created_at) AS created_at
             FROM shadowing_attempt
             WHERE user_id = #{userId}
-            ORDER BY created_at DESC
+            GROUP BY DATE(created_at)
+            ORDER BY DATE(created_at) DESC
             LIMIT #{limit}
             """)
-    List<java.util.Map<String, Object>> selectRecentShadowingAttempts(@Param("userId") Long userId, @Param("limit") int limit);
+    List<java.util.Map<String, Object>> selectRecentShadowingDailyAverages(@Param("userId") Long userId, @Param("limit") int limit);
 
     /**
      * 统计当前用户生成的语境文章总数。

@@ -102,7 +102,7 @@ export function TodayHeroBanner({
         {/* 主体两栏布局：左叙事 + 右 3D 语言粒子球体 */}
         <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
           {/* 左侧主要叙事区 */}
-          <div className="lg:col-span-5 xl:col-span-5 flex flex-col justify-between z-40 relative py-1 sm:py-2">
+          <div className="lg:col-span-5 xl:col-span-5 flex flex-col justify-between z-40 relative py-1 sm:py-2 lg:translate-y-10">
             <div>
               {/* 时间问候语 */}
               <p className="font-serif italic text-zinc-400 text-sm sm:text-base tracking-wide">

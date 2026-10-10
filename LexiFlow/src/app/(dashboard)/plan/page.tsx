@@ -10,9 +10,19 @@ import {
 import { Slider } from "@/components/ui/slider"
 import { Button } from "@/components/ui/button"
 import {
+  Area,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ReferenceDot,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
+import {
   BookOpenIcon,
-  HeadphonesIcon,
-  ClockIcon,
   CalendarIcon,
   CheckCircle2Icon,
   RotateCcwIcon,
@@ -23,7 +33,6 @@ import {
   ScaleIcon,
   MicIcon,
   CoffeeIcon,
-  AlertCircleIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   ChevronLeftIcon,
@@ -109,9 +118,6 @@ export default function StudyPlanPage() {
   const [activeStrategyId, setActiveStrategyId] = useState<string>("balanced")
   // 是否展开精细参数微调面板
   const [showCustomTuning, setShowCustomTuning] = useState<boolean>(false)
-  // 负荷推演图表悬停天数
-  const [hoveredDayIndex, setHoveredDayIndex] = useState<number | null>(null)
-
   // 词书下拉与日期浮层控制
   const [bookDropdownOpen, setBookDropdownOpen] = useState(false)
   const [datePickerOpen, setDatePickerOpen] = useState(false)
@@ -244,35 +250,19 @@ export default function StudyPlanPage() {
     }
   }, [dailyNewWords, dailyShadowing, dailyContextMinutes])
 
-  // 模拟未来 14 天 FSRS 记忆负荷曲线
+  // 今天使用实际到期量；后续 13 天按新词目标做示意推演。
   const loadProjection = useMemo(() => {
     const data = []
     const baseNew = dailyNewWords
-    const initialDue = plan?.today?.vocab?.dueReview || 12
+    const initialDue = plan?.today?.vocab?.dueReview ?? 12
+    const reviewFactors = [0, 0.85, 1.05, 1.2, 1.4, 1.7, 2.15, 2.6, 2.15, 1.7, 1.5, 1.4, 1.35, 1.3]
 
     for (let day = 1; day <= 14; day++) {
       const dateObj = new Date()
       dateObj.setDate(dateObj.getDate() + (day - 1))
       const dateLabel = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`
 
-      let reviewFactor = 0
-      if (day === 1) reviewFactor = initialDue / Math.max(1, baseNew)
-      else if (day === 2) reviewFactor = 0.85
-      else if (day === 3) reviewFactor = 1.3
-      else if (day === 4) reviewFactor = 1.75
-      else if (day === 5) reviewFactor = 2.1
-      else if (day === 6) reviewFactor = 2.35
-      else if (day === 7) reviewFactor = 2.55
-      else if (day === 8) reviewFactor = 2.6
-      else if (day === 9) reviewFactor = 2.5
-      else if (day === 10) reviewFactor = 2.45
-      else if (day === 11) reviewFactor = 2.5
-      else if (day === 12) reviewFactor = 2.55
-      else if (day === 13) reviewFactor = 2.48
-      else reviewFactor = 2.52
-
-      const reviewCount = Math.round(baseNew * reviewFactor)
-      const totalCount = baseNew + reviewCount
+      const reviewCount = day === 1 ? initialDue : Math.round(baseNew * reviewFactors[day - 1])
       const estimatedMinutes = Math.round(baseNew * 0.75 + reviewCount * 0.25)
 
       data.push({
@@ -280,14 +270,11 @@ export default function StudyPlanPage() {
         dateLabel,
         newWords: baseNew,
         reviewCount,
-        totalCount,
         estimatedMinutes,
-        isPeak: day === 7 || day === 8,
       })
     }
 
-    const maxTotal = Math.max(...data.map((d) => d.totalCount), 50)
-    return { data, maxTotal }
+    return { data, trendData: data.slice(1) }
   }, [dailyNewWords, plan])
 
   // 应用预设策略
@@ -721,93 +708,113 @@ export default function StudyPlanPage() {
                 <h2 className="text-sm font-bold text-foreground tracking-tight">
                   3. 未来 14 天复习负荷预测
                 </h2>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold">
-                  防复习雪崩
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+                  按当前计划推演
                 </span>
               </div>
 
               {/* 图例 */}
               <div className="flex items-center gap-3 text-[11px] font-mono">
                 <span className="flex items-center gap-1.5 text-muted-foreground">
-                  <span className="size-2.5 rounded-xs bg-primary" />
-                  每日新词
+                  <span className="h-0 w-4 border-t border-dashed border-foreground" />
+                  每日新词目标
                 </span>
                 <span className="flex items-center gap-1.5 text-muted-foreground">
-                  <span className="size-2.5 rounded-xs bg-emerald-500/70" />
+                  <span className="h-0 w-4 border-t-2 border-emerald-500" />
                   预测复习卡片
                 </span>
               </div>
             </div>
 
-            {/* 柱状推演图主体 */}
-            <div className="pt-2">
-              <div className="h-44 w-full flex items-end justify-between gap-1.5 sm:gap-2 px-1 pb-2 border-b border-border/80">
-                {loadProjection.data.map((item) => {
-                  const newHeightPct = (item.newWords / loadProjection.maxTotal) * 100
-                  const reviewHeightPct = (item.reviewCount / loadProjection.maxTotal) * 100
-                  const isHovered = hoveredDayIndex === item.day
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-border/70 pb-2 text-xs">
+              <span className="text-muted-foreground">今日已到期 <strong className="font-mono font-semibold text-foreground">{loadProjection.data[0].reviewCount} 张</strong></span>
+              <span className="text-muted-foreground">下图展示随后 13 天的复习负荷</span>
+            </div>
 
-                  return (
-                    <div
-                      key={item.day}
-                      onMouseEnter={() => setHoveredDayIndex(item.day)}
-                      onMouseLeave={() => setHoveredDayIndex(null)}
-                      className="flex-1 flex flex-col items-center h-full justify-end group cursor-pointer relative"
-                    >
-                      {/* 柱顶悬停数据气泡 */}
-                      {isHovered && (
-                        <div className="absolute -top-12 z-20 px-2 py-1 rounded-lg bg-zinc-900 text-white text-[10px] font-mono whitespace-nowrap shadow-xl pointer-events-none animate-in fade-in">
-                          <div>Day {item.day} ({item.dateLabel})</div>
-                          <div className="text-zinc-300">
-                            {item.newWords} 新 + {item.reviewCount} 复 = <b>{item.totalCount}</b> 词 (~{item.estimatedMinutes}m)
-                          </div>
+            <div className="h-56 w-full pt-3" aria-label="随后 13 天每日新词目标和预计复习卡片趋势">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart
+                  accessibilityLayer
+                  data={loadProjection.trendData}
+                  margin={{ top: 22, right: 12, left: 0, bottom: 0 }}
+                >
+                  <defs>
+                    <linearGradient id="plan-review-area" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#10b981" stopOpacity={0.18} />
+                      <stop offset="100%" stopColor="#10b981" stopOpacity={0.01} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="2 5" />
+                  <XAxis
+                    dataKey="dateLabel"
+                    axisLine={false}
+                    tickLine={false}
+                    tickMargin={10}
+                    minTickGap={28}
+                    tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                  />
+                  <YAxis
+                    domain={[0, (dataMax: number) => Math.ceil(dataMax * 1.12)]}
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                    width={40}
+                  />
+                  <Tooltip
+                    cursor={{ stroke: "var(--muted-foreground)", strokeOpacity: 0.4, strokeDasharray: "3 4" }}
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null
+                      const item = payload[0].payload as (typeof loadProjection.data)[number]
+                      return (
+                        <div className="rounded-xl border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg">
+                          <div className="mb-1 font-medium">{item.dateLabel} · 第 {item.day} 天</div>
+                          <div className="text-muted-foreground">预计复习 <span className="font-mono font-semibold text-foreground">{item.reviewCount} 张</span></div>
+                          <div className="text-muted-foreground">每日新词 <span className="font-mono font-semibold text-foreground">{item.newWords} 词</span></div>
+                          <div className="mt-1 border-t border-border pt-1 text-muted-foreground">合计约 {item.estimatedMinutes} 分钟</div>
                         </div>
-                      )}
+                      )
+                    }}
+                  />
+                  <Area
+                    type="linear"
+                    dataKey="reviewCount"
+                    stroke="#10b981"
+                    strokeWidth={2.5}
+                    fill="url(#plan-review-area)"
+                    activeDot={{ r: 4, fill: "#10b981", stroke: "var(--card)", strokeWidth: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="newWords"
+                    stroke="var(--foreground)"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 5"
+                    dot={false}
+                    activeDot={false}
+                  />
+                  <ReferenceLine
+                    x={loadProjection.data[7].dateLabel}
+                    stroke="var(--muted-foreground)"
+                    strokeOpacity={0.5}
+                    strokeDasharray="3 4"
+                    label={{ value: "首轮波峰", position: "top", fill: "var(--muted-foreground)", fontSize: 10 }}
+                  />
+                  <ReferenceDot
+                    x={loadProjection.data[7].dateLabel}
+                    y={loadProjection.data[7].reviewCount}
+                    r={5}
+                    fill="#10b981"
+                    stroke="var(--card)"
+                    strokeWidth={2}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
 
-                      {/* 峰值标记点 */}
-                      {item.isPeak && !isHovered && (
-                        <span className="text-[9px] font-mono text-amber-500 font-bold mb-1">
-                          波峰
-                        </span>
-                      )}
-
-                      {/* 堆叠柱 */}
-                      <div className="w-full max-w-[28px] rounded-t-md overflow-hidden flex flex-col justify-end transition-all group-hover:opacity-90">
-                        <div
-                          className={`w-full transition-all duration-300 ${
-                            item.isPeak ? "bg-amber-500/80" : "bg-emerald-500/75 dark:bg-emerald-600/75"
-                          }`}
-                          style={{ height: `${reviewHeightPct}%` }}
-                        />
-                        <div
-                          className="w-full bg-primary transition-all duration-300"
-                          style={{ height: `${newHeightPct}%` }}
-                        />
-                      </div>
-
-                      <span
-                        className={`mt-2 text-[10px] font-mono transition-colors ${
-                          isHovered ? "font-bold text-foreground" : "text-muted-foreground/80"
-                        }`}
-                      >
-                        {item.dateLabel}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* 算法诊断轻量提示 */}
-              <div className="mt-3 p-3 rounded-2xl bg-muted/30 border border-border/60 flex items-start gap-2.5">
-                <AlertCircleIcon className="size-4 text-primary shrink-0 mt-0.5" />
-                <div className="text-xs text-muted-foreground leading-relaxed">
-                  预计在 <span className="font-mono text-foreground font-semibold">第 7~8 天</span> 迎来首轮记忆稳固波峰（约单日{" "}
-                  <span className="font-mono text-foreground font-semibold">
-                    ~{Math.round(dailyNewWords * 3.5)} 张
-                  </span>
-                  ，耗时 ~{Math.round(dailyNewWords * 0.75 + dailyNewWords * 2.5 * 0.25)} 分钟），此后随记忆半衰期拉长逐渐进入平稳阻尼。
-                </div>
-              </div>
+            <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border-t border-border/70 pt-3 text-xs text-muted-foreground">
+              <span>首轮复习波峰出现在第 8 天，随后逐步回落</span>
+              <span>第 8 天预计 <strong className="font-mono font-semibold text-foreground">{loadProjection.data[7].reviewCount} 张复习卡片</strong></span>
+              <span>合计约 <strong className="font-mono font-semibold text-foreground">{loadProjection.data[7].estimatedMinutes} 分钟</strong></span>
             </div>
           </section>
 

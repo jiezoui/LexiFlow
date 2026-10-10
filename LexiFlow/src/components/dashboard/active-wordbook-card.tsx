@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { ArrowUpRightIcon, BookOpenIcon, SlidersHorizontalIcon, ArrowRightLeftIcon, PlusCircleIcon, Loader2Icon } from "lucide-react"
-import { wordbookApi, type Wordbook } from "@/lib/api-client"
+import { wordbookApi, planApi, type Wordbook } from "@/lib/api-client"
 
 export function ActiveWordbookCard() {
   const [activeBook, setActiveBook] = useState<Wordbook | null>(null)
@@ -15,7 +15,18 @@ export function ActiveWordbookCard() {
       const savedPrimaryId = localStorage.getItem("lexiflow_primary_wordbook_id")
       let book: Wordbook | null = null
 
-      if (savedPrimaryId) {
+      // 优先从实际学习计划对齐主词书
+      try {
+        const plan = await planApi.getTodayOverview()
+        if (plan?.macro?.wordbookId) {
+          book = await wordbookApi.getDetail(plan.macro.wordbookId)
+          try {
+            localStorage.setItem("lexiflow_primary_wordbook_id", String(plan.macro.wordbookId))
+          } catch {}
+        }
+      } catch {}
+
+      if (!book && savedPrimaryId) {
         try {
           book = await wordbookApi.getDetail(Number(savedPrimaryId))
         } catch {

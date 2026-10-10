@@ -313,7 +313,7 @@ public class StatsServiceImpl extends ServiceImpl<DailyStatMapper, DailyStatEnti
         long totalAudioMs = getLong(shadowSummary, "total_audio_ms");
         int practiceMinutes = (int) Math.ceil(totalAudioMs / 60000.0);
 
-        List<Map<String, Object>> recentAttemptsRaw = statsActivityMapper.selectRecentShadowingAttempts(userId, 8);
+        List<Map<String, Object>> recentAttemptsRaw = statsActivityMapper.selectRecentShadowingDailyAverages(userId, 8);
         List<ShadowingTrendPointVo> trendPoints = new ArrayList<>();
         DateTimeFormatter trendTimeFmt = DateTimeFormatter.ofPattern("MM/dd HH:mm");
 

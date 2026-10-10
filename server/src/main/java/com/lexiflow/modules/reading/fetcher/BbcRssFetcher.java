@@ -91,6 +91,13 @@ public class BbcRssFetcher {
             for (Element item : items) {
                 try {
                     String title = item.select("title").text();
+                    String titleLower = title.toLowerCase();
+                    if (titleLower.contains("murder") || titleLower.contains("execution") || titleLower.contains("firing squad")
+                            || titleLower.contains("looted") || titleLower.contains("genocide") || titleLower.contains("hitler")
+                            || titleLower.contains("deadly") || titleLower.contains("suicide") || titleLower.contains("homicide")
+                            || titleLower.contains("torched") || titleLower.contains("stolen") || titleLower.contains("botched")) {
+                        continue;
+                    }
                     String link = item.select("link").text();
                     String guid = item.select("guid").text();
                     if (!StringUtils.hasText(guid)) {

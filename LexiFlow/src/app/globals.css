@@ -358,3 +358,11 @@
 .transcription-progress-indeterminate {
   animation: transcription-progress 1.4s cubic-bezier(0.76, 0, 0.24, 1) infinite;
 }
+
+/* 隐藏 Next.js 开发环境左下角指示器图标 (Dev Tools Indicator) */
+nextjs-portal,
+[data-nextjs-dev-tools-button],
+[data-nextjs-toast-wrapper],
+div[data-nextjs-dev-tools] {
+  display: none !important;
+}

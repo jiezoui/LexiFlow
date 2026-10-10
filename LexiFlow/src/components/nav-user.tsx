@@ -1,6 +1,6 @@
 "use client"
 
-import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   Avatar,
   AvatarFallback,
@@ -29,9 +29,10 @@ export function NavUser({
   user: {
     name: string
     email: string
-    avatar: string
+    avatar?: string
   }
 }) {
+  const router = useRouter()
   const { isMobile } = useSidebar()
 
   return (
@@ -40,12 +41,12 @@ export function NavUser({
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <SidebarMenuButton size="lg" className="h-14 rounded-xl px-2 aria-expanded:bg-sidebar-accent" />
+              <SidebarMenuButton size="lg" className="h-14 rounded-xl px-2 aria-expanded:bg-sidebar-accent cursor-pointer" />
             }
           >
             <Avatar>
-              <AvatarImage src={user.avatar} alt={user.name} />
-              <AvatarFallback>AG</AvatarFallback>
+              {user.avatar && <AvatarImage src={user.avatar} alt={user.name} />}
+              <AvatarFallback>{user.name.slice(0, 2)}</AvatarFallback>
             </Avatar>
             <div className="grid flex-1 text-left text-sm leading-tight">
               <span className="truncate font-medium">{user.name}</span>
@@ -63,8 +64,8 @@ export function NavUser({
               <DropdownMenuLabel className="p-0 font-normal">
                 <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                   <Avatar>
-                    <AvatarImage src={user.avatar} alt={user.name} />
-                    <AvatarFallback>AG</AvatarFallback>
+                    {user.avatar && <AvatarImage src={user.avatar} alt={user.name} />}
+                    <AvatarFallback>{user.name.slice(0, 2)}</AvatarFallback>
                   </Avatar>
                   <div className="grid flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-medium">{user.name}</span>
@@ -75,32 +76,33 @@ export function NavUser({
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem render={<Link href="/profile" />}>
+              <DropdownMenuItem onClick={() => router.push("/profile")} className="cursor-pointer">
                 <BadgeCheckIcon className="size-4 mr-2" />
                 个人中心
               </DropdownMenuItem>
-              <DropdownMenuItem render={<Link href="/settings" />}>
+              <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
                 <SettingsIcon className="size-4 mr-2" />
                 系统设置
               </DropdownMenuItem>
-              <DropdownMenuItem render={<Link href="/settings?tab=ai" />}>
+              <DropdownMenuItem onClick={() => router.push("/settings?tab=ai")} className="cursor-pointer">
                 <SparklesIcon className="size-4 mr-2" />
                 模型设置
               </DropdownMenuItem>
-              <DropdownMenuItem render={<Link href="/dashboard" />}>
+              <DropdownMenuItem onClick={() => router.push("/dashboard")} className="cursor-pointer">
                 <LayoutDashboardIcon className="size-4 mr-2" />
                 今日研习概览
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem render={<Link href="/sign-in" />}>
+              <DropdownMenuItem onClick={() => router.push("/sign-in")} className="cursor-pointer">
                 <UsersIcon className="size-4 mr-2" />
                 切换账号
               </DropdownMenuItem>
               <DropdownMenuItem
                 variant="destructive"
-                render={<Link href="/sign-in" />}
+                onClick={() => router.push("/sign-in")}
+                className="cursor-pointer"
               >
                 <LogOutIcon className="size-4 mr-2" />
                 退出登录

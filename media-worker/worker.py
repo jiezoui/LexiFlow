@@ -692,6 +692,8 @@ def handle_youtube(job: dict[str, Any]) -> None:
                 audio_out_tmpl = str(task / "audio.%(ext)s")
                 ydl_cmd = [
                     "yt-dlp",
+                    "--extractor-args",
+                    "youtube:player_client=android,web",
                     "-f",
                     "ba/b",
                     "-x",

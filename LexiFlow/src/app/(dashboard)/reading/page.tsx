@@ -286,7 +286,7 @@ export default function ReadingPage() {
 
   // 相对发布时间格式化
   const formatPublishedAgo = (dateStr?: string) => {
-    if (!dateStr) return "BBC News"
+    if (!dateStr) return "刚刚"
     try {
       const d = new Date(dateStr)
       const now = new Date()
@@ -435,7 +435,7 @@ export default function ReadingPage() {
             className="mt-2 h-9 px-4 rounded-xl border border-border bg-surface hover:bg-surface/80 text-xs font-semibold text-foreground transition-all flex items-center gap-2"
           >
             <RefreshCwIcon className={`size-3.5 ${syncing ? "animate-spin" : ""}`} />
-            <span>一键同步 BBC 最新报道</span>
+            <span>一键同步最新外刊报道</span>
           </button>
         </div>
       ) : (
@@ -457,7 +457,7 @@ export default function ReadingPage() {
                   />
                 ) : (
                   <div className="h-full w-full flex items-center justify-center text-muted-foreground/50 font-mono text-xs">
-                    BBC News
+                    Global Press
                   </div>
                 )}
 

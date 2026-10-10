@@ -38,7 +38,7 @@ function WordbooksPageContent() {
   const [searchQuery, setSearchQuery] = useState<string>("")
   const [books, setBooks] = useState<Wordbook[]>([])
   const [loading, setLoading] = useState<boolean>(true)
-  const [primaryId, setPrimaryId] = useState<number>(1)
+  const [primaryId, setPrimaryId] = useState<number>(28)
   const [clickHistory, setClickHistory] = useState<Record<number, number>>({})
   const [deleteTarget, setDeleteTarget] = useState<Wordbook | null>(null)
   const [isDeleting, setIsDeleting] = useState<boolean>(false)
@@ -47,13 +47,25 @@ function WordbooksPageContent() {
   const [batchModalTarget, setBatchModalTarget] = useState<Wordbook | null>(null)
   const [configDialogBookId, setConfigDialogBookId] = useState<number | null>(null)
 
-  // 从 localStorage 恢复主词书设定与点击历史事件记录
+  // 从学习计划与 localStorage 恢复主词书设定与点击历史事件记录
   useEffect(() => {
+    // 优先从实际学习计划对齐当前主词书 (默认为顶刊研读词书 ID 28)
+    void planApi.getTodayOverview().then((plan) => {
+      const activeId = plan?.macro?.wordbookId || 28
+      setPrimaryId(activeId)
+      try {
+        localStorage.setItem("lexiflow_primary_wordbook_id", String(activeId))
+      } catch { }
+    }).catch(() => {
+      try {
+        const savedPrimary = localStorage.getItem("lexiflow_primary_wordbook_id")
+        if (savedPrimary) {
+          setPrimaryId(Number(savedPrimary))
+        }
+      } catch { }
+    })
+
     try {
-      const savedPrimary = localStorage.getItem("lexiflow_primary_wordbook_id")
-      if (savedPrimary) {
-        setPrimaryId(Number(savedPrimary))
-      }
       const savedHistory = localStorage.getItem("lexiflow_wordbook_click_history")
       if (savedHistory) {
         setClickHistory(JSON.parse(savedHistory))
@@ -313,12 +325,14 @@ function WordbooksPageContent() {
   })
 
   // 严格排序规则：
-  // 1. 当前主研习词书 (primaryId) 永远排在第一位 (TOP 1)
+  // 1. 国际顶刊高频词 (ID 28) 与主研习词书 (primaryId) 永远排在最前面 (TOP 1)
   // 2. 其他词书根据点击/访问的历史事件时间戳倒序排序 (最近点击排在前面)
-  // 3. 兜底按 ID 正序
+  // 3. 兜底按 ID 倒序
   const sortedBooks = [...filteredBooks].sort((a, b) => {
-    if (a.id === primaryId) return -1
-    if (b.id === primaryId) return 1
+    const isTopA = a.id === 28 || a.title?.includes("国际顶刊") || a.id === primaryId
+    const isTopB = b.id === 28 || b.title?.includes("国际顶刊") || b.id === primaryId
+    if (isTopA && !isTopB) return -1
+    if (!isTopA && isTopB) return 1
 
     const aTime = clickHistory[a.id] || 0
     const bTime = clickHistory[b.id] || 0
@@ -326,7 +340,7 @@ function WordbooksPageContent() {
       return bTime - aTime
     }
 
-    return a.id - b.id
+    return b.id - a.id
   })
 
   return (
