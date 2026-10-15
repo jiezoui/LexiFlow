@@ -402,7 +402,7 @@ public class AiGatewayServiceImpl implements AiGatewayService {
         // 请求未携带凭据时回落到当前账号已保存的 AI 配置，
         // 使阅读器、视频抽屉等模块无需各自透传 API Key
         AiResolvedConfig cfg = configStore.resolve(
-                UserContext.getCurrentUserId(),
+                UserContext.requireCurrentUserId(),
                 req.getProvider(), req.getApiHost(), req.getApiKey(), req.getModel());
 
         String provider = cfg.provider();
@@ -800,7 +800,7 @@ public class AiGatewayServiceImpl implements AiGatewayService {
                                String apiKeyInput, String apiHostInput, int maxTokens) {
         // 调用方未传凭据时回落到账号已保存的 AI 配置，避免各业务模块重复透传 Key
         AiResolvedConfig cfg = configStore.resolve(
-                UserContext.getCurrentUserId(), providerInput, apiHostInput, apiKeyInput, modelInput);
+                UserContext.requireCurrentUserId(), providerInput, apiHostInput, apiKeyInput, modelInput);
 
         log.info("AI GenerateText 请求发起 -> provider: [{}], model: [{}], 凭据来源: [{}]",
                 cfg.provider(), cfg.model(), cfg.source());

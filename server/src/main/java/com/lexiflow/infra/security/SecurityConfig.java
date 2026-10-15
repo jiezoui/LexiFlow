@@ -1,6 +1,7 @@
 package com.lexiflow.infra.security;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -29,6 +30,9 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
+    @Value("${lexiflow.cors.allowed-origin-patterns:http://localhost:[*],http://127.0.0.1:[*]}")
+    private String allowedOriginPatterns = "http://localhost:[*],http://127.0.0.1:[*]";
+
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
@@ -45,21 +49,13 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // 授权规则配置
                 .authorizeHttpRequests(auth -> auth
-                        // 允许 Swagger UI 与 OpenAPI 3 文档全量访问
                         .requestMatchers(
-                                "/v3/api-docs/**",
-                                "/swagger-ui/**",
-                                "/swagger-ui.html",
-                                "/swagger-resources/**",
-                                "/webjars/**"
+                                "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html",
+                                "/swagger-resources/**", "/webjars/**"
                         ).permitAll()
-                        // 允许用户认证端点 (注册、登录)
                         .requestMatchers("/api/auth/**").permitAll()
-                        // 允许预检请求
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        // 词典检索与词书浏览支持公开读取
                         .requestMatchers(HttpMethod.GET, "/api/dict/**", "/api/wordbooks/**").permitAll()
-                        // 其他请求支持鉴权通过（开发阶段可允许未带 token 时默认兼容）
                         .anyRequest().permitAll()
                 )
                 // 加入 JWT 过滤器
@@ -72,10 +68,8 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         // 允许前端 Next.js 独立端口与 Nginx 代理源
-        configuration.setAllowedOriginPatterns(List.of(
-                "http://localhost:[*]",
-                "http://127.0.0.1:[*]"
-        ));
+        configuration.setAllowedOriginPatterns(Arrays.stream(allowedOriginPatterns.split(","))
+                .map(String::trim).filter(origin -> !origin.isEmpty()).toList());
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "X-Requested-With", "Accept"));
         configuration.setExposedHeaders(List.of("Authorization"));

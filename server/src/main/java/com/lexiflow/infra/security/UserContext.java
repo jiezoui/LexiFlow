@@ -24,7 +24,7 @@ public final class UserContext {
     /**
      * 读取当前登录用户 ID。
      *
-     * 已登录则返回令牌中的真实用户 ID；未携带令牌时平滑兜底至默认研习账号 1L，
+     * 已登录则返回令牌中的真实用户 ID；未携带令牌时回落到配置的默认研习账号，
      * 保证本地单机运行、离线研习与页面无感使用，避免热力图和配置接口因 401 阻断。
      */
     public static Long requireCurrentUserId() {
@@ -32,6 +32,6 @@ public final class UserContext {
         if (userId != null) {
             return userId;
         }
-        return 1L;
+        return Long.parseLong(System.getenv().getOrDefault("LEXIFLOW_DEFAULT_USER_ID", "1"));
     }
 }

@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11.16-slim-trixie
 
 RUN sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
@@ -6,10 +6,10 @@ RUN sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sourc
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt ./
+COPY requirements.txt requirements-linux.lock ./
 RUN pip install --no-cache-dir \
     --index-url https://mirrors.aliyun.com/pypi/simple \
-    -r requirements.txt
+    -r requirements-linux.lock
 
 ENV HF_HUB_DISABLE_XET=1 \
     HF_HUB_DOWNLOAD_TIMEOUT=600

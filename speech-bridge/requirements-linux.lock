@@ -1,0 +1,15 @@
+# Direct runtime dependencies pinned from the verified local environment.
+# CPU torch/torchaudio are installed separately from the official CPU index.
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+python-multipart==0.0.32
+requests==2.34.2
+numpy==1.26.4
+soundfile==0.14.0
+scipy==1.15.3
+librosa==0.11.0
+faster-whisper==1.2.1
+ctranslate2==4.8.2
+transformers==4.46.3
+phonemizer==3.4.0
+edge-tts==7.2.8

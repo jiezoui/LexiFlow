@@ -63,6 +63,8 @@ springdoc:
 
 # LexiFlow Custom Config
 lexiflow:
+  cors:
+    allowed-origin-patterns: '${LEXIFLOW_ALLOWED_ORIGINS:http://localhost:[*],http://127.0.0.1:[*]}'
   jwt:
     # 256-bit+ secure base64 secret for HMAC-SHA256
     secret: TGV4aUZsb3dNdWx0aU1vZGFsQ29nbml0aXZlU3BhY2VkUmVwZXRpdGlvbkp3dFNlY3JldEtleTIwMjY=

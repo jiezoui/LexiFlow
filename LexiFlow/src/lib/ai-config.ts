@@ -110,6 +110,7 @@ export const AI_PROVIDER_PRESETS: Record<BuiltinAiProviderId, ProviderPreset> = 
 export interface SingleProviderConfig {
   displayName?: string
   apiKey: string
+  configured?: boolean
   apiHost: string
   selectedModel: string
   customModels: string[]
@@ -126,6 +127,16 @@ export interface AiSettings {
 }
 
 const STORAGE_KEY = "lexiflow_ai_settings_v1"
+
+function withoutApiKeys(settings: AiSettings): AiSettings {
+  return {
+    ...settings,
+    providers: Object.fromEntries(Object.entries(settings.providers).map(([id, config]) => [
+      id,
+      { ...config, apiKey: "", configured: config.configured || id === "ollama" || Boolean(config.apiKey) },
+    ])),
+  }
+}
 
 export function getDefaultAiSettings(): AiSettings {
   const providers: Record<string, SingleProviderConfig> = {
@@ -203,14 +214,19 @@ export function getAiSettings(): AiSettings {
     const parsed = JSON.parse(raw)
     const defaults = getDefaultAiSettings()
 
-    return {
+    const settings = withoutApiKeys({
       ...defaults,
       ...parsed,
       providers: {
         ...defaults.providers,
         ...(parsed.providers || {}),
       },
+    })
+    if (Object.values(parsed.providers || {}).some((provider) =>
+      Boolean((provider as SingleProviderConfig)?.apiKey))) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
     }
+    return settings
   } catch (e) {
     console.warn("读取 AI 配置失败，使用默认值:", e)
     return getDefaultAiSettings()
@@ -220,9 +236,10 @@ export function getAiSettings(): AiSettings {
 export function saveAiSettings(settings: AiSettings): void {
   if (typeof window === "undefined") return
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
+    const publicSettings = withoutApiKeys(settings)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(publicSettings))
     // 派发全局变更事件，通知所有打开的组件无缝同步
-    window.dispatchEvent(new CustomEvent("lexiflow_ai_settings_updated", { detail: settings }))
+    window.dispatchEvent(new CustomEvent("lexiflow_ai_settings_updated", { detail: publicSettings }))
   } catch (e) {
     console.error("保存 AI 配置失败:", e)
   }
@@ -243,7 +260,8 @@ export function applyServerAiConfig(account: AiAccountConfig): AiSettings {
     const preset = getProviderPreset(pid)
     settings.providers[pid] = {
       displayName: entry.displayName ?? settings.providers[pid]?.displayName,
-      apiKey: entry.apiKey ?? "",
+      apiKey: "",
+      configured: entry.configured,
       apiHost: entry.apiHost || preset.defaultHost,
       selectedModel: entry.selectedModel || preset.defaultModel,
       customModels: entry.customModels ?? [],
@@ -266,7 +284,7 @@ export function toSavePayload(settings: AiSettings): AiConfigSavePayload {
     providers: (Object.keys(settings.providers) as AiProviderId[]).map((pid) => ({
       provider: pid,
       displayName: settings.providers[pid].displayName,
-      apiKey: settings.providers[pid].apiKey,
+      apiKey: settings.providers[pid].apiKey || undefined,
       apiHost: settings.providers[pid].apiHost,
       selectedModel: settings.providers[pid].selectedModel,
       customModels: settings.providers[pid].customModels,
@@ -297,7 +315,7 @@ export function getActiveAiConfig(): {
   const provider = settings.activeProvider
   const preset = getProviderPreset(provider)
   const pConfig = settings.providers[provider] || getDefaultAiSettings().providers[provider] || {
-    apiKey: "", apiHost: preset.defaultHost, selectedModel: preset.defaultModel, customModels: [],
+    apiKey: "", configured: false, apiHost: preset.defaultHost, selectedModel: preset.defaultModel, customModels: [],
   }
 
   const apiHost = pConfig.apiHost || preset.defaultHost
@@ -305,7 +323,7 @@ export function getActiveAiConfig(): {
   const model = pConfig.selectedModel || preset.defaultModel
 
   // Ollama 本地运行不需要必填 key
-  const isConfigured = provider === "ollama" ? true : apiKey.trim().length > 0
+  const isConfigured = provider === "ollama" || Boolean(pConfig.configured) || apiKey.trim().length > 0
 
   return {
     provider,

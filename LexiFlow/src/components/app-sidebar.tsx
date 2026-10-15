@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation"
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader } from "@/components/ui/sidebar"
-import { authApi, getToken, vocabApi } from "@/lib/api-client"
+import { authApi, vocabApi } from "@/lib/api-client"
+import { getAiSettings, loadAiSettingsFromServer } from "@/lib/ai-config"
 import {
   BarChart3Icon,
   BookOpenIcon,
@@ -28,19 +29,19 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 
   React.useEffect(() => {
     let mounted = true
-    if (getToken()) {
-      void authApi.getMe()
-        .then((profile) => {
-          if (mounted) {
-            setUser({
-              name: profile.nickname || profile.username,
-              email: profile.email,
-              avatar: profile.avatar || "",
-            })
-          }
-        })
-        .catch(() => {})
-    }
+    getAiSettings()
+    void loadAiSettingsFromServer().catch(() => {})
+    void authApi.getMe()
+      .then((profile) => {
+        if (mounted) {
+          setUser({
+            name: profile.nickname || profile.username,
+            email: profile.email,
+            avatar: profile.avatar || "",
+          })
+        }
+      })
+      .catch(() => {})
     return () => { mounted = false }
   }, [])
 

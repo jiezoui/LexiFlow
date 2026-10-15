@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const apiBase = (process.env.LEXIFLOW_API_BASE || "http://127.0.0.1:8080").replace(/\/$/, "")
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   // 隐藏 Next.js 开发环境左下角/角落的 "N" 开发指示器图标（Dev Tools Indicator）
   devIndicators: false,
   // Next.js 16 默认只允许 `localhost` 访问开发资源（HMR、客户端 chunk 等），

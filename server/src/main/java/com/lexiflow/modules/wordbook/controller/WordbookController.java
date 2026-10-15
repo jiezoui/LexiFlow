@@ -36,8 +36,7 @@ public class WordbookController {
     private final WordbookService wordbookService;
 
     private Long resolveUserId() {
-        Long uid = UserContext.getCurrentUserId();
-        return uid != null ? uid : 1L;
+        return UserContext.requireCurrentUserId();
     }
 
     @Operation(

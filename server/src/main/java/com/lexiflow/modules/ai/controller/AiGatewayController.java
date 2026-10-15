@@ -1,6 +1,8 @@
 package com.lexiflow.modules.ai.controller;
 
 import com.lexiflow.common.result.Result;
+import com.lexiflow.common.exception.BusinessException;
+import com.lexiflow.common.result.ResultCode;
 import com.lexiflow.infra.security.UserContext;
 import com.lexiflow.modules.ai.dto.AiConfigSaveRequest;
 import com.lexiflow.modules.ai.dto.AiExplainRequest;
@@ -33,7 +35,7 @@ public class AiGatewayController {
 
     @Operation(
             summary = "读取账号级 AI 配置",
-            description = "返回当前账号保存的各供应商凭据、主用模型、最近一次探测结论与应用场景开关",
+            description = "返回各供应商的配置状态、主用模型和探测结论；不返回已保存的 API Key",
             security = @SecurityRequirement(name = "BearerAuth")
     )
     @GetMapping("/config")
@@ -49,7 +51,7 @@ public class AiGatewayController {
     )
     @PutMapping("/config")
     public Result<AiConfigVo> saveConfig(@RequestBody AiConfigSaveRequest request) {
-        Long userId = UserContext.requireCurrentUserId();
+        Long userId = requireConfigOwner();
         return Result.success(aiConfigService.saveConfig(userId, request));
     }
 
@@ -62,7 +64,7 @@ public class AiGatewayController {
     public Result<AiConfigVo> clearProvider(
             @Parameter(description = "供应商标识", example = "deepseek")
             @PathVariable("provider") String provider) {
-        Long userId = UserContext.requireCurrentUserId();
+        Long userId = requireConfigOwner();
         return Result.success(aiConfigService.clearProvider(userId, provider));
     }
 
@@ -71,8 +73,16 @@ public class AiGatewayController {
     public Result<AiConfigVo> deleteCustomProvider(
             @Parameter(description = "自定义供应商标识")
             @PathVariable("provider") String provider) {
-        Long userId = UserContext.requireCurrentUserId();
+        Long userId = requireConfigOwner();
         return Result.success(aiConfigService.deleteCustomProvider(userId, provider));
+    }
+
+    private Long requireConfigOwner() {
+        Long userId = UserContext.getCurrentUserId();
+        if (userId == null && "3".equals(System.getenv("LEXIFLOW_DEFAULT_USER_ID"))) {
+            throw new BusinessException(ResultCode.FORBIDDEN.getCode(), "演示访问不能修改 AI 凭据");
+        }
+        return userId != null ? userId : UserContext.requireCurrentUserId();
     }
 
     @Operation(summary = "测试 API Key 与模型连通性", description = "测试目标服务商、Base URL、API Key 与模型的联通延迟并校验鉴权有效性")

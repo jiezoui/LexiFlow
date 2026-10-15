@@ -318,7 +318,7 @@ public class AiConfigServiceImpl implements AiConfigService {
         return AiProviderConfigVo.builder()
                 .provider(provider)
                 .displayName(entity != null ? entity.getDisplayName() : null)
-                .apiKey(apiKey)
+                .apiKey("")
                 .apiHost(entity != null && StringUtils.hasText(entity.getApiHost())
                         ? entity.getApiHost() : AiConfigStoreImpl.defaultHostFor(provider))
                 .selectedModel(entity != null && StringUtils.hasText(entity.getModel())

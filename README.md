@@ -15,13 +15,9 @@ LexiFlow 是面向中文英语学习者的语境学习系统。词书学习、�
 
 部分功能依赖网络、模型下载或第三方服务。只启动前端和核心后端时，媒体转写与语音评测等能力不可用。
 
-## 演示测试账号
+## 本地体验
 
-- **系统地址**：`http://localhost:3000`
-- **测试账号**：`test_user`
-- **测试密码**：`123456`
-
-> **演示数据**：若需体验包含上述测试账号、522 篇精读外刊及多模态精听记录的完整数据，可将 [deploy/lexiflow_db_demo.sql](./deploy/lexiflow_db_demo.sql) 导入数据库；亦可直接启动后端由 Flyway 自动完成基础表结构初始化。
+打开 `http://localhost:3000`，首次启动后通过注册页创建自己的本地账号。Flyway 会在空数据库中创建表结构；生产演示账号、用户数据和 API 凭据不随源码发布。
 
 ## 项目结构
 
@@ -59,6 +55,21 @@ LexiFlow 是面向中文英语学习者的语境学习系统。词书学习、�
 
 ---
 
+## 本地容器快速启动
+
+安装 Docker、JDK 17 和 Maven 后，在仓库根目录执行：
+
+```powershell
+mvn -f server/pom.xml -DskipTests package
+docker compose -f deploy/local/compose.yml up --build -d
+```
+
+浏览器打开 `http://localhost:3000`，首次使用在注册页创建账号。数据库只绑定本机 `3307`，后端只绑定本机 `8080`，应用只绑定本机 `3000`。默认口令只用于本机开发；如需在局域网或公网开放端口，先通过 `LEXIFLOW_LOCAL_DB_ROOT_PASSWORD`、`LEXIFLOW_LOCAL_DB_PASSWORD`、`LEXIFLOW_LOCAL_JWT_SECRET` 和 `LEXIFLOW_LOCAL_WORKER_TOKEN` 设置独立值。
+
+停机使用 `docker compose -f deploy/local/compose.yml down`；本地学习数据保留在 Docker volume 中。语音、媒体转写和外部 AI 功能分别需要模型、Worker 或使用者自行配置的 API 凭据；下文列有启动方法。
+
+---
+
 ## 本地与容器化启动指南
 
 以下所有命令均以仓库根目录为起点。
@@ -83,7 +94,7 @@ CREATE DATABASE IF NOT EXISTS lexiflow_db
   COLLATE utf8mb4_unicode_ci;
 ```
 
-> **注意**：后端启动时由 Flyway 自动执行 [迁移脚本](./server/src/main/resources/db/migration/) 中的 `V1` 至 `V15` 版本建表与数据初始化，**无需手动导入** `schema.sql`。如需完整演示数据（含测试账号、522 篇外刊与精听记录），可在建库后导入 [deploy/lexiflow_db_demo.sql](./deploy/lexiflow_db_demo.sql)；亦可按需导入基础 [seed.sql](./server/src/main/resources/db/seed.sql)。
+> **注意**：后端启动时由 Flyway 自动执行 [迁移脚本](./server/src/main/resources/db/migration/) 建表；无需导入生产数据库。需要少量公开样例时可自行审查并导入基础 [seed.sql](./server/src/main/resources/db/seed.sql)。
 
 ---
 

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 # ── 路径推导 ────────────────────────────────────────────────────────────────
@@ -24,9 +25,29 @@ MODEL_CACHE_DIR = Path(
 ESPEAK_ROOT = Path(
     os.getenv("LEXIFLOW_ESPEAK_ROOT", REPO_ROOT / ".devtools" / "espeak-ng" / "eSpeak NG")
 )
-ESPEAK_LIBRARY = ESPEAK_ROOT / "libespeak-ng.dll"
-ESPEAK_DATA = ESPEAK_ROOT / "espeak-ng-data"
-ESPEAK_BINARY = ESPEAK_ROOT / "espeak-ng.exe"
+if os.name == "nt":
+    _espeak_library = ESPEAK_ROOT / "libespeak-ng.dll"
+    _espeak_data = ESPEAK_ROOT / "espeak-ng-data"
+    _espeak_binary = ESPEAK_ROOT / "espeak-ng.exe"
+else:
+    # Linux packages install the executable and shared library separately.
+    _espeak_library = next(
+        (p for root in (Path("/usr/lib"), Path("/lib"))
+         for pattern in ("libespeak-ng.so*", "*/libespeak-ng.so*")
+         for p in root.glob(pattern) if p.is_file()),
+        Path("/usr/lib/libespeak-ng.so.1"),
+    )
+    _espeak_data = next(
+        (p for root in (Path("/usr/lib"), Path("/usr/share"))
+         for pattern in ("espeak-ng-data", "*/espeak-ng-data")
+         for p in root.glob(pattern) if p.is_dir()),
+        Path("/usr/share/espeak-ng-data"),
+    )
+    _espeak_binary = Path(shutil.which("espeak-ng") or "/usr/bin/espeak-ng")
+
+ESPEAK_LIBRARY = Path(os.getenv("LEXIFLOW_ESPEAK_LIBRARY", _espeak_library))
+ESPEAK_DATA = Path(os.getenv("LEXIFLOW_ESPEAK_DATA", _espeak_data))
+ESPEAK_BINARY = Path(os.getenv("LEXIFLOW_ESPEAK_BINARY", _espeak_binary))
 
 # 前台录音/上传的临时落盘目录
 UPLOAD_DIR = Path(os.getenv("LEXIFLOW_SPEECH_UPLOAD_DIR", SERVICE_DIR / ".uploads"))

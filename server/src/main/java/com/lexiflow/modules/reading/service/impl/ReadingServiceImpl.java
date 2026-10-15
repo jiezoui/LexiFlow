@@ -124,7 +124,7 @@ public class ReadingServiceImpl extends ServiceImpl<ReadingArticleMapper, Readin
                 .sourceName(entity.getSourceName())
                 .title(entity.getTitle())
                 .link(entity.getLink())
-                .coverUrl(entity.getCoverUrl())
+                .coverUrl(coverUrlForBrowser(entity))
                 .summary(entity.getSummary())
                 .paragraphs(paragraphs)
                 .wordCount(wordCount)
@@ -280,7 +280,7 @@ public class ReadingServiceImpl extends ServiceImpl<ReadingArticleMapper, Readin
                 .sourceName(entity.getSourceName())
                 .title(entity.getTitle())
                 .link(entity.getLink())
-                .coverUrl(entity.getCoverUrl())
+                .coverUrl(coverUrlForBrowser(entity))
                 .summary(entity.getSummary())
                 .wordCount(wordCount)
                 .readMinutes(readMinutes)
@@ -288,6 +288,14 @@ public class ReadingServiceImpl extends ServiceImpl<ReadingArticleMapper, Readin
                 .targetWords(targetWords)
                 .publishedAt(entity.getPublishedAt())
                 .build();
+    }
+
+    private String coverUrlForBrowser(ReadingArticleEntity entity) {
+        String url = entity.getCoverUrl();
+        if (!StringUtils.hasText(url) || !url.startsWith("https://")) {
+            return url;
+        }
+        return "/api/reading/covers/" + entity.getId();
     }
 
     private List<String> parseJsonList(String json) {

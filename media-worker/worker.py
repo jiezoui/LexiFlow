@@ -258,6 +258,46 @@ def browser_compatible(probe_data: dict[str, Any]) -> bool:
     )
 
 
+def needs_browser_remux(source: Path) -> bool:
+    """Browsers need a regular MP4 index before media data, not fMP4 fragments."""
+    file_size = source.stat().st_size
+    saw_moov = False
+    with source.open("rb") as media:
+        position = 0
+        while position + 8 <= file_size:
+            media.seek(position)
+            header = media.read(8)
+            atom_size = int.from_bytes(header[:4], "big")
+            atom_type = header[4:]
+            header_size = 8
+            if atom_size == 1:
+                extended = media.read(8)
+                if len(extended) != 8:
+                    break
+                atom_size = int.from_bytes(extended, "big")
+                header_size = 16
+            elif atom_size == 0:
+                atom_size = file_size - position
+            if atom_size < header_size or position + atom_size > file_size:
+                break
+            if atom_type == b"moof":
+                return True
+            if atom_type == b"moov":
+                saw_moov = True
+            if atom_type == b"mdat":
+                return not saw_moov
+            position += atom_size
+    return False
+
+
+def remux_faststart(source: Path, target: Path) -> None:
+    run([
+        CONFIG.ffmpeg, "-y", "-i", str(source),
+        "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
+        "-movflags", "+faststart", str(target),
+    ])
+
+
 def transcode(source: Path, target: Path) -> None:
     run(
         [
@@ -515,6 +555,12 @@ def handle(job: dict[str, Any]) -> None:
                 progress(job_id, "TRANSCODING", 20)
                 playback_source = task / "playback.mp4"
                 transcode(source, playback_source)
+            elif needs_browser_remux(source):
+                progress(job_id, "TRANSCODING", 20)
+                playback_source = task / "playback.mp4"
+                remux_faststart(source, playback_source)
+
+            if playback_source != source:
                 upload_playback(media_id, playback_source)
                 playback_probe = probe(playback_source)
                 api("POST", f"/internal/media/{media_id}/probe", json=probe_payload(playback_probe))

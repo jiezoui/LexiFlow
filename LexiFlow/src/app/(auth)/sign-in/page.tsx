@@ -14,9 +14,12 @@ import {
 } from "lucide-react"
 import { AuthVisualPanel } from "@/components/login/auth-visual-panel"
 import { InteractiveHoverButton } from "@/components/ui/interactive-hover-button"
+
+const subscribeToClient = () => () => {}
 import { authApi, setToken } from "@/lib/api-client"
 
 export default function SignInPage() {
+  const isReady = React.useSyncExternalStore(subscribeToClient, () => true, () => false)
   const [showPassword, setShowPassword] = React.useState(false)
   const [isTyping, setIsTyping] = React.useState(false)
   const [email, setEmail] = React.useState("")
@@ -76,7 +79,7 @@ export default function SignInPage() {
             <h1 className="text-3xl font-bold tracking-tight">登录</h1>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form method="post" onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
               <label htmlFor="email" className="text-sm font-medium">
                 账号
@@ -84,6 +87,7 @@ export default function SignInPage() {
               <div className="relative">
                 <MailIcon className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <input
+                  disabled={!isReady}
                   id="email"
                   name="email"
                   type="text"
@@ -107,6 +111,7 @@ export default function SignInPage() {
               <div className="relative">
                 <LockIcon className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <input
+                  disabled={!isReady}
                   id="password"
                   name="password"
                   type={showPassword ? "text" : "password"}
@@ -139,7 +144,7 @@ export default function SignInPage() {
             <InteractiveHoverButton
               type="submit"
               text={isLoading ? "登入中…" : isSuccess ? "登入成功" : "登入"}
-              disabled={isLoading || isSuccess}
+              disabled={!isReady || isLoading || isSuccess}
               className="h-12 w-full text-base font-medium disabled:cursor-not-allowed disabled:opacity-70"
               icon={
                 isLoading ? (

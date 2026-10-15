@@ -1732,7 +1732,7 @@ export const channelApi = {
     const formData = new FormData()
     formData.append("file", file)
     const token = getToken()
-    const res = await fetch("http://localhost:8080/api/channels/import-opml", {
+    const res = await fetch("/api/channels/import-opml", {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: formData,

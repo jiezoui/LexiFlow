@@ -16,11 +16,14 @@ import {
 } from "lucide-react"
 import { AuthVisualPanel } from "@/components/login/auth-visual-panel"
 import { InteractiveHoverButton } from "@/components/ui/interactive-hover-button"
+
+const subscribeToClient = () => () => {}
 import { authApi } from "@/lib/api-client"
 
 const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,30}$/
 
 export default function SignUpPage() {
+  const isReady = React.useSyncExternalStore(subscribeToClient, () => true, () => false)
   const [showPassword, setShowPassword] = React.useState(false)
   const [isTyping, setIsTyping] = React.useState(false)
   const [nickname, setNickname] = React.useState("")
@@ -93,7 +96,7 @@ export default function SignUpPage() {
             <h1 className="text-3xl font-bold tracking-tight">创建账号</h1>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form method="post" onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
               <label htmlFor="nickname" className="text-sm font-medium">
                 昵称 <span className="text-muted-foreground">（可选）</span>
@@ -101,6 +104,7 @@ export default function SignUpPage() {
               <div className="relative">
                 <UserIcon className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <input
+                  disabled={!isReady}
                   id="nickname"
                   type="text"
                   autoComplete="nickname"
@@ -121,6 +125,7 @@ export default function SignUpPage() {
               <div className="relative">
                 <AtSignIcon className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <input
+                  disabled={!isReady}
                   id="username"
                   type="text"
                   autoComplete="username"
@@ -142,6 +147,7 @@ export default function SignUpPage() {
               <div className="relative">
                 <MailIcon className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <input
+                  disabled={!isReady}
                   id="email"
                   type="email"
                   autoComplete="email"
@@ -163,6 +169,7 @@ export default function SignUpPage() {
               <div className="relative">
                 <LockIcon className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <input
+                  disabled={!isReady}
                   id="password"
                   type={showPassword ? "text" : "password"}
                   autoComplete="new-password"
@@ -194,7 +201,7 @@ export default function SignUpPage() {
             <InteractiveHoverButton
               type="submit"
               text={isLoading ? "创建中…" : isSuccess ? "创建成功，正在跳转" : "创建账号"}
-              disabled={isLoading || isSuccess}
+              disabled={!isReady || isLoading || isSuccess}
               className="h-12 w-full text-base font-medium disabled:cursor-not-allowed disabled:opacity-70"
               icon={
                 isLoading ? (

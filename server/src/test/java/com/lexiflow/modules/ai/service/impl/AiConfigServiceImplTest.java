@@ -3,6 +3,7 @@ package com.lexiflow.modules.ai.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lexiflow.common.exception.BusinessException;
 import com.lexiflow.modules.ai.entity.AiPreferenceEntity;
+import com.lexiflow.modules.ai.entity.AiProviderConfigEntity;
 import com.lexiflow.modules.ai.mapper.AiPreferenceMapper;
 import com.lexiflow.modules.ai.mapper.AiProviderConfigMapper;
 import com.lexiflow.modules.ai.service.AiConfigStore;
@@ -30,6 +31,23 @@ class AiConfigServiceImplTest {
     @Mock private AiGatewayService aiGatewayService;
     @Mock private ObjectMapper objectMapper;
     @InjectMocks private AiConfigServiceImpl service;
+
+    @Test
+    void configuredProviderDoesNotExposeStoredApiKey() {
+        AiProviderConfigEntity provider = AiProviderConfigEntity.builder()
+                .userId(7L)
+                .provider("deepseek")
+                .apiKey("server-only-secret")
+                .build();
+        when(configStore.findProvider(7L, "deepseek")).thenReturn(provider);
+        when(providerConfigMapper.selectList(any())).thenReturn(List.of());
+
+        var result = service.getConfig(7L);
+
+        assertEquals(true, result.getActiveConfigured());
+        assertEquals("", result.getProviders().get(0).getApiKey());
+        assertEquals("server-only-secret", provider.getApiKey());
+    }
 
     @Test
     void deletingActiveCustomProviderFallsBackToDefault() {

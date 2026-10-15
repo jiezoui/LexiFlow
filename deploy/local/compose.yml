@@ -1,0 +1,64 @@
+name: lexiflow-local
+
+# Local development stack. Production configuration and user data are separate.
+services:
+  db:
+    image: mysql:8.0.40
+    environment:
+      MYSQL_ROOT_PASSWORD: ${LEXIFLOW_LOCAL_DB_ROOT_PASSWORD:-lexiflow-local-root}
+      MYSQL_DATABASE: lexiflow_db
+      MYSQL_USER: lexiflow
+      MYSQL_PASSWORD: ${LEXIFLOW_LOCAL_DB_PASSWORD:-lexiflow-local-user}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "127.0.0.1:3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  backend:
+    build:
+      context: ../../server
+      dockerfile: Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/lexiflow_db?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_USERNAME: lexiflow
+      SPRING_DATASOURCE_PASSWORD: ${LEXIFLOW_LOCAL_DB_PASSWORD:-lexiflow-local-user}
+      LEXIFLOW_JWT_SECRET: ${LEXIFLOW_LOCAL_JWT_SECRET:-lexiflow-local-only-jwt-secret-change-before-sharing}
+      LEXIFLOW_MEDIA_WORKER_TOKEN: ${LEXIFLOW_LOCAL_WORKER_TOKEN:-lexiflow-local-only-worker-token}
+      LEXIFLOW_DEFAULT_USER_ID: "1"
+      LEXIFLOW_STORAGE_ROOT: /app/storage
+      LEXIFLOW_ECDICT_CSV_PATH: /app/material/ecdict.csv
+      LEXIFLOW_LIBRETRANSLATE_ENABLED: "false"
+      LEXIFLOW_OPENAI_TRANSLATION_ENABLED: "false"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ../../material:/app/material:ro
+      - media_data:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../../LexiFlow
+      dockerfile: Dockerfile
+    environment:
+      SPEECH_BRIDGE_URL: ${LEXIFLOW_LOCAL_SPEECH_URL:-http://host.docker.internal:8100}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
+  media_data:

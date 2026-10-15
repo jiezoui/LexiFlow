@@ -126,7 +126,8 @@ def synthesize(
         raise ValueError("文本为空，无法合成参考音")
 
     speed = max(0.5, min(2.0, float(speed)))
-    requested = (engine or _engine()).lower()
+    # Keep auto until the attempt loop so a failed online engine falls back.
+    requested = (engine or os.getenv("LEXIFLOW_TTS_ENGINE", "auto")).lower()
 
     order = (
         ["edge", "espeak"] if requested == "auto" else [requested]

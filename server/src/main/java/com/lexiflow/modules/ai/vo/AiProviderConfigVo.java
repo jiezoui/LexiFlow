@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 import java.util.List;
 
 /**
- * 单个供应商的完整配置（含凭据），仅返回给凭据所属账号本人。
+ * 单个供应商的公开配置；已保存的凭据仅供服务端调用。
  */
 @Data
 @Builder
@@ -21,6 +21,7 @@ public class AiProviderConfigVo {
     private String provider;
     private String displayName;
 
+    @Schema(description = "保留空值以兼容旧客户端，绝不返回已保存的凭据")
     private String apiKey;
 
     private String apiHost;

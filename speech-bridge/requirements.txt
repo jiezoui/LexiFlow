@@ -25,6 +25,7 @@ torchaudio==2.3.1
 # transformers 通过发行版元数据检测依赖，fork 只提供同名模块而缺少
 # ``phonemizer`` 这个 dist，导致 Wav2Vec2PhonemeCTCTokenizer 加载直接失败。
 phonemizer>=3.3
+edge-tts>=7.0
 
 # 可选：阿里 SenseVoice（中/粤/英/日/韩，中文场景更快）
 # funasr>=1.1.3

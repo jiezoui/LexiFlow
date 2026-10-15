@@ -44,6 +44,7 @@ Thumbs.db
 .deploy-cache/
 speech-bridge/.venv/
 speech-bridge/.uploads/
+speech-bridge/.wheelhouse/
 __pycache__/
 **/__pycache__/
 *.py[cod]
@@ -59,3 +60,7 @@ storage/
 scratch_*.txt
 SHADOWING-DEPLOY.md
 视频模块开发文档.md
+
+# Local demo exports and machine-specific deployment config
+deploy/lexiflow_db_demo.sql
+deploy/nginx/lexiflow-port96.conf

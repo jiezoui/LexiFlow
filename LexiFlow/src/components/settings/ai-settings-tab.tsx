@@ -108,6 +108,7 @@ export function AiSettingsTab() {
   ]
   const currentProviderConfig = settings.providers[activeProvider] ?? {
     apiKey: "",
+    configured: false,
     apiHost: preset.defaultHost,
     selectedModel: preset.defaultModel,
     customModels: [],
@@ -131,7 +132,7 @@ export function AiSettingsTab() {
     const isOllama = activeProvider === "ollama"
     const apiKey = (currentProviderConfig.apiKey ?? "").trim()
     const apiHost = (currentProviderConfig.apiHost ?? "").trim()
-    if (!isOllama && !apiKey) {
+    if (!isOllama && !apiKey && !currentProviderConfig.configured) {
       setDetection(null)
       return
     }
@@ -167,17 +168,17 @@ export function AiSettingsTab() {
     } finally {
       setFetchingModels(false)
     }
-  }, [activeProvider, currentProviderConfig.apiKey, currentProviderConfig.apiHost, preset.presetModels])
+  }, [activeProvider, currentProviderConfig.apiKey, currentProviderConfig.apiHost, currentProviderConfig.configured, preset.presetModels])
 
   React.useEffect(() => {
     const apiKey = (currentProviderConfig.apiKey ?? "").trim()
-    if (activeProvider !== "ollama" && !apiKey) {
+    if (activeProvider !== "ollama" && !apiKey && !currentProviderConfig.configured) {
       setDetection(null)
       return
     }
     const timer = setTimeout(() => { void triggerDetection() }, 700)
     return () => clearTimeout(timer)
-  }, [activeProvider, currentProviderConfig.apiKey, currentProviderConfig.apiHost, triggerDetection])
+  }, [activeProvider, currentProviderConfig.apiKey, currentProviderConfig.apiHost, currentProviderConfig.configured, triggerDetection])
 
   const updateCurrentConfig = (updates: Partial<typeof currentProviderConfig>) => {
     setSettings((prev) => ({
@@ -305,7 +306,7 @@ export function AiSettingsTab() {
               const provider = settings.providers[id]
               const selected = !addingProvider && id === activeProvider
               const name = providerLabel(id, provider?.displayName)
-              const configured = id === "ollama" || Boolean(provider?.apiKey)
+              const configured = id === "ollama" || Boolean(provider?.configured || provider?.apiKey)
               return (
                 <button
                   key={id}
@@ -406,7 +407,7 @@ export function AiSettingsTab() {
                     )}
                   </div>
                   <div className="relative">
-                    <Input id="provider-key" type={showKey ? "text" : "password"} autoComplete="off" value={currentProviderConfig.apiKey} onChange={(event) => updateCurrentConfig({ apiKey: event.target.value })} className="pr-10 font-mono text-xs" placeholder="输入 API Key" />
+                    <Input id="provider-key" type={showKey ? "text" : "password"} autoComplete="off" value={currentProviderConfig.apiKey} onChange={(event) => updateCurrentConfig({ apiKey: event.target.value })} className="pr-10 font-mono text-xs" placeholder={currentProviderConfig.configured ? "已在服务器配置；输入新 Key 可替换" : "输入 API Key"} />
                     <button type="button" onClick={() => setShowKey(!showKey)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={showKey ? "隐藏密钥" : "显示密钥"}>
                       {showKey ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
                     </button>
@@ -429,7 +430,7 @@ export function AiSettingsTab() {
             <section className="space-y-3 border-t border-border/70 pt-6" aria-labelledby="model-heading">
               <div className="flex items-center justify-between gap-3">
                 <h4 id="model-heading" className="text-sm font-semibold">模型</h4>
-                <button type="button" onClick={() => void triggerDetection()} disabled={fetchingModels || (activeProvider !== "ollama" && !currentProviderConfig.apiKey)} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40">
+                <button type="button" onClick={() => void triggerDetection()} disabled={fetchingModels || (activeProvider !== "ollama" && !currentProviderConfig.apiKey && !currentProviderConfig.configured)} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40">
                   <RefreshCwIcon className={cn("size-3.5", fetchingModels && "animate-spin")} />{fetchingModels ? "检测中" : "检测模型"}
                 </button>
               </div>
