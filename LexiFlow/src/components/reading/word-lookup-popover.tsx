@@ -23,7 +23,6 @@ import {
   dictApi,
   vocabApi,
   aiApi,
-  parseJsonArray,
   type DictEntry,
   type UserWordCard,
   type AiExplainResult,
@@ -111,34 +110,25 @@ function isThinkingNoise(text?: string | null): boolean {
   )
 }
 
-function getCleanContextMeaning(
-  aiResult: AiExplainResult | null,
-  entry: DictEntry | null,
-  word: string
-): string {
-  if (!aiResult) return entry?.definitionCn || word
-
-  const rawMeaning = aiResult.contextMeaning?.trim() || ""
-
-  // 严禁展示思考草稿、解析完成占位符、单词自身或prompt泄漏文本
-  if (
-    rawMeaning &&
-    !isThinkingNoise(rawMeaning) &&
-    !rawMeaning.includes("解析完成") &&
-    rawMeaning.toLowerCase() !== word.toLowerCase()
-  ) {
-    const cleaned = rawMeaning.replace(/<[^>]+>/g, "").replace(/^[#*`\s]+|[#*`\s]+$/g, "").trim()
-    if (cleaned && !isThinkingNoise(cleaned)) {
-      return cleaned
-    }
+function getAiExplainError(result: AiExplainResult | null): string {
+  if (!result) return ""
+  const meaning = result.contextMeaning?.trim() || ""
+  if (/^AI 解析请求失败 \(HTTP (401|403)\)/.test(meaning)) return "API Key 无效或没有访问权限，请在 AI 设置中检查。"
+  if (/^AI 解析请求失败 \(HTTP 429\)/.test(meaning)) return "AI 服务请求过于频繁，请稍后重试。"
+  if (/^(AI 解析请求失败|解析异常:|AI 解析服务暂时不可用|暂无解析结果|模型返回格式不符合要求)/.test(meaning)) {
+    return meaning
   }
+  return ""
+}
 
-  // 优先降级至离线词典高质量中文释义
-  if (entry?.definitionCn && !entry.definitionCn.includes("自定义导入")) {
-    return entry.definitionCn
-  }
+function cleanAiText(text?: string | null): string {
+  if (!text || isThinkingNoise(text)) return ""
+  return text.replace(/<[^>]+>/g, "").trim()
+}
 
-  return word
+function getDictionaryMeaning(entry: DictEntry | null): string {
+  const meaning = entry?.definitionCn?.trim() || ""
+  return meaning && !meaning.includes("自定义导入") ? meaning : ""
 }
 
 function renderHighlightedText(text: string, targetWord: string) {
@@ -209,6 +199,17 @@ export function WordLookupPopover({
 
   // 形态学词形还原
   const lemmatized = lemmatize(word)
+  const aiConfigured = aiConfig.isConfigured
+  const currentAiResult = aiResult?.word?.toLowerCase() === word.toLowerCase() ? aiResult : null
+  const aiError = getAiExplainError(currentAiResult)
+  const dictionaryMeaning = getDictionaryMeaning(entry)
+  const aiMeaning = cleanAiText(currentAiResult?.contextMeaning)
+  const validAiMeaning = !aiError && aiMeaning && !aiMeaning.includes("解析完成") && aiMeaning.toLowerCase() !== word.toLowerCase()
+    ? aiMeaning : ""
+  const grammarRole = cleanAiText(currentAiResult?.grammarRole)
+  const collocations = (currentAiResult?.collocations || []).map(cleanAiText).filter(Boolean).slice(0, 3)
+  const usageNote = cleanAiText(currentAiResult?.usageNote)
+  const hasAiAnalysis = Boolean(validAiMeaning || grammarRole || collocations.length || usageNote)
 
   // 当打开 AI 解析弹窗且配置有效时，优先命中客户端缓存或拉取解析
   useEffect(() => {
@@ -218,11 +219,11 @@ export function WordLookupPopover({
     if (!enabled) return
     const cfg = getActiveAiConfig()
     setAiConfig(cfg)
-    if (cfg.isConfigured && !aiResult) {
+    if (cfg.isConfigured && (!aiResult || aiResult.word.toLowerCase() !== word.toLowerCase())) {
       const targetSentence = (contextSentence || contextParagraph || entry?.sampleSentence || "").trim()
       const cacheKey = `${cfg.provider}:${cfg.model}:${word}:${targetSentence}`
       const cached = aiSessionCache.get(cacheKey)
-      if (cached && cached.contextMeaning && !cached.contextMeaning.includes("解析完成")) {
+      if (cached && !getAiExplainError(cached) && cached.contextMeaning && !cached.contextMeaning.includes("解析完成")) {
         setAiResult(cached)
         if (cached.sentenceTranslation && !contextTrans) {
           setContextTrans(cached.sentenceTranslation.trim())
@@ -294,7 +295,7 @@ export function WordLookupPopover({
     // 仅针对无追问的默认全量解析命中前端缓存
     if (isDefaultQuery && aiSessionCache.has(cacheKey)) {
       const cached = aiSessionCache.get(cacheKey)!
-      if (cached.contextMeaning && !cached.contextMeaning.includes("解析完成")) {
+      if (!getAiExplainError(cached) && cached.contextMeaning && !cached.contextMeaning.includes("解析完成")) {
         setAiResult(cached)
         if (cached.sentenceTranslation && !contextTrans) {
           setContextTrans(cached.sentenceTranslation.trim())
@@ -318,6 +319,7 @@ export function WordLookupPopover({
       if (
         isDefaultQuery &&
         res.contextMeaning &&
+        !getAiExplainError(res) &&
         !res.contextMeaning.includes("解析完成") &&
         !res.contextMeaning.includes("失败")
       ) {
@@ -840,10 +842,10 @@ export function WordLookupPopover({
             </div>
 
             {/* 4. 语境释义微栏 */}
-            {contextSentence && (
+            {contextSentence && (readingAiEnabled && aiConfigured && validAiMeaning || dictionaryMeaning) && (
               <div className="rounded-xl bg-muted/40 border-l-2 border-primary/60 px-2.5 py-1.5 text-[11.5px] text-muted-foreground leading-relaxed">
-                <span className="font-semibold text-foreground">当前句义：</span>
-                {getCleanContextMeaning(aiResult, entry, word)}
+                <span className="font-semibold text-foreground">{readingAiEnabled && aiConfigured && validAiMeaning ? "当前句义：" : "词典释义："}</span>
+                {readingAiEnabled && aiConfigured && validAiMeaning ? validAiMeaning : dictionaryMeaning}
               </div>
             )}
 
@@ -932,9 +934,9 @@ export function WordLookupPopover({
                   <span className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground">
                     {entry?.lemma || word}
                   </span>
-                  <span className="font-serif italic font-semibold text-sm sm:text-base text-primary">
-                    {entry?.pos ? `[${entry.pos.replace(/[\[\]]/g, "").trim()}]` : "[v.]"}
-                  </span>
+                  {entry?.pos && <span className="font-serif italic font-semibold text-sm sm:text-base text-primary">
+                    [{entry.pos.replace(/[\[\]]/g, "").trim()}]
+                  </span>}
                 </div>
 
                 <div className="flex items-center gap-1">
@@ -962,20 +964,27 @@ export function WordLookupPopover({
                 </div>
               </div>
 
-              {/* 未配置 AI 引导 */}
+               {(!readingAiEnabled || !aiConfigured || aiError || currentAiResult && !hasAiAnalysis) && (
+                 <div className="border border-border/80 rounded-xl p-3.5 bg-muted/30 text-xs leading-relaxed">
+                   <span className="font-bold text-foreground">词典释义：</span>
+                   <span className="text-foreground/90">{dictionaryMeaning || "暂无词典释义"}</span>
+                 </div>
+               )}
+
+               {/* 未配置 AI 引导 */}
               {!readingAiEnabled ? (
                 <div className="py-6 text-center text-sm text-muted-foreground">
                   词句解析已关闭。<Link href="/settings?tab=ai" className="text-primary underline-offset-2 hover:underline">前往设置</Link>
                 </div>
-              ) : !aiConfig.isConfigured ? (
+               ) : !aiConfigured ? (
                 <div className="p-5 rounded-2xl bg-muted/30 border border-dashed border-border/80 flex flex-col items-center text-center gap-3 my-auto">
                   <div className="size-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
                     <AlertCircleIcon className="size-5" />
                   </div>
                   <div className="space-y-1">
-                    <h5 className="text-xs font-bold text-foreground">尚未配置 AI 大模型 API Key</h5>
+                    <h5 className="text-xs font-bold text-foreground">语境分析尚未生成</h5>
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      配置后即可针对当前主干句获得核心释义、句法剖析与近义词辨析。
+                      配置 API Key 后，可查看当前句子的句法成分、搭配短语和近义辨析。
                     </p>
                   </div>
                   <Link
@@ -986,11 +995,11 @@ export function WordLookupPopover({
                     }}
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all cursor-pointer shadow-sm"
                   >
-                    <span>前往设置中心配置 API Key</span>
+                    <span>前往 AI 设置</span>
                     <ExternalLinkIcon className="size-3" />
                   </Link>
                 </div>
-              ) : aiLoading ? (
+               ) : aiLoading || !currentAiResult ? (
                 /* 优雅骨架屏加载状态 */
                 <div className="space-y-3 animate-pulse py-2">
                   <div className="rounded-xl border border-border bg-muted/30 p-3.5 space-y-2.5">
@@ -1000,33 +1009,34 @@ export function WordLookupPopover({
                   </div>
                   <div className="rounded-xl bg-muted/30 p-3 h-16" />
                 </div>
-              ) : (
+               ) : aiError || !hasAiAnalysis ? (
+                 <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-xs leading-relaxed space-y-3">
+                   <p className="font-semibold text-foreground">语境分析未生成</p>
+                   <p className="text-muted-foreground">{aiError || "AI 未返回有效解析，请重试。"}</p>
+                   <div className="flex flex-wrap items-center gap-3">
+                     <button type="button" onClick={() => handleRequestAiExplain(aiConfig)} className="font-semibold text-primary hover:underline">重试解析</button>
+                     <Link href="/settings?tab=ai" className="text-primary hover:underline">检查 AI 设置</Link>
+                   </div>
+                 </div>
+               ) : (
                 /* 核心分析卡片与近义辨析卡片 */
                 <div className="flex flex-col gap-3">
                   {/* 核心分析区域 (核心释义、句法成分、常用短语) */}
                   <div className="border border-border/80 rounded-xl p-3.5 bg-muted/30 dark:bg-muted/20 flex flex-col gap-2 text-xs sm:text-[12.5px] leading-relaxed">
                     <div>
                       <span className="font-bold text-foreground">核心释义：</span>
-                      <span className="text-foreground/90 font-medium">{getCleanContextMeaning(aiResult, entry, word)}</span>
+                       <span className="text-foreground/90 font-medium">{validAiMeaning || "未返回"}</span>
                     </div>
                     <div>
                       <span className="font-bold text-foreground">句法成分：</span>
                       <span className="text-muted-foreground">
-                        {aiResult?.grammarRole && !isThinkingNoise(aiResult.grammarRole)
-                          ? aiResult.grammarRole.replace(/<[^>]+>/g, "").trim()
-                          : "在当前主干句中充当核心动词与谓语成分"}
+                         {grammarRole || "未返回"}
                       </span>
                     </div>
                     <div>
                       <span className="font-bold text-foreground">常用短语：</span>
                       <span className="font-mono text-[11px] text-primary font-medium">
-                        {aiResult?.collocations && aiResult.collocations.filter((c) => !isThinkingNoise(c)).length > 0
-                          ? aiResult.collocations
-                              .filter((c) => !isThinkingNoise(c))
-                              .slice(0, 3)
-                              .map((c) => c.replace(/<[^>]+>/g, "").trim())
-                              .join(" · ")
-                          : `${entry?.lemma || word} the pace of · ${entry?.lemma || word} transformation`}
+                         {collocations.length > 0 ? collocations.join(" · ") : "未返回"}
                       </span>
                     </div>
                   </div>
@@ -1035,15 +1045,7 @@ export function WordLookupPopover({
                   <div className="bg-muted/40 dark:bg-muted/30 border border-border/40 rounded-xl p-3 text-xs sm:text-[12.5px] leading-relaxed text-muted-foreground">
                     <strong className="text-foreground font-semibold">近义辨析：</strong>
                     <span>
-                      {aiResult?.usageNote && !isThinkingNoise(aiResult.usageNote)
-                        ? aiResult.usageNote.replace(/<[^>]+>/g, "").trim()
-                        : (() => {
-                            const syns = parseJsonArray(entry?.synonyms)
-                            if (syns.length > 0) {
-                              return `同近义词参考：${syns.join(" · ")}`
-                            }
-                            return `${entry?.lemma || word} 强调提升速率或抽象演变，区别于日常通俗物理提速与行政事务提速。`
-                          })()}
+                       {usageNote || "未返回"}
                     </span>
                   </div>
                 </div>
@@ -1063,10 +1065,10 @@ export function WordLookupPopover({
                   {isHarvested ? (
                     <>
                       <CheckIcon className="size-4 stroke-[2.5]" />
-                      <span>已收录此语境解析卡片</span>
+                       <span>已加入生词本</span>
                     </>
                   ) : (
-                    <span>收录此语境解析卡片</span>
+                     <span>加入生词本</span>
                   )}
                 </button>
               </div>

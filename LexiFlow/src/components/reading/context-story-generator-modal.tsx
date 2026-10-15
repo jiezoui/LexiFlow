@@ -107,6 +107,11 @@ export function ContextStoryGeneratorModal({
       setErrorMsg(`复习词库目前可用 ${availableCount}/${targetCount} 词，请降低词汇强度或手动指定`)
       return
     }
+    const activeConfig = getActiveAiConfig()
+    if (!activeConfig.isConfigured) {
+      setErrorMsg("请先在设置中心配置 API Key")
+      return
+    }
     if (!getAiSettings().enableStoryAi) {
       setErrorMsg("请先在设置中开启语境文章")
       return
@@ -117,18 +122,16 @@ export function ContextStoryGeneratorModal({
     const statusTimers: ReturnType<typeof setTimeout>[] = []
 
     try {
-      const activeConfig = getActiveAiConfig()
-
       const payload: GenerateStoryRequest = {
         topic,
         targetLevel,
         examFocus,
         targetCount,
         customLemmas: isAutoFromFsrs ? undefined : customWords,
-        provider: activeConfig?.provider || undefined,
-        model: activeConfig?.model || undefined,
-        apiKey: activeConfig?.apiKey || undefined,
-        apiHost: activeConfig?.apiHost || undefined,
+        provider: activeConfig.provider || undefined,
+        model: activeConfig.model || undefined,
+        apiKey: activeConfig.apiKey || undefined,
+        apiHost: activeConfig.apiHost || undefined,
       }
 
       statusTimers.push(setTimeout(() => {
