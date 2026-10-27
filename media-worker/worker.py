@@ -8,6 +8,7 @@ import os
 import re
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -737,7 +738,9 @@ def handle_youtube(job: dict[str, Any]) -> None:
                 progress(job_id, "ACQUIRING_SUBTITLE", 35)
                 audio_out_tmpl = str(task / "audio.%(ext)s")
                 ydl_cmd = [
-                    "yt-dlp",
+                    sys.executable,
+                    "-m",
+                    "yt_dlp",
                     "--extractor-args",
                     "youtube:player_client=android,web",
                     "-f",
