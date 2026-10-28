@@ -25,7 +25,7 @@ const chartConfig = {
     label: "采摘切片数",
   },
   youtube: {
-    label: "YouTube 播客",
+    label: "外部视频语料",
     color: "#18181B",
   },
   bilibili: {
@@ -64,7 +64,7 @@ export function CorpusDonutChart() {
           </span>
         </div>
         <CardDescription className="mt-1 text-xs text-muted-foreground">
-          统计当前语境库真实影视、播客与外刊的采摘比率
+          视频、播客与阅读材料的示例分布
         </CardDescription>
       </CardHeader>
 

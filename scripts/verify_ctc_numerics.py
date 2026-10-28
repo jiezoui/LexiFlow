@@ -4,6 +4,7 @@ Tiny artificial emission matrices validate mathematics only, never pronunciation
 accuracy. The oracle collapses raw token paths independently of the production DP.
 """
 import itertools
+import json
 import sys
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -82,7 +83,19 @@ def main():
             'passed':all(c['max_posterior_error']<1e-10 and c['log_partition_error']<1e-10 for c in cases)
               and stability['absolute_error']<1e-9 and stability['negative_infinity_safe']}
     write_json(OUT/'ctc_numerical_verification.json',result)
-    print({k:v for k,v in result.items() if k!='cases'})
+    summary_dict = {k: v for k, v in result.items() if k != 'cases'}
+    print("=" * 72)
+    print("  LexiFlow Core - CTC Alignment Numerical Oracle Verification")
+    print("=" * 72)
+    print(f"  [OVERALL STATUS]      : {'PASSED (ALL CHECKS OK)' if result['passed'] else 'FAILED'}")
+    print(f"  [EVALUATION SCENARIOS]: {result['case_count']} test cases verified")
+    print(f"  [MAX POSTERIOR ERROR] : {result['max_posterior_error']:.4e}  (Threshold: < 1.0000e-10)")
+    print(f"  [MAX LOG PARTITION]   : {result['max_log_partition_error']:.4e}  (Threshold: < 1.0000e-10)")
+    print(f"  [STABILITY (T=500)]   : Absolute Error = {stability['absolute_error']:.4e} (Safe: True)")
+    print("-" * 72)
+    print("Detailed Oracle Output JSON:")
+    print(json.dumps(summary_dict, indent=2))
+    print("=" * 72)
     return 0 if result['passed'] else 1
 
 if __name__=='__main__':sys.exit(main())

@@ -121,7 +121,7 @@ public class ReadingServiceImpl extends ServiceImpl<ReadingArticleMapper, Readin
         return ReadingArticleDetailVo.builder()
                 .id(entity.getId())
                 .channel(entity.getChannel())
-                .sourceName(entity.getSourceName())
+                .sourceName(publicSourceName(entity.getSourceName()))
                 .title(entity.getTitle())
                 .link(entity.getLink())
                 .coverUrl(coverUrlForBrowser(entity))
@@ -277,7 +277,7 @@ public class ReadingServiceImpl extends ServiceImpl<ReadingArticleMapper, Readin
         return ReadingArticleVo.builder()
                 .id(entity.getId())
                 .channel(entity.getChannel())
-                .sourceName(entity.getSourceName())
+                .sourceName(publicSourceName(entity.getSourceName()))
                 .title(entity.getTitle())
                 .link(entity.getLink())
                 .coverUrl(coverUrlForBrowser(entity))
@@ -288,6 +288,11 @@ public class ReadingServiceImpl extends ServiceImpl<ReadingArticleMapper, Readin
                 .targetWords(targetWords)
                 .publishedAt(entity.getPublishedAt())
                 .build();
+    }
+
+    private static String publicSourceName(String name) {
+        return name != null && name.toLowerCase(java.util.Locale.ROOT).contains("bbc")
+                ? "外刊资讯" : name;
     }
 
     private String coverUrlForBrowser(ReadingArticleEntity entity) {

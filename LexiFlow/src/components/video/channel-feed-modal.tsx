@@ -142,7 +142,7 @@ export function ChannelFeedModal({
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted border border-border transition cursor-pointer"
-                title="在 YouTube 中打开原频道主页"
+                title="打开原频道主页"
               >
                 <span>前往频道</span>
                 <ExternalLinkIcon className="size-3" />

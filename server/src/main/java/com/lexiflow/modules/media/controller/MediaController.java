@@ -57,7 +57,7 @@ public class MediaController {
         return Result.success(mediaService.list(UserContext.requireCurrentUserId()));
     }
 
-    @Operation(summary = "导入 YouTube 视频链接")
+    @Operation(summary = "导入外部视频链接")
     @PostMapping("/external")
     public Result<MediaDetailVo> importExternal(@Valid @RequestBody ImportExternalMediaRequest request) {
         return Result.success(mediaService.importExternal(request, UserContext.requireCurrentUserId()));
@@ -67,6 +67,12 @@ public class MediaController {
     @GetMapping("/{mediaId}")
     public Result<MediaDetailVo> detail(@PathVariable String mediaId) {
         return Result.success(mediaService.detail(mediaId, UserContext.requireCurrentUserId()));
+    }
+
+    @Operation(summary = "加载 B站视频公开的英文字幕")
+    @PostMapping("/{mediaId}/platform-subtitles")
+    public Result<MediaDetailVo> loadPlatformSubtitle(@PathVariable String mediaId) {
+        return Result.success(mediaService.loadPlatformSubtitle(mediaId, UserContext.requireCurrentUserId()));
     }
 
     @Operation(summary = "查询播放器配置")

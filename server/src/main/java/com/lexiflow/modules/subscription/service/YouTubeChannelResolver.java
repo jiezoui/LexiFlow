@@ -78,7 +78,7 @@ public class YouTubeChannelResolver {
             return resolveByHandle("@" + input.replaceFirst("^@", ""));
         }
 
-        throw new BusinessException(ResultCode.BAD_REQUEST, "无法解析该 YouTube 频道链接，支持格式：@频道名、https://www.youtube.com/@频道名 或 https://www.youtube.com/channel/UC...");
+        throw new BusinessException(ResultCode.BAD_REQUEST, "无法解析该频道链接，请输入支持的 @handle 或频道地址");
     }
 
     private String extractHandle(String input) {
@@ -105,7 +105,7 @@ public class YouTubeChannelResolver {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 400) {
                 log.warn("请求 YouTube Handle 返回状态码: {}", response.statusCode());
-                throw new BusinessException(ResultCode.INTERNAL_ERROR, "无法访问该 YouTube 创作者主页 (HTTP " + response.statusCode() + ")");
+                throw new BusinessException(ResultCode.INTERNAL_ERROR, "无法访问该创作者主页 (HTTP " + response.statusCode() + ")");
             }
 
             String html = response.body();
@@ -160,7 +160,7 @@ public class YouTubeChannelResolver {
             throw be;
         } catch (Exception ex) {
             log.error("解析 Handle 异常: {}", ex.getMessage(), ex);
-            throw new BusinessException(ResultCode.INTERNAL_ERROR, "解析 YouTube 频道失败: " + ex.getMessage());
+            throw new BusinessException(ResultCode.INTERNAL_ERROR, "解析频道失败，请检查地址后重试");
         }
     }
 

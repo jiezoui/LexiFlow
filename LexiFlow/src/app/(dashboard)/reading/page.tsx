@@ -131,7 +131,7 @@ export default function ReadingPage() {
     loadArticles()
   }, [loadArticles])
 
-  // 触发拉取最新 BBC 资讯
+  // 触发拉取最新外刊资讯
   const handleSyncArticles = async () => {
     try {
       setSyncing(true)

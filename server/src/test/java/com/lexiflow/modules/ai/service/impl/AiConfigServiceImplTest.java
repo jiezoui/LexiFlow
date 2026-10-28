@@ -4,10 +4,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lexiflow.common.exception.BusinessException;
 import com.lexiflow.modules.ai.entity.AiPreferenceEntity;
 import com.lexiflow.modules.ai.entity.AiProviderConfigEntity;
+import com.lexiflow.modules.ai.dto.AiFetchModelsRequest;
 import com.lexiflow.modules.ai.mapper.AiPreferenceMapper;
 import com.lexiflow.modules.ai.mapper.AiProviderConfigMapper;
 import com.lexiflow.modules.ai.service.AiConfigStore;
+import com.lexiflow.modules.ai.service.AiConfigAccessPolicy;
 import com.lexiflow.modules.ai.service.AiGatewayService;
+import com.lexiflow.modules.ai.model.AiResolvedConfig;
+import com.lexiflow.modules.ai.vo.AiModelDetectionVo;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -29,6 +33,7 @@ class AiConfigServiceImplTest {
     @Mock private AiPreferenceMapper preferenceMapper;
     @Mock private AiConfigStore configStore;
     @Mock private AiGatewayService aiGatewayService;
+    @Mock private AiConfigAccessPolicy configAccessPolicy;
     @Mock private ObjectMapper objectMapper;
     @InjectMocks private AiConfigServiceImpl service;
 
@@ -69,5 +74,25 @@ class AiConfigServiceImplTest {
     void builtInProviderCannotBeDeleted() {
         assertThrows(BusinessException.class, () -> service.deleteCustomProvider(7L, "deepseek"));
         verify(providerConfigMapper, never()).delete(any());
+    }
+
+    @Test
+    void anonymousDemoModelDetectionDoesNotWriteSharedAccount() {
+        AiFetchModelsRequest request = new AiFetchModelsRequest();
+        request.setProvider("deepseek");
+        request.setApiKey("visitor-test-key");
+        AiResolvedConfig resolved = new AiResolvedConfig(
+                "deepseek", "https://api.deepseek.com/v1", "visitor-test-key",
+                "deepseek-chat", true, "REQUEST");
+        when(configAccessPolicy.isSessionOnlyVisitor()).thenReturn(true);
+        when(configStore.resolve(3L, "deepseek", null, "visitor-test-key", null)).thenReturn(resolved);
+        when(aiGatewayService.fetchModels(resolved)).thenReturn(
+                AiModelDetectionVo.builder().ok(false).status("INVALID_KEY").build());
+
+        service.detectModels(3L, request);
+
+        verify(configStore, never()).findProvider(any(), any());
+        verify(providerConfigMapper, never()).insert(any());
+        verify(providerConfigMapper, never()).updateById(any());
     }
 }

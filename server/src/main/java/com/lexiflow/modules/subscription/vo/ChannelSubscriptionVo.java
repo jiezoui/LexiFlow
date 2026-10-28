@@ -27,7 +27,7 @@ public class ChannelSubscriptionVo {
         if (entity == null) return null;
         return ChannelSubscriptionVo.builder()
                 .publicId(entity.getPublicId())
-                .platform(entity.getPlatform())
+                .platform("YOUTUBE".equals(entity.getPlatform()) ? "EXTERNAL_VIDEO" : entity.getPlatform())
                 .channelId(entity.getChannelId())
                 .channelHandle(entity.getChannelHandle())
                 .channelName(entity.getChannelName())

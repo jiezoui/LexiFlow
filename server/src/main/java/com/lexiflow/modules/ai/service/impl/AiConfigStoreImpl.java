@@ -7,6 +7,7 @@ import com.lexiflow.modules.ai.mapper.AiPreferenceMapper;
 import com.lexiflow.modules.ai.mapper.AiProviderConfigMapper;
 import com.lexiflow.modules.ai.model.AiResolvedConfig;
 import com.lexiflow.modules.ai.service.AiConfigStore;
+import com.lexiflow.modules.ai.service.AiConfigAccessPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,7 @@ public class AiConfigStoreImpl implements AiConfigStore {
 
     private final AiProviderConfigMapper providerConfigMapper;
     private final AiPreferenceMapper preferenceMapper;
+    private final AiConfigAccessPolicy configAccessPolicy;
 
     public static final String DEFAULT_PROVIDER = "deepseek";
 
@@ -35,7 +37,10 @@ public class AiConfigStoreImpl implements AiConfigStore {
         boolean requestCarriesAnything = StringUtils.hasText(apiKey) || StringUtils.hasText(apiHost);
 
         AiProviderConfigEntity stored = null;
-        if (requestedProvider != null) {
+        if (configAccessPolicy.isSessionOnlyVisitor()) {
+            // A shared demo account must never supply its stored key to an anonymous visitor.
+            if (requestedProvider == null) requestedProvider = DEFAULT_PROVIDER;
+        } else if (requestedProvider != null) {
             stored = findProvider(userId, requestedProvider);
         } else if (requestCarriesAnything || userId != null) {
             // 请求未指定供应商时，采用账号当前生效的供应商

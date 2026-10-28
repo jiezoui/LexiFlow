@@ -1,6 +1,6 @@
 /**
  * Transcript Engine - 统一字幕转译与分句规整引擎
- * 参考设计：媒体来源各异（YouTube / Podcast RSS / Whisper ASR），但进入学习系统后全部统一。
+ * 参考设计：媒体来源各异（外部视频 / 播客 RSS / 本地语音识别），但进入学习系统后全部统一。
  */
 
 export interface RawTranscriptCue {

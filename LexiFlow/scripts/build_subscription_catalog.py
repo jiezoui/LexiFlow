@@ -33,7 +33,7 @@ IMAGE_DIR = ROOT / "public" / "subscription-catalog"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
 
 CHANNEL_SEEDS = {
-    "英语学习": ["BBCLearningEnglish", "VOALearningEnglish", "EnglishwithLucy", "LearnEnglishWithTVSeries", "rachelsenglish", "OxfordOnlineEnglish"],
+    "英语学习": ["VOALearningEnglish", "EnglishwithLucy", "LearnEnglishWithTVSeries", "rachelsenglish", "OxfordOnlineEnglish"],
     "科技": ["mkbhd", "LinusTechTips", "TheVerge", "Fireship", "CNET", "UnboxTherapy"],
     "科学": ["hubermanlab", "Kurzgesagt", "veritasium", "Vsauce", "SciShow", "SmarterEveryDay"],
     "商业": ["YCombinator", "TheDiaryOfACEO", "CNBC", "BloombergTV", "a16z", "stanfordgsb"],
@@ -41,12 +41,12 @@ CHANNEL_SEEDS = {
 }
 
 PODCAST_SEEDS = {
-    "英语学习": ["6 Minute English", "All Ears English", "American English Podcast", "As It Is - VOA Learning English", "Coffee Break English", "EnglishClass101"],
+    "英语学习": ["All Ears English", "American English Podcast", "As It Is - VOA Learning English", "Coffee Break English", "EnglishClass101"],
     "商业": ["The Diary Of A CEO", "How I Built This", "Masters of Scale", "HBR IdeaCast", "Acquired", "Planet Money", "The Indicator from Planet Money"],
     "科技": ["Hard Fork", "Decoder with Nilay Patel", "The Vergecast", "This Week in Tech", "Tech Brew Ride Home", "Waveform: The MKBHD Podcast", "Darknet Diaries"],
-    "科学": ["Science Vs", "Radiolab", "Star Talk Podcast", "Science Friday", "Short Wave", "Ologies", "The Quanta Podcast"],
+    "科学": ["Radiolab", "Star Talk Podcast", "Science Friday", "Short Wave", "Ologies", "The Quanta Podcast"],
     "心理": ["Hidden Brain", "The Psychology Podcast", "Speaking of Psychology", "Huberman Lab", "The Happiness Lab", "Where Should We Begin? with Esther Perel"],
-    "新闻": ["The Daily", "Up First", "Today, Explained", "The Intelligence from The Economist", "Global News Podcast", "Reuters World News", "The Journal."],
+    "新闻": ["The Daily", "Up First", "Today, Explained", "The Intelligence from The Economist", "Reuters World News"],
     "文化": ["TED Talks Daily", "99% Invisible", "The Moth", "This American Life", "Freakonomics Radio", "The Ezra Klein Show"],
 }
 
@@ -244,6 +244,18 @@ def podcast_entry(category: str, candidate: dict[str, object]) -> dict[str, obje
 
 
 def save(name: str, items: list[dict[str, object]]) -> None:
+    # Keep discovery snapshots suitable for the public UI without renaming publishers.
+    blocked = re.compile(r"bbc|spotify", re.IGNORECASE)
+    neutral = re.compile(r"youtube|spotify|openai|claude", re.IGNORECASE)
+    items = [item for item in items if not blocked.search(
+        f"{item.get('name', '')} {item.get('handle', '')} {item.get('title', '')} {item.get('author', '')}")]
+    for item in items:
+        if neutral.search(str(item.get("description", ""))):
+            item["description"] = "精选学习内容与最新动态。"
+        if neutral.search(str(item.get("latestTitle", ""))):
+            item["latestTitle"] = "最新内容"
+        if name == "channel-discovery.json":
+            item.pop("feedUrl", None)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
         "generatedAt": datetime.now(timezone.utc).isoformat(),

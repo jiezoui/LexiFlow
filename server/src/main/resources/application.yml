@@ -63,6 +63,8 @@ springdoc:
 
 # LexiFlow Custom Config
 lexiflow:
+  demo:
+    ai-session-only: ${LEXIFLOW_DEMO_AI_SESSION_ONLY:false}
   cors:
     allowed-origin-patterns: '${LEXIFLOW_ALLOWED_ORIGINS:http://localhost:[*],http://127.0.0.1:[*]}'
   jwt:
@@ -113,10 +115,10 @@ lexiflow:
       timeout-seconds: ${LEXIFLOW_LIBRETRANSLATE_TIMEOUT_SECONDS:30}
       priority: 100
     openai:
-      enabled: ${LEXIFLOW_OPENAI_TRANSLATION_ENABLED:true}
+      enabled: ${LEXIFLOW_TRANSLATION_ENABLED:${LEXIFLOW_OPENAI_TRANSLATION_ENABLED:true}}
       provider: ${LEXIFLOW_OPENAI_TRANSLATION_PROVIDER:deepseek}
       base-url: ${LEXIFLOW_OPENAI_TRANSLATION_BASE_URL:https://api.deepseek.com/v1}
-      api-key: ${LEXIFLOW_OPENAI_TRANSLATION_API_KEY:}
+      api-key: ${LEXIFLOW_TRANSLATION_API_KEY:${LEXIFLOW_OPENAI_TRANSLATION_API_KEY:}}
       model: ${LEXIFLOW_OPENAI_TRANSLATION_MODEL:deepseek-chat}
       timeout-seconds: ${LEXIFLOW_OPENAI_TRANSLATION_TIMEOUT_SECONDS:60}
       priority: 10

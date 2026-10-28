@@ -50,7 +50,7 @@ public class ShadowingController {
     @ApiResponses({@ApiResponse(responseCode = "200", description = "成功返回跟读句列表")})
     @GetMapping("/sentences")
     public Result<List<ShadowingSentenceVo>> listSentences(
-            @Parameter(description = "题源类型过滤：BBC / CARD / CUSTOM / MEDIA，留空或 ALL 表示全部", example = "BBC")
+            @Parameter(description = "题源类型过滤：CURATED / CARD / CUSTOM / MEDIA，留空或 ALL 表示全部", example = "CURATED")
             @RequestParam(name = "sourceType", required = false) String sourceType,
             @Parameter(description = "最多返回条数", example = "100")
             @RequestParam(name = "limit", required = false) Integer limit

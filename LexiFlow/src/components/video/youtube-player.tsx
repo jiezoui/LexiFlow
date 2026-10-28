@@ -100,7 +100,7 @@ function loadYouTubeApi(timeoutMs = 4000): Promise<YouTubeNamespace> {
       window.clearInterval(pollTimer)
       cleanup()
       apiPromise = null
-      reject(new Error("YouTube 播放器脚本加载超时"))
+      reject(new Error("外部视频播放器加载超时"))
     }, timeoutMs)
 
     const existing = document.querySelector<HTMLScriptElement>('script[src*="youtube.com/iframe_api"]')
@@ -109,7 +109,7 @@ function loadYouTubeApi(timeoutMs = 4000): Promise<YouTubeNamespace> {
         window.clearInterval(pollTimer)
         cleanup()
         apiPromise = null
-        reject(new Error("YouTube 播放器脚本加载失败"))
+        reject(new Error("外部视频播放器加载失败"))
       }, { once: true })
       return
     }
@@ -121,7 +121,7 @@ function loadYouTubeApi(timeoutMs = 4000): Promise<YouTubeNamespace> {
       window.clearInterval(pollTimer)
       cleanup()
       apiPromise = null
-      reject(new Error("YouTube 播放器脚本加载失败"))
+      reject(new Error("外部视频播放器加载失败"))
     }
     document.head.appendChild(script)
   }).catch((err) => {
@@ -133,10 +133,10 @@ function loadYouTubeApi(timeoutMs = 4000): Promise<YouTubeNamespace> {
 }
 
 function playerErrorMessage(code: number) {
-  if (code === 101 || code === 150) return "视频作者不允许在站外播放，请前往 YouTube 观看。"
-  if (code === 100) return "这个 YouTube 视频不存在或已被设为私密。"
-  if (code === 2) return "YouTube 视频编号无效。"
-  return "YouTube 播放器暂时无法加载，请检查网络后重试。"
+  if (code === 101 || code === 150) return "视频作者不允许在站外播放，请打开原视频观看。"
+  if (code === 100) return "这个外部视频不存在或已被设为私密。"
+  if (code === 2) return "视频编号无效。"
+  return "外部视频播放器暂时无法加载，请检查网络后重试。"
 }
 
 export const YouTubePlayer = forwardRef<MediaPlayerHandle, YouTubePlayerProps>(function YouTubePlayer({
@@ -319,7 +319,7 @@ export const YouTubePlayer = forwardRef<MediaPlayerHandle, YouTubePlayerProps>(f
   return (
     <div
       className="relative aspect-video w-full max-w-5xl overflow-hidden rounded-2xl bg-zinc-950 shadow-xl shadow-zinc-950/20"
-      aria-label={`${title} YouTube 播放器`}
+      aria-label={`${title} 外部视频播放器`}
     >
       {useFallback ? (
         <iframe

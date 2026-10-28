@@ -340,7 +340,8 @@ public class StatsServiceImpl extends ServiceImpl<DailyStatMapper, DailyStatEnti
                     .accuracyScore(accObj != null ? Math.round(((Number) accObj).doubleValue() * 10.0) / 10.0 : 0.0)
                     .fluencyScore(fluObj != null ? Math.round(((Number) fluObj).doubleValue() * 10.0) / 10.0 : 0.0)
                     .wordsPerMinute(wpmObj != null ? Math.round(((Number) wpmObj).doubleValue() * 10.0) / 10.0 : 0.0)
-                    .sourceTitle(titleObj != null ? titleObj.toString() : "跟读练习")
+                    .sourceTitle(titleObj != null ? titleObj.toString().replaceFirst("(?i)^BBC\\s+", "")
+                            .replaceAll("(?i)\\bBBC\\b", "外刊") : "跟读练习")
                     .build());
         }
         Collections.reverse(trendPoints); // 时间正序

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { BookmarkIcon, CaptionsIcon, LocateFixedIcon } from "lucide-react"
 import type { MediaCue } from "@/lib/api-client"
 import styles from "./transcript-rail.module.css"
@@ -18,6 +18,7 @@ interface TranscriptRailProps {
   selectedWord?: string
   emptyTitle?: string
   emptyDescription?: string
+  emptyAction?: ReactNode
 }
 
 function formatTime(seconds: number) {
@@ -75,6 +76,7 @@ export function TranscriptRail({
   selectedWord,
   emptyTitle = "字幕仍在处理中",
   emptyDescription = "识别完成后，这里会自动出现字幕。",
+  emptyAction,
 }: TranscriptRailProps) {
   const [manualMode, setManualMode] = useState(false)
   const [topFadeVisible, setTopFadeVisible] = useState(false)
@@ -303,6 +305,7 @@ export function TranscriptRail({
             <CaptionsIcon className="size-6 text-muted-foreground" />
             <p className="mt-3 text-sm font-semibold">{emptyTitle}</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">{emptyDescription}</p>
+            {emptyAction}
           </div>
         )}
       </div>

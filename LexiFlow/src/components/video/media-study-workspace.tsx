@@ -2,11 +2,12 @@
 
 import { ChangeEvent, type CSSProperties, useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { AlertCircleIcon, ArrowLeftIcon, CaptionsIcon, ExternalLinkIcon, HeadphonesIcon, LoaderCircleIcon, RefreshCwIcon, VideoIcon } from "lucide-react"
+import { AlertCircleIcon, ArrowLeftIcon, CaptionsIcon, ExternalLinkIcon, EyeIcon, EyeOffIcon, HeadphonesIcon, LoaderCircleIcon, RefreshCwIcon, VideoIcon } from "lucide-react"
 import { mediaApi, shadowingApi, type MediaCue, type MediaCueTranslation, type MediaItem } from "@/lib/api-client"
 import { MediaPlayer, type MediaPlayerHandle } from "@/components/video/media-player"
 import { TranscriptRail } from "@/components/video/transcript-rail"
 import { YouTubePlayer } from "@/components/video/youtube-player"
+import { BilibiliPlayer } from "@/components/video/bilibili-player"
 import { VideoWordDrawer } from "@/components/video/video-word-drawer"
 import { PodcastAudioPlayer } from "@/components/podcast/podcast-audio-player"
 
@@ -48,7 +49,7 @@ const processingStageLabels: Record<string, string> = {
 
 function automaticStage(source: string) {
   if (source === "PODCAST") return "DOWNLOADING_AUDIO"
-  if (source === "YOUTUBE") return "ACQUIRING_SUBTITLE"
+  if (source === "EXTERNAL_VIDEO") return "ACQUIRING_SUBTITLE"
   return "PROBING"
 }
 
@@ -115,9 +116,12 @@ function TranscriptionFailure({
   onRetry: () => void
 }) {
   const sourceUnavailable = media.errorMessage?.startsWith(unavailableAudioPrefix)
-  const message = sourceUnavailable
+  const rawMessage = sourceUnavailable
     ? media.errorMessage?.slice(unavailableAudioPrefix.length).trim()
     : media.errorMessage || "转写没有完成，请稍后重试。"
+  const message = /youtube|youtu\.be|yt-dlp|https?:\/\/|Command \[/i.test(rawMessage || "")
+    ? "未能获取字幕，请检查视频是否可访问，或导入本地字幕。"
+    : rawMessage
 
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-12 text-center">
@@ -189,6 +193,9 @@ export function MediaStudyWorkspace({ mediaId, mode = "video" }: { mediaId: stri
   const [isRetryingTranslation, setIsRetryingTranslation] = useState(false)
   const [isReprocessing, setIsReprocessing] = useState(false)
   const [isUploadingSubtitle, setIsUploadingSubtitle] = useState(false)
+  const [isLoadingPlatformSubtitle, setIsLoadingPlatformSubtitle] = useState(false)
+  const [platformSubtitleError, setPlatformSubtitleError] = useState("")
+  const [showSubtitles, setShowSubtitles] = useState(true)
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [favoriteState, setFavoriteState] = useState<{
     mediaId: string
@@ -208,6 +215,7 @@ export function MediaStudyWorkspace({ mediaId, mode = "video" }: { mediaId: stri
   const pollTimerRef = useRef<number | null>(null)
   const subtitleInputRef = useRef<HTMLInputElement>(null)
   const autoTranscriptionMediaRef = useRef<string | null>(null)
+  const autoPlatformSubtitleMediaRef = useRef<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -297,7 +305,7 @@ export function MediaStudyWorkspace({ mediaId, mode = "video" }: { mediaId: stri
         const sourceAudioUnavailable = detail.errorMessage?.startsWith(unavailableAudioPrefix)
         const canAutomaticallyStart = ["WAITING_SUBTITLE", "FAILED", "READY"].includes(detail.status)
           && !sourceAudioUnavailable
-        if (initial && ((hasNoTranscript && canAutomaticallyStart) || legacyRemotePodcast)
+        if (initial && detail.source !== "BILIBILI" && ((hasNoTranscript && canAutomaticallyStart) || legacyRemotePodcast)
           && autoTranscriptionMediaRef.current !== mediaId) {
           autoTranscriptionMediaRef.current = mediaId
           try {
@@ -349,6 +357,38 @@ export function MediaStudyWorkspace({ mediaId, mode = "video" }: { mediaId: stri
       if (pollTimerRef.current !== null) window.clearTimeout(pollTimerRef.current)
     }
   }, [mediaId, refreshNonce])
+
+  const platformMediaId = media?.source === "BILIBILI" ? media.id : null
+  const platformMediaStatus = media?.status
+  useEffect(() => {
+    if (platformMediaId !== mediaId || platformMediaStatus !== "WAITING_SUBTITLE" || cues.length > 0
+      || autoPlatformSubtitleMediaRef.current === mediaId) return
+    autoPlatformSubtitleMediaRef.current = mediaId
+    let active = true
+    setIsLoadingPlatformSubtitle(true)
+    setPlatformSubtitleError("")
+    void mediaApi.loadPlatformSubtitle(mediaId)
+      .then(() => { if (active) setRefreshNonce((value) => value + 1) })
+      .catch((error) => {
+        if (active) setPlatformSubtitleError(error instanceof Error ? error.message : "无法读取平台字幕")
+      })
+      .finally(() => { if (active) setIsLoadingPlatformSubtitle(false) })
+    return () => { active = false }
+  }, [platformMediaId, platformMediaStatus, cues.length, mediaId])
+
+  const handleLoadPlatformSubtitle = async () => {
+    if (isLoadingPlatformSubtitle) return
+    setIsLoadingPlatformSubtitle(true)
+    setPlatformSubtitleError("")
+    try {
+      await mediaApi.loadPlatformSubtitle(mediaId)
+      setRefreshNonce((value) => value + 1)
+    } catch (error) {
+      setPlatformSubtitleError(error instanceof Error ? error.message : "无法读取平台字幕")
+    } finally {
+      setIsLoadingPlatformSubtitle(false)
+    }
+  }
 
   const retryTranslation = async () => {
     setIsRetryingTranslation(true)
@@ -441,33 +481,26 @@ export function MediaStudyWorkspace({ mediaId, mode = "video" }: { mediaId: stri
           <div className="min-w-0">
             <h1 className="truncate text-sm font-bold text-foreground sm:text-base">{media.title}</h1>
             <p className="truncate text-[11px] text-muted-foreground">
-              {isPodcast ? (media.creator || "播客") : media.source === "YOUTUBE" ? "YouTube" : "本地视频"} · {media.durationSeconds === null ? (media.source === "YOUTUBE" || isPodcast ? "在线播放" : "时长检测中") : formatTime(media.durationSeconds)} · {statusLabels[media.status] || media.status}
+              {isPodcast ? (media.creator || "播客") : media.source === "BILIBILI" ? "B站" : media.source === "EXTERNAL_VIDEO" ? "外部视频" : "本地视频"} · {media.durationSeconds === null ? (media.source !== "LOCAL" ? "在线播放" : "时长检测中") : formatTime(media.durationSeconds)} · {media.source === "BILIBILI" && media.status === "WAITING_SUBTITLE" ? "待加载字幕" : statusLabels[media.status] || media.status}
             </p>
           </div>
         </div>
         <div className="hidden shrink-0 items-center gap-2 text-[11px] text-muted-foreground md:flex">
-          {(media.status === "WAITING_SUBTITLE" || media.status === "FAILED") && (
+          {media.source !== "BILIBILI" && (media.status === "WAITING_SUBTITLE" || media.status === "FAILED") && (
             <button
               type="button"
               onClick={() => void handleReprocess()}
               disabled={isReprocessing}
               className="flex h-8 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-2.5 font-semibold text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
-              title={isPodcast ? "重新调用 Whisper 生成播客精听文本" : "自动探测 YouTube 原生字幕或调用 Whisper 转写"}
+              title={isPodcast ? "重新生成播客精听文本" : "重新查找可用字幕或转写音频"}
             >
               <RefreshCwIcon className={`size-3.5 ${isReprocessing ? "animate-spin" : ""}`} />
               <span>重试转写</span>
             </button>
           )}
 
-          {media.source === "YOUTUBE" && (
+          {(media.source === "EXTERNAL_VIDEO" || media.source === "BILIBILI") && (
             <>
-              <input
-                ref={subtitleInputRef}
-                type="file"
-                accept=".srt,.vtt,text/vtt,application/x-subrip"
-                onChange={handleSubtitleUpload}
-                className="sr-only"
-              />
               <button
                 type="button"
                 onClick={() => subtitleInputRef.current?.click()}
@@ -522,14 +555,49 @@ export function MediaStudyWorkspace({ mediaId, mode = "video" }: { mediaId: stri
             </button>
           ) : null}
         </div>
+        {!isPodcast && (
+          <button
+            type="button"
+            onClick={() => {
+              setShowSubtitles((value) => !value)
+              setSelectedWordTarget(null)
+            }}
+            aria-pressed={showSubtitles}
+            aria-label={showSubtitles ? "隐藏右侧字幕" : "显示右侧字幕"}
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-semibold text-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {showSubtitles ? <EyeOffIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
+            <span className="hidden sm:inline">{showSubtitles ? "隐藏字幕" : "显示字幕"}</span>
+          </button>
+        )}
       </header>
+
+      {(media.source === "EXTERNAL_VIDEO" || media.source === "BILIBILI") && (
+        <input
+          ref={subtitleInputRef}
+          type="file"
+          accept=".srt,.vtt,text/vtt,application/x-subrip"
+          onChange={handleSubtitleUpload}
+          className="sr-only"
+        />
+      )}
 
       <div className={isPodcast
         ? "grid min-h-0 min-w-0 max-w-full flex-1 gap-px overflow-y-auto overflow-x-hidden bg-border lg:grid-cols-[minmax(0,1fr)_380px] lg:grid-rows-1 lg:overflow-hidden"
-        : "grid min-h-0 flex-1 grid-rows-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-px bg-border lg:grid-cols-[minmax(0,1fr)_380px] lg:grid-rows-1"
+        : showSubtitles
+          ? "grid min-h-0 flex-1 grid-rows-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-px bg-border lg:grid-cols-[minmax(0,1fr)_380px] lg:grid-rows-1"
+          : "grid min-h-0 flex-1 grid-rows-1 gap-px bg-border"
       }>
         <main className={`relative flex min-h-0 min-w-0 max-w-full justify-center bg-background p-3 md:p-5 ${isPodcast ? "items-start overflow-visible lg:items-center lg:overflow-hidden" : "items-center overflow-hidden"}`}>
-          {!transcriptReady ? (
+          {media.source === "BILIBILI" && media.playback.externalId ? (
+            <BilibiliPlayer
+              ref={playerRef}
+              bvid={media.playback.externalId.split(":")[0]}
+              page={Number(media.playback.externalId.split(":")[1] || 1)}
+              title={media.title}
+              onReady={handlePlayerReady}
+            />
+          ) : !transcriptReady ? (
             <div className="flex aspect-video w-full max-w-5xl flex-col items-center justify-center rounded-2xl bg-zinc-950 px-6 text-center text-zinc-300">
               {transcriptionFailed ? <AlertCircleIcon className="size-7 text-zinc-500" /> : <LoaderCircleIcon className="size-7 animate-spin text-zinc-400" />}
               <p className="mt-3 text-sm font-semibold">{transcriptionFailed ? "字幕生成失败" : isPodcast ? "正在同步音频与精听文本" : "字幕生成完成后即可播放"}</p>
@@ -546,7 +614,7 @@ export function MediaStudyWorkspace({ mediaId, mode = "video" }: { mediaId: stri
               onReady={handlePlayerReady}
               onError={setPlayerError}
             />
-          ) : media.playback.type === "YOUTUBE_IFRAME" && media.playback.externalId ? (
+          ) : media.playback.type === "EXTERNAL_IFRAME" && media.playback.externalId ? (
             <YouTubePlayer
               ref={playerRef}
               videoId={media.playback.externalId}
@@ -577,17 +645,50 @@ export function MediaStudyWorkspace({ mediaId, mode = "video" }: { mediaId: stri
           {playerError && (
             <div role="alert" className="absolute bottom-4 left-1/2 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg bg-zinc-900/92 px-3 py-2 text-center text-xs text-zinc-200 shadow-lg">
               <span>{playerError}</span>
-              {(media.source === "YOUTUBE" || isPodcast) && media.sourceUrl && (
+              {(media.source === "EXTERNAL_VIDEO" || media.source === "BILIBILI" || isPodcast) && media.sourceUrl && (
                 <a href={media.sourceUrl} target="_blank" rel="noreferrer" className="shrink-0 font-semibold text-white underline underline-offset-2">
-                  {isPodcast ? "打开原始音频" : "前往 YouTube"}
+                  {isPodcast ? "打开原始音频" : "打开原视频"}
                 </a>
               )}
             </div>
           )}
         </main>
 
-        <div className={`relative flex min-w-0 flex-col overflow-hidden bg-background ${isPodcast ? "min-h-[55vh] lg:min-h-0" : "min-h-0"}`}>
-          {transcriptionFailed ? (
+        {(isPodcast || showSubtitles) && <div className={`relative flex min-w-0 flex-col overflow-hidden bg-background ${isPodcast ? "min-h-[55vh] lg:min-h-0" : "min-h-0"}`}>
+          {media.source === "BILIBILI" && !transcriptReady ? (
+            <TranscriptRail
+              mediaId={mediaId}
+              cues={[]}
+              activeIndex={-1}
+              onCueSelect={() => {}}
+              emptyTitle={isLoadingPlatformSubtitle ? "正在加载平台字幕" : "暂无英文字幕"}
+              emptyDescription={isLoadingPlatformSubtitle
+                ? "正在检查该视频可公开获取的英文字幕。"
+                : platformSubtitleError || "可加载平台字幕，或上传 SRT/VTT 字幕。"}
+              emptyAction={
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleLoadPlatformSubtitle()}
+                    disabled={isLoadingPlatformSubtitle}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-semibold text-foreground transition hover:bg-muted disabled:opacity-50"
+                  >
+                    {isLoadingPlatformSubtitle ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : <RefreshCwIcon className="size-3.5" />}
+                    {isLoadingPlatformSubtitle ? "加载中" : "加载平台字幕"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => subtitleInputRef.current?.click()}
+                    disabled={isUploadingSubtitle}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-semibold text-foreground transition hover:bg-muted disabled:opacity-50"
+                  >
+                    <CaptionsIcon className="size-3.5" />
+                    上传本地字幕
+                  </button>
+                </div>
+              }
+            />
+          ) : transcriptionFailed ? (
             <TranscriptionFailure
               media={media}
               isPodcast={isPodcast}
@@ -608,8 +709,8 @@ export function MediaStudyWorkspace({ mediaId, mode = "video" }: { mediaId: stri
               onFavoriteToggle={favoriteState?.mediaId === mediaId ? (cue) => void toggleFavorite(cue) : undefined}
               onWordSelect={handleWordSelect}
               selectedWord={selectedWordTarget?.word}
-              emptyTitle={isPodcast ? "精听文本正在准备" : media.source === "YOUTUBE" ? "尚未导入字幕" : undefined}
-              emptyDescription={isPodcast ? "识别完成后，这里会自动出现逐句文本。" : media.source === "YOUTUBE" ? "导入 SRT 或 VTT 英文字幕后，会自动生成中文翻译并启用字幕跟随。" : undefined}
+              emptyTitle={isPodcast ? "精听文本正在准备" : media.source === "EXTERNAL_VIDEO" ? "尚未导入字幕" : undefined}
+              emptyDescription={isPodcast ? "识别完成后，这里会自动出现逐句文本。" : media.source === "EXTERNAL_VIDEO" ? "导入 SRT 或 VTT 英文字幕后，可逐句查看并生成中文翻译。" : undefined}
             />
           )}
 
@@ -624,7 +725,7 @@ export function MediaStudyWorkspace({ mediaId, mode = "video" }: { mediaId: stri
               }}
             />
           )}
-        </div>
+        </div>}
       </div>
     </div>
   )

@@ -618,7 +618,7 @@ def sanitize_cue_text(text: str) -> str:
     return text.replace("\n", " ").strip()
 
 
-def fetch_youtube_transcript(
+def fetch_platform_transcript(
     video_id: str, srt_target: Path, token_target: Path
 ) -> tuple[str, bool]:
     for attempt in range(2):
@@ -697,11 +697,11 @@ def fetch_youtube_transcript(
             if attempt == 0:
                 time.sleep(1)
                 continue
-            LOG.info("fetching native YouTube transcript for %s failed: %s", video_id, exc)
+            LOG.info("fetching platform transcript for %s failed: %s", video_id, exc)
             return "", False
 
 
-def handle_youtube(job: dict[str, Any]) -> None:
+def handle_external_video(job: dict[str, Any]) -> None:
     job_id = int(job["id"])
     media_id = int(job["aggregateId"])
     payload = json.loads(job.get("payload") or "{}")
@@ -716,23 +716,23 @@ def handle_youtube(job: dict[str, Any]) -> None:
     heartbeat.start()
     try:
         with tempfile.TemporaryDirectory(
-            prefix=f"lexiflow-yt-job-{job_id}-"
+            prefix=f"lexiflow-video-job-{job_id}-"
         ) as task_dir:
             task = Path(task_dir)
-            srt_target = task / "youtube.srt"
-            token_target = task / "youtube.tokens.json"
+            srt_target = task / "platform.srt"
+            token_target = task / "platform.tokens.json"
 
             progress(job_id, "ACQUIRING_SUBTITLE", 20)
-            lang, success = fetch_youtube_transcript(video_id, srt_target, token_target)
+            lang, success = fetch_platform_transcript(video_id, srt_target, token_target)
 
             if success:
                 LOG.info(
-                    "successfully fetched native YouTube captions for %s", video_id
+                    "successfully fetched platform captions for %s", video_id
                 )
                 upload_subtitle(media_id, srt_target, lang, "PLATFORM", token_target)
             else:
                 LOG.info(
-                    "no native YouTube transcripts for %s, falling back to yt-dlp + faster-whisper",
+                    "no platform transcript for %s, falling back to audio recognition",
                     video_id,
                 )
                 progress(job_id, "ACQUIRING_SUBTITLE", 35)
@@ -759,7 +759,7 @@ def handle_youtube(job: dict[str, Any]) -> None:
 
                 audio_files = list(task.glob("audio.*"))
                 if not audio_files:
-                    raise RuntimeError("yt-dlp failed to download audio stream")
+                    raise RuntimeError("video extractor failed to download audio stream")
                 audio_file = audio_files[0]
 
                 progress(job_id, "DOWNLOADING_MODEL", 60)
@@ -778,9 +778,9 @@ def handle_youtube(job: dict[str, Any]) -> None:
                 f"/internal/jobs/{job_id}/complete",
                 json={"workerId": CONFIG.worker_id, "resultRef": f"media:{media_id}"},
             )
-            LOG.info("completed youtube media job %s for media %s", job_id, media_id)
+            LOG.info("completed external video job %s for media %s", job_id, media_id)
     except Exception as exc:
-        LOG.exception("youtube media job %s failed", job_id)
+        LOG.exception("external video job %s failed", job_id)
         try:
             api(
                 "POST",
@@ -888,7 +888,7 @@ def main() -> None:
                 if job_type == "LOCAL_MEDIA_PROCESS":
                     handle(job)
                 elif job_type == "YOUTUBE_MEDIA_PROCESS":
-                    handle_youtube(job)
+                    handle_external_video(job)
                 elif job_type == "PODCAST_MEDIA_PROCESS":
                     handle_podcast(job)
                 else:

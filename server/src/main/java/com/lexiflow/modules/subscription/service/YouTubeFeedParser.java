@@ -57,7 +57,7 @@ public class YouTubeFeedParser {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 400) {
                 log.warn("拉取频道 RSS 失败，HTTP 状态码: {}", response.statusCode());
-                throw new BusinessException(ResultCode.INTERNAL_ERROR, "拉取 YouTube 频道动态失败 (HTTP " + response.statusCode() + ")");
+                throw new BusinessException(ResultCode.INTERNAL_ERROR, "拉取频道动态失败 (HTTP " + response.statusCode() + ")");
             }
 
             String xml = response.body();
@@ -67,7 +67,7 @@ public class YouTubeFeedParser {
             throw be;
         } catch (Exception ex) {
             log.error("解析 YouTube RSS 异常: {}", ex.getMessage(), ex);
-            throw new BusinessException(ResultCode.INTERNAL_ERROR, "解析频道动态失败: " + ex.getMessage());
+            throw new BusinessException(ResultCode.INTERNAL_ERROR, "解析频道动态失败，请稍后重试");
         }
     }
 

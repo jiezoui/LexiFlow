@@ -2,6 +2,7 @@ package com.lexiflow.modules.ai.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.lexiflow.common.exception.BusinessException;
 import com.lexiflow.modules.ai.dto.AiExplainRequest;
 import com.lexiflow.modules.ai.model.AiResolvedConfig;
 import com.lexiflow.modules.ai.service.AiConfigStore;
@@ -18,6 +19,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AiGatewayServiceImplTest {
 
@@ -148,6 +150,27 @@ class AiGatewayServiceImplTest {
             assertThat(sent.path("response_format").path("type").asText()).isEqualTo("json_object");
             assertThat(sent.path("messages").path(1).path("content").asText())
                     .contains("【文章原句例句】");
+        } finally {
+            mockServer.stop(0);
+        }
+    }
+
+    @Test
+    void shouldShowInvalidKeyErrorForGeneration() throws Exception {
+        HttpServer mockServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        mockServer.createContext("/chat/completions", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            exchange.sendResponseHeaders(401, -1);
+            exchange.close();
+        });
+        mockServer.start();
+
+        try {
+            String apiHost = "http://127.0.0.1:" + mockServer.getAddress().getPort();
+            assertThatThrownBy(() -> service.generateText(
+                    "system", "prompt", "deepseek", "deepseek-chat", "invalid-test-key", apiHost))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessage("API Key 无效或未授权，请检查是否填写正确且无多余空格");
         } finally {
             mockServer.stop(0);
         }

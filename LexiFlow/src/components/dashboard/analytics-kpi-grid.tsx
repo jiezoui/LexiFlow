@@ -170,12 +170,12 @@ export function AnalyticsKpiGrid() {
               <div
                 className="h-full rounded-full bg-foreground"
                 style={{ width: "42%" }}
-                title="YouTube 播客 (35条 · 42%)"
+                title="外部视频语料（示例）"
               />
               <div
                 className="h-full rounded-full bg-zinc-600"
                 style={{ width: "28%" }}
-                title="B站演讲 (24条 · 28%)"
+                title="B站演讲（示例）"
               />
               <div
                 className="h-full rounded-full bg-zinc-400"
@@ -189,10 +189,10 @@ export function AnalyticsKpiGrid() {
               />
             </div>
             <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
-              <span>YT 35条</span>
-              <span>B站 24条</span>
-              <span>外刊 15条</span>
-              <span>词书 10条</span>
+              <span>外部视频</span>
+              <span>B站</span>
+              <span>外刊</span>
+              <span>词书</span>
             </div>
           </div>
         </div>

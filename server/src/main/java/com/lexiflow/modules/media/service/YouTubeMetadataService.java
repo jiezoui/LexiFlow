@@ -31,7 +31,7 @@ public class YouTubeMetadataService {
 
     public YouTubeMetadata fetch(String videoId, String canonicalUrl) {
         YouTubeMetadata fallback = new YouTubeMetadata(
-                "YouTube 视频 " + videoId,
+                "外部视频 " + videoId,
                 null,
                 "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg"
         );

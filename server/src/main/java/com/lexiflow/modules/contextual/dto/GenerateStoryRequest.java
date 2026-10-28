@@ -30,7 +30,7 @@ public class GenerateStoryRequest {
     @Schema(description = "自定义指定包含的单词词元列表 (可选，若不指定则自动从 FSRS 到期词库中按语义聚类提取)")
     private List<String> customLemmas;
 
-    @Schema(description = "AI 服务商 (openai, deepseek, siliconflow, claude 等，不传则使用系统默认配置)")
+    @Schema(description = "AI 服务商标识（不传则使用系统默认配置）")
     private String provider;
 
     @Schema(description = "自定义指定模型")

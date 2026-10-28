@@ -60,6 +60,11 @@ storage/
 scratch_*.txt
 SHADOWING-DEPLOY.md
 视频模块开发文档.md
+docs/跟读评测模块优化报告-2026-10-08.md
+docs/DEPLOYMENT.md
+docs/SERVER_MAINTENANCE_SYNC.md
+deploy/linux/
+deploy/cloudflare/
 
 # Local demo exports and machine-specific deployment config
 deploy/lexiflow_db_demo.sql

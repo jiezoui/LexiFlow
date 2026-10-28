@@ -25,7 +25,7 @@ public class ReadingArticleDetailVo {
     @Schema(description = "频道分类", example = "TECH")
     private String channel;
 
-    @Schema(description = "来源期刊", example = "BBC News")
+    @Schema(description = "来源期刊", example = "外刊资讯")
     private String sourceName;
 
     @Schema(description = "文章标题")

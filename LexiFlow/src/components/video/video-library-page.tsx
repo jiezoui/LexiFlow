@@ -2,6 +2,7 @@
 
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   CheckIcon,
   LanguagesIcon,
@@ -17,7 +18,7 @@ import { YouTubeIcon, YouTubeImportDialog } from "@/components/video/youtube-imp
 import { ChannelSubscriptionDrawer } from "@/components/video/channel-subscription-drawer"
 import { useTitleTranslation } from "@/lib/title-translation"
 
-type SourceFilter = "all" | "YOUTUBE" | "LOCAL"
+type SourceFilter = "all" | "BILIBILI" | "EXTERNAL_VIDEO" | "LOCAL"
 type LocalImportState = "idle" | "uploading" | "success" | "error" | "cancelled"
 
 const MAX_LOCAL_VIDEO_SIZE = 4 * 1024 * 1024 * 1024
@@ -25,9 +26,16 @@ const SUPPORTED_VIDEO_EXTENSIONS = ["mp4", "m4v", "mov", "mkv", "webm", "avi", "
 
 const sourceTabs: Array<{ id: SourceFilter; label: string }> = [
   { id: "all", label: "全部素材" },
-  { id: "YOUTUBE", label: "YouTube" },
+  { id: "BILIBILI", label: "B站" },
+  { id: "EXTERNAL_VIDEO", label: "其他外部视频" },
   { id: "LOCAL", label: "本地视频" },
 ]
+
+function sourceLabel(source: string) {
+  if (source === "BILIBILI") return "B站"
+  if (source === "LOCAL") return "本地视频"
+  return "外部视频"
+}
 
 const statusLabels: Record<string, string> = {
   UPLOADING: "上传中",
@@ -56,7 +64,7 @@ function MediaPoster({ media }: { media: MediaItem }) {
       ) : (
         <div className="relative flex size-full flex-col justify-between p-4 bg-zinc-900">
           <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-            <span>{media.source === "YOUTUBE" ? "YouTube" : "本地视频"}</span>
+            <span>{sourceLabel(media.source)}</span>
             <span>{statusLabels[media.status] || media.status}</span>
           </div>
           <VideoIcon className="size-8 text-zinc-600 self-center" />
@@ -66,10 +74,10 @@ function MediaPoster({ media }: { media: MediaItem }) {
 
       {/* Top badges */}
       <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur-xs border border-white/10">
-        {media.source === "YOUTUBE" ? (
+        {media.source !== "LOCAL" ? (
           <>
             <span className="size-1.5 rounded-full bg-rose-500" />
-            <span>YouTube</span>
+            <span>{sourceLabel(media.source)}</span>
           </>
         ) : (
           <>
@@ -111,6 +119,7 @@ async function uploadPartWithRetry(uploadId: string, partNumber: number, part: B
 }
 
 export function VideoLibraryPage() {
+  const router = useRouter()
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all")
   const [activeCreatorFilter, setActiveCreatorFilter] = useState<string | null>(null)
   const [query, setQuery] = useState("")
@@ -306,10 +315,10 @@ export function VideoLibraryPage() {
             type="button"
             onClick={() => setIsYouTubeDialogOpen(true)}
             className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-foreground text-background px-3.5 text-xs font-semibold hover:opacity-90 active:scale-[0.98] transition cursor-pointer shadow-xs"
-            aria-label="导入 YouTube 视频"
+            aria-label="导入视频链接"
           >
             <YouTubeIcon className="size-3.5" />
-            <span>导入 YouTube</span>
+            <span>导入视频链接</span>
           </button>
 
           {/* Local Video Import Button */}
@@ -459,7 +468,7 @@ export function VideoLibraryPage() {
             <p className="mt-1 max-w-sm text-xs text-muted-foreground leading-relaxed">
               {query || sourceFilter !== "all" || activeCreatorFilter
                 ? "未检索到匹配的视频，尝试清空筛选条件。"
-                : "点击“导入 YouTube”或“本地视频”即可开始双语精听与生词研习。"}
+                : "点击“导入视频链接”或“本地视频”即可开始双语精听与生词研习。"}
             </p>
           </div>
         ) : (
@@ -500,7 +509,7 @@ export function VideoLibraryPage() {
                     {/* Creator & Meta line */}
                     <div className="mt-3 pt-3 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
                       <span className="truncate max-w-[65%] font-medium text-foreground">
-                        {media.creator || (media.source === "YOUTUBE" ? "YouTube" : "本地导入")}
+                        {media.creator || (media.source === "LOCAL" ? "本地导入" : sourceLabel(media.source))}
                       </span>
 
                       <div className="flex items-center gap-1 font-semibold text-foreground group-hover:translate-x-0.5 transition-transform">
@@ -520,7 +529,10 @@ export function VideoLibraryPage() {
       <YouTubeImportDialog
         open={isYouTubeDialogOpen}
         onOpenChange={setIsYouTubeDialogOpen}
-        onSuccess={() => void loadMedia(false)}
+        onSuccess={(item) => {
+          void loadMedia(false)
+          router.push(`/videos/${item.id}`)
+        }}
       />
 
       {/* Channel Subscription Drawer */}

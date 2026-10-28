@@ -218,7 +218,7 @@ export function ChannelSubscriptionDrawer({
                 </div>
                 <h3 className="mt-3 text-sm font-semibold text-foreground">暂无关注频道</h3>
                 <p className="mt-1 text-xs text-muted-foreground max-w-xs leading-relaxed">
-                  关注 YouTube 英语创作者后，可在此实时查看最新单集动态，一键导入精听库。
+                  关注英语创作者后，可在此查看最新动态并导入精听库。
                 </p>
                 <button
                   type="button"

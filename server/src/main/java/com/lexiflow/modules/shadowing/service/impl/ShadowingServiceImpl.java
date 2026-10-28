@@ -81,7 +81,8 @@ public class ShadowingServiceImpl implements ShadowingService {
         query.and(w -> w.isNull(ShadowingSentenceEntity::getUserId)
                 .or().eq(ShadowingSentenceEntity::getUserId, userId));
         if (sourceType != null && !sourceType.isBlank() && !"ALL".equalsIgnoreCase(sourceType)) {
-            query.eq(ShadowingSentenceEntity::getSourceType, sourceType.toUpperCase());
+            query.eq(ShadowingSentenceEntity::getSourceType,
+                    "CURATED".equalsIgnoreCase(sourceType) ? "BBC" : sourceType.toUpperCase());
         }
         query.orderByAsc(ShadowingSentenceEntity::getSourceType)
                 .orderByAsc(ShadowingSentenceEntity::getSortOrder)
@@ -380,7 +381,7 @@ public class ShadowingServiceImpl implements ShadowingService {
                 bestBySentence.merge(a.getSentenceId(), overall, Math::max);
             }
 
-            String src = a.getSourceType() != null ? a.getSourceType() : "BBC";
+            String src = publicSourceType(a.getSourceType());
             sourceCount.computeIfAbsent(src, k -> new int[1])[0]++;
             sourceSum.merge(src, overall, Double::sum);
 
@@ -502,8 +503,8 @@ public class ShadowingServiceImpl implements ShadowingService {
         }
         return ShadowingSentenceVo.builder()
                 .id(e.getId())
-                .sourceType(e.getSourceType())
-                .sourceTitle(e.getSourceTitle())
+                .sourceType(publicSourceType(e.getSourceType()))
+                .sourceTitle(publicSourceTitle(e.getSourceTitle()))
                 .text(e.getText())
                 .translation(e.getTranslation())
                 .cefrLevel(e.getCefrLevel())
@@ -521,8 +522,8 @@ public class ShadowingServiceImpl implements ShadowingService {
         return ShadowingAttemptVo.builder()
                 .id(e.getId())
                 .sentenceId(e.getSentenceId())
-                .sourceType(e.getSourceType())
-                .sourceTitle(e.getSourceTitle())
+                .sourceType(publicSourceType(e.getSourceType()))
+                .sourceTitle(publicSourceTitle(e.getSourceTitle()))
                 .referenceText(e.getReferenceText())
                 .transcribedText(e.getTranscribedText())
                 .overallScore(e.getOverallScore() != null ? e.getOverallScore().doubleValue() : null)
@@ -673,9 +674,19 @@ public class ShadowingServiceImpl implements ShadowingService {
         if (sourceType == null || sourceType.isBlank()) return "BBC";
         String upper = sourceType.trim().toUpperCase();
         return switch (upper) {
-            case "BBC", "CARD", "CUSTOM", "MEDIA", "ARTICLE", "VIDEO", "PODCAST" -> upper;
+            case "CURATED", "BBC" -> "BBC";
+            case "CARD", "CUSTOM", "MEDIA", "ARTICLE", "VIDEO", "PODCAST" -> upper;
             default -> "CUSTOM";
         };
+    }
+
+    private static String publicSourceType(String sourceType) {
+        return sourceType == null || "BBC".equalsIgnoreCase(sourceType) ? "CURATED" : sourceType;
+    }
+
+    private static String publicSourceTitle(String title) {
+        return title == null ? null : title.replaceFirst("(?i)^BBC\\s+", "")
+                .replaceAll("(?i)\\bBBC\\b", "外刊");
     }
 
     private static String gradeOf(Double score) {

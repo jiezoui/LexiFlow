@@ -44,7 +44,7 @@ export function QuickActionDock() {
             导入精听视频
           </strong>
           <span className="block mt-0.5 text-[11px] text-muted-foreground truncate">
-            从 YouTube / B站 语料采词
+            从本地与外部视频语料采词
           </span>
         </div>
       </Link>

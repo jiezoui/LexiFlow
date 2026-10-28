@@ -31,6 +31,6 @@ public class ShadowingTrendPointVo {
     @Schema(description = "语速步频 (词/分)", example = "120.5")
     private Double wordsPerMinute;
 
-    @Schema(description = "练习来源标题", example = "BBC 6 Minute English")
+    @Schema(description = "练习来源标题", example = "英语跟读素材")
     private String sourceTitle;
 }

@@ -57,7 +57,7 @@ export const notifications: Notification[] = [
     id: "n-context-capture",
     type: "system",
     title: "外刊语境采词同步",
-    description: "在《BBC News》阅读中摘录的 5 个高频专业生词已绑定上下文原句入库。",
+    description: "在外刊阅读中摘录的 5 个高频专业生词已绑定上下文原句入库。",
     time: "昨天",
     read: true,
     icon: "file-text",

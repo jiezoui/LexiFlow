@@ -29,6 +29,8 @@ import com.lexiflow.modules.media.model.MediaStatus;
 import com.lexiflow.modules.media.service.MediaService;
 import com.lexiflow.modules.media.service.SubtitleIngestionService;
 import com.lexiflow.modules.media.service.YouTubeMetadataService;
+import com.lexiflow.modules.media.service.BilibiliMetadataService;
+import com.lexiflow.modules.media.service.BilibiliSubtitleService;
 import com.lexiflow.modules.media.vo.MediaCueVo;
 import com.lexiflow.modules.media.vo.MediaCueTranslationVo;
 import com.lexiflow.modules.media.vo.MediaDetailVo;
@@ -38,6 +40,7 @@ import com.lexiflow.modules.media.util.PublicIdGenerator;
 import com.lexiflow.modules.media.util.ParsedSubtitleCue;
 import com.lexiflow.modules.media.util.SubtitleSentenceSegmenter;
 import com.lexiflow.modules.media.util.YouTubeUrlParser;
+import com.lexiflow.modules.media.util.BilibiliUrlParser;
 import com.lexiflow.modules.translation.service.TranslationTaskService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -68,6 +71,8 @@ public class MediaServiceImpl implements MediaService {
     private final SubtitleIngestionService subtitleIngestionService;
     private final TranslationTaskService translationTaskService;
     private final YouTubeMetadataService youTubeMetadataService;
+    private final BilibiliMetadataService bilibiliMetadataService;
+    private final BilibiliSubtitleService bilibiliSubtitleService;
 
     @Override
     public List<MediaDetailVo> list(Long userId) {
@@ -108,6 +113,9 @@ public class MediaServiceImpl implements MediaService {
     @Override
     @Transactional
     public MediaDetailVo importExternal(ImportExternalMediaRequest request, Long userId) {
+        if (BilibiliUrlParser.accepts(request.url())) {
+            return importBilibili(BilibiliUrlParser.parse(request.url()), userId);
+        }
         YouTubeUrlParser.ParsedYouTubeUrl parsed = YouTubeUrlParser.parse(request.url());
         MediaItemEntity existing = mediaMapper.selectAnyExternal(
                 userId, MediaPlatform.YOUTUBE.name(), parsed.videoId()
@@ -146,6 +154,38 @@ public class MediaServiceImpl implements MediaService {
                 .build();
         mediaMapper.insert(media);
         enqueueYouTubeProcess(media, parsed);
+        return MediaDetailVo.from(media, null);
+    }
+
+    private MediaDetailVo importBilibili(BilibiliUrlParser.ParsedBilibiliUrl parsed, Long userId) {
+        MediaItemEntity existing = mediaMapper.selectAnyExternal(
+                userId, MediaPlatform.BILIBILI.name(), parsed.externalId());
+        if (existing != null) {
+            if (existing.getDeletedAt() != null) {
+                mediaMapper.restore(existing.getId());
+                existing.setDeletedAt(null);
+            }
+            return MediaDetailVo.from(existing, latestReadyTrack(existing.getId()));
+        }
+        BilibiliMetadataService.Metadata metadata = bilibiliMetadataService.fetch(parsed.bvid(), parsed.page());
+        LocalDateTime now = LocalDateTime.now();
+        MediaItemEntity media = MediaItemEntity.builder()
+                .publicId(PublicIdGenerator.next())
+                .userId(userId)
+                .platform(MediaPlatform.BILIBILI.name())
+                .externalId(parsed.externalId())
+                .sourceUrl(parsed.canonicalUrl())
+                .title(metadata.title())
+                .creator(metadata.creator())
+                .coverUrl(metadata.coverUrl())
+                .playbackType(MediaPlaybackType.BILIBILI_IFRAME.name())
+                .language("en")
+                .status(MediaStatus.WAITING_SUBTITLE.name())
+                .processingStage(MediaProcessingStage.ACQUIRING_SUBTITLE.name())
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+        mediaMapper.insert(media);
         return MediaDetailVo.from(media, null);
     }
 
@@ -217,8 +257,34 @@ public class MediaServiceImpl implements MediaService {
 
     @Override
     @Transactional
+    public MediaDetailVo loadPlatformSubtitle(String publicId, Long userId) {
+        MediaItemEntity media = requireOwned(publicId, userId);
+        if (!MediaPlatform.BILIBILI.name().equals(media.getPlatform())) {
+            throw new BusinessException("当前视频不支持加载平台字幕");
+        }
+        SubtitleTrackEntity existing = latestReadyTrack(media.getId());
+        if (existing != null) return MediaDetailVo.from(media, existing);
+
+        BilibiliUrlParser.ParsedBilibiliUrl parsed = BilibiliUrlParser.parse(media.getSourceUrl());
+        byte[] content = bilibiliSubtitleService.fetchEnglishSrt(parsed.bvid(), parsed.page());
+        // A local subtitle may have been uploaded while the remote request was in flight.
+        existing = latestReadyTrack(media.getId());
+        if (existing != null) return MediaDetailVo.from(media, existing);
+        subtitleIngestionService.ingest(media.getId(), content, "en", SubtitleSource.PLATFORM);
+        media.setStatus(MediaStatus.READY.name());
+        media.setProcessingStage(MediaProcessingStage.READY.name());
+        media.setErrorMessage(null);
+        mediaMapper.updateById(media);
+        return MediaDetailVo.from(media, latestReadyTrack(media.getId()));
+    }
+
+    @Override
+    @Transactional
     public AsyncJobVo reprocess(String publicId, Long userId) {
         MediaItemEntity media = requireOwned(publicId, userId);
+        if (MediaPlatform.BILIBILI.name().equals(media.getPlatform())) {
+            throw new BusinessException("请在右侧加载平台字幕或上传 SRT/VTT 字幕");
+        }
         boolean remoteSource = MediaPlatform.YOUTUBE.name().equals(media.getPlatform())
                 || MediaPlatform.PODCAST.name().equals(media.getPlatform());
         if (!remoteSource && media.getSourceStorageKey() == null) {

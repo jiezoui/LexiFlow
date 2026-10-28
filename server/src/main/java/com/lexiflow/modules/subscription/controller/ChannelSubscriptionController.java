@@ -25,7 +25,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 import java.util.Map;
 
-@Tag(name = "13. 创作者频道订阅", description = "YouTube 频道关注、动态拉取与一键精听导入")
+@Tag(name = "13. 创作者频道订阅", description = "外部频道关注、动态拉取与一键精听导入")
 @RestController
 @RequestMapping("/api/channels")
 @RequiredArgsConstructor
@@ -39,7 +39,7 @@ public class ChannelSubscriptionController {
         return Result.success(subscriptionService.list(UserContext.requireCurrentUserId()));
     }
 
-    @Operation(summary = "关注/订阅新频道 (支持 @handle 或 YouTube 链接)")
+    @Operation(summary = "关注/订阅新频道 (支持 @handle 或频道链接)")
     @PostMapping("/subscriptions")
     public Result<ChannelSubscriptionVo> subscribe(@Valid @RequestBody SubscribeChannelRequest request) {
         return Result.success(subscriptionService.subscribe(UserContext.requireCurrentUserId(), request.getInput()));

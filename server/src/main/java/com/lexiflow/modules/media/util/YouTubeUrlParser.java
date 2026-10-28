@@ -99,7 +99,7 @@ public final class YouTubeUrlParser {
     }
 
     private static BusinessException invalidUrl() {
-        return new BusinessException("请输入有效的 YouTube 视频链接");
+        return new BusinessException("请输入有效的视频链接");
     }
 
     public record ParsedYouTubeUrl(String videoId, String canonicalUrl, String embedUrl) {

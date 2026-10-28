@@ -917,19 +917,26 @@ export const planApi = {
 }
 
 // 07. 深度外刊阅读与资讯 API
+function normalizeReadingSource<T extends ReadingArticle>(article: T): T {
+  return /bbc/i.test(article.sourceName)
+    ? { ...article, sourceName: "外刊资讯" }
+    : article
+}
+
 export const readingApi = {
-  listArticles: (params?: { channel?: string; keyword?: string; page?: number; size?: number }) => {
+  listArticles: async (params?: { channel?: string; keyword?: string; page?: number; size?: number }) => {
     const query = new URLSearchParams()
     if (params?.channel) query.set("channel", params.channel)
     if (params?.keyword) query.set("keyword", params.keyword)
     if (params?.page) query.set("page", String(params.page))
     if (params?.size) query.set("size", String(params.size))
-    return request<{ records: ReadingArticle[]; total: number; current: number; size: number }>(
+    const result = await request<{ records: ReadingArticle[]; total: number; current: number; size: number }>(
       `/api/reading/articles?${query.toString()}`
     )
+    return { ...result, records: result.records.map(normalizeReadingSource) }
   },
-  getDetail: (id: number) =>
-    request<ReadingArticleDetail>(`/api/reading/articles/${id}`),
+  getDetail: async (id: number) =>
+    normalizeReadingSource(await request<ReadingArticleDetail>(`/api/reading/articles/${id}`)),
   sync: (channel?: string) =>
     request<{ channel: string; syncedCount: number; message: string }>(
       `/api/reading/sync${channel ? `?channel=${channel}` : ""}`,
@@ -941,10 +948,22 @@ export const readingApi = {
 }
 
 // 09. 视频导入、字幕与媒体处理 API
+function normalizeMediaSource(media: MediaItem): MediaItem {
+  if (media.source !== "YOUTUBE" && media.playback?.type !== "YOUTUBE_IFRAME") return media
+  return {
+    ...media,
+    source: media.source === "YOUTUBE" ? "EXTERNAL_VIDEO" : media.source,
+    playback: {
+      ...media.playback,
+      type: media.playback.type === "YOUTUBE_IFRAME" ? "EXTERNAL_IFRAME" : media.playback.type,
+    },
+  }
+}
+
 export const mediaApi = {
-  list: () => request<MediaItem[]>("/api/media"),
-  detail: (mediaId: string) =>
-    request<MediaItem>(`/api/media/${encodeURIComponent(mediaId)}`),
+  list: async () => (await request<MediaItem[]>("/api/media")).map(normalizeMediaSource),
+  detail: async (mediaId: string) =>
+    normalizeMediaSource(await request<MediaItem>(`/api/media/${encodeURIComponent(mediaId)}`)),
   cues: (mediaId: string) =>
     request<MediaCue[]>(`/api/media/${encodeURIComponent(mediaId)}/cues`),
   cueTranslations: (mediaId: string) =>
@@ -959,11 +978,15 @@ export const mediaApi = {
     }),
   delete: (mediaId: string) =>
     request<void>(`/api/media/${encodeURIComponent(mediaId)}`, { method: "DELETE" }),
-  importYouTube: (url: string) =>
-    request<MediaItem>("/api/media/external", {
+  importExternal: async (url: string) =>
+    normalizeMediaSource(await request<MediaItem>("/api/media/external", {
       method: "POST",
       body: JSON.stringify({ url }),
-    }),
+    })),
+  loadPlatformSubtitle: async (mediaId: string) =>
+    normalizeMediaSource(await request<MediaItem>(`/api/media/${encodeURIComponent(mediaId)}/platform-subtitles`, {
+      method: "POST",
+    }, 35000)),
   uploadSubtitle: (mediaId: string, file: File, language = "en") => {
     const body = new FormData()
     body.append("file", file)
@@ -1088,6 +1111,7 @@ export interface AiAccountConfig {
   activeProvider: string
   activeModel: string | null
   activeConfigured: boolean
+  sessionOnly?: boolean
   temperature: number
   enableReadingAi: boolean
   enableStoryAi: boolean
@@ -1491,7 +1515,7 @@ export const speechApi = {
 
 export interface ShadowingSentence {
   id: number
-  sourceType: "BBC" | "CARD" | "CUSTOM" | "MEDIA"
+  sourceType: "CURATED" | "CARD" | "CUSTOM" | "MEDIA"
   sourceTitle: string
   text: string
   translation: string
@@ -1566,12 +1590,21 @@ function toQuery(params: Record<string, string | number | boolean | undefined>):
   return qs ? `?${qs}` : ""
 }
 
+function normalizeShadowingSource<T extends { sourceType: string; sourceTitle: string }>(item: T): T {
+  if (item.sourceType !== "BBC" && !/bbc/i.test(item.sourceTitle)) return item
+  return {
+    ...item,
+    sourceType: item.sourceType === "BBC" ? "CURATED" : item.sourceType,
+    sourceTitle: item.sourceTitle.replace(/^BBC\s+/i, "").replace(/\bBBC\b/gi, "外刊"),
+  }
+}
+
 export const shadowingApi = {
   /** 跟读句库（按题源筛选，附带个人掌握度） */
-  listSentences: (params?: { sourceType?: string; limit?: number }) =>
-    request<ShadowingSentence[]>(
-      `/api/shadowing/sentences${toQuery({ sourceType: params?.sourceType, limit: params?.limit })}`
-    ),
+  listSentences: async (params?: { sourceType?: string; limit?: number }) =>
+    (await request<ShadowingSentence[]>(
+      `/api/shadowing/sentences${toQuery({ sourceType: params?.sourceType === "CURATED" ? "BBC" : params?.sourceType, limit: params?.limit })}`
+    )).map(normalizeShadowingSource),
 
   mediaFavorites: (mediaId: string) =>
     request<Record<string, number>>(`/api/shadowing/media-sentences/${encodeURIComponent(mediaId)}`),
@@ -1634,8 +1667,8 @@ export const shadowingApi = {
     }),
 
   /** 历史练习记录 */
-  listAttempts: (params?: { sentenceId?: number; page?: number; size?: number }) =>
-    request<{
+  listAttempts: async (params?: { sentenceId?: number; page?: number; size?: number }) => {
+    const result = await request<{
       records: ShadowingAttemptRecord[]
       total: number
       current: number
@@ -1646,18 +1679,20 @@ export const shadowingApi = {
         page: params?.page,
         size: params?.size,
       })}`
-    ),
+    )
+    return { ...result, records: result.records.map(normalizeShadowingSource) }
+  },
 
   /** 单条记录明细（含词级/音素级完整数据） */
-  getAttempt: (id: number) =>
-    request<ShadowingAttemptRecord>(`/api/shadowing/attempts/${id}`),
+  getAttempt: async (id: number) =>
+    normalizeShadowingSource(await request<ShadowingAttemptRecord>(`/api/shadowing/attempts/${id}`)),
 
   /** 训练总览统计 */
   stats: () => request<ShadowingStats>("/api/shadowing/stats"),
 }
 
 // ---------------------------------------------------------------------------
-// 创作者频道订阅与动态跟踪 (YouTube Channel Subscriptions)
+// 创作者频道订阅与动态跟踪
 // ---------------------------------------------------------------------------
 
 export interface ChannelSubscription {
@@ -1703,7 +1738,7 @@ export const channelApi = {
   listSubscriptions: () =>
     request<ChannelSubscription[]>("/api/channels/subscriptions"),
 
-  /** 关注/订阅新频道 (支持 @handle 或 YouTube 链接) */
+  /** 关注/订阅新频道（支持频道标识或视频平台链接） */
   subscribe: (input: string) =>
     request<ChannelSubscription>("/api/channels/subscriptions", {
       method: "POST",

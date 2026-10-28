@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { LoaderCircleIcon } from "lucide-react"
+import { LoaderCircleIcon, VideoIcon } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -14,30 +14,20 @@ interface YouTubeImportDialogProps {
   onSuccess: (item: MediaItem) => void
 }
 
+function normalizeVideoInput(value: string): string {
+  const trimmed = value.trim()
+  const sharedUrl = trimmed.match(/https?:\/\/[^\s<>，。！？]+/i)?.[0]
+  if (sharedUrl) return sharedUrl.replace(/[)\]}]+$/, "")
+  const sharedBvid = trimmed.match(/(?:^|[^A-Za-z0-9])(BV[0-9A-Za-z]{10})(?![A-Za-z0-9])/)
+  return sharedBvid?.[1] || trimmed
+}
+
 export function YouTubeIcon({ className = "size-4" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
-      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
-    </svg>
-  )
+  return <VideoIcon className={className} aria-hidden="true" />
 }
 
 export function YouTubeOutlineIcon({ className = "size-5" }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <rect width="20" height="15" x="2" y="4.5" rx="4" />
-      <polygon points="10 9 15 12 10 15 10 9" fill="currentColor" stroke="none" />
-    </svg>
-  )
+  return <VideoIcon className={className} aria-hidden="true" />
 }
 
 export function YouTubeImportDialog({ open, onOpenChange, onSuccess }: YouTubeImportDialogProps) {
@@ -47,22 +37,21 @@ export function YouTubeImportDialog({ open, onOpenChange, onSuccess }: YouTubeIm
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const trimmed = url.trim()
+    const trimmed = normalizeVideoInput(url)
     if (!trimmed) return
 
     setIsSubmitting(true)
     setErrorMessage("")
 
     try {
-      const result = await mediaApi.importYouTube(trimmed)
+      const result = await mediaApi.importExternal(trimmed)
       setUrl("")
       setErrorMessage("")
       onOpenChange(false)
       onSuccess(result)
     } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : "导入失败，请检查 YouTube 链接格式是否正确。"
-      )
+      const message = err instanceof Error ? err.message : "导入失败，请检查视频链接格式。"
+      setErrorMessage(/youtube|youtu\.be/i.test(message) ? "该视频链接暂时无法导入，请稍后重试。" : message)
     } finally {
       setIsSubmitting(false)
     }
@@ -89,7 +78,16 @@ export function YouTubeImportDialog({ open, onOpenChange, onSuccess }: YouTubeIm
                 setUrl(e.target.value)
                 if (errorMessage) setErrorMessage("")
               }}
-              placeholder="粘贴 YouTube 链接或输入视频 ID..."
+              onPaste={(event) => {
+                const pasted = event.clipboardData.getData("text/plain")
+                const normalized = normalizeVideoInput(pasted)
+                if (normalized !== pasted.trim()) {
+                  event.preventDefault()
+                  setUrl(normalized)
+                  setErrorMessage("")
+                }
+              }}
+              placeholder="粘贴 B站分享链接、BV 号或已支持的视频链接..."
               className="flex-1 bg-transparent text-sm sm:text-base text-zinc-100 placeholder:text-zinc-500 outline-none border-none font-normal selection:bg-rose-500/30"
               autoFocus
               disabled={isSubmitting}
@@ -106,13 +104,21 @@ export function YouTubeImportDialog({ open, onOpenChange, onSuccess }: YouTubeIm
                 <button
                   type="submit"
                   disabled={!url.trim()}
-                  className="flex items-center gap-1 rounded-lg bg-zinc-800/90 hover:bg-zinc-700/90 px-2.5 py-1 text-xs font-medium text-zinc-400 hover:text-zinc-200 border border-zinc-700/50 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed select-none active:scale-95"
+                  className="flex items-center gap-1 rounded-lg border border-zinc-600 bg-white/10 px-2.5 py-1 text-xs font-semibold text-zinc-100 transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-30 active:scale-95"
                 >
                   <span>导入</span>
                 </button>
               )}
             </div>
           </div>
+
+          {!errorMessage && (
+            <p className="mt-2 px-2 text-xs text-zinc-500">
+              {/^BV[0-9A-Za-z]{10}$/.test(normalizeVideoInput(url)) || /(?:^|\.)bilibili\.com|b23\.tv/i.test(normalizeVideoInput(url))
+                ? "已识别 B站视频；导入后可上传 SRT/VTT 字幕进行逐句精听。"
+                : "支持 B站 BV 号、分享链接和已接入来源的视频链接。"}
+            </p>
+          )}
 
           {/* Minimalist error message right beneath the bar */}
           {errorMessage && (

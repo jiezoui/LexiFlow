@@ -18,7 +18,7 @@ import java.util.Map;
 /**
  * 沉浸阅读与外刊资讯控制器
  */
-@Tag(name = "07. 深度外刊阅读接口 (Reading)", description = "涵盖 BBC 全球实时期刊聚合、正文纯净提取、CEFR 难度定级与行间生词研读")
+@Tag(name = "07. 深度外刊阅读接口 (Reading)", description = "涵盖外刊资讯聚合、正文纯净提取、CEFR 难度定级与行间生词研读")
 @RestController
 @RequestMapping("/api/reading")
 @RequiredArgsConstructor
@@ -62,8 +62,8 @@ public class ReadingController {
     }
 
     @Operation(
-            summary = "同步拉取 BBC 官方最新外刊新闻流",
-            description = "拉取 BBC 官方指定频道或全量频道的实时 RSS 流并自动进行去重、正文清洗入库"
+            summary = "同步拉取最新外刊资讯流",
+            description = "拉取指定频道或全量频道的资讯流并自动进行去重、正文清洗入库"
     )
     @PostMapping("/sync")
     public Result<Map<String, Object>> syncBbcArticles(
@@ -74,7 +74,7 @@ public class ReadingController {
         return Result.success(Map.of(
                 "channel", channel,
                 "syncedCount", count,
-                "message", count > 0 ? ("成功拉取并入库 " + count + " 篇 BBC 最新外刊") : "期刊内容已是最新状态"
+                "message", count > 0 ? ("成功拉取并入库 " + count + " 篇最新外刊") : "期刊内容已是最新状态"
         ));
     }
 

@@ -168,8 +168,8 @@ export default function SignInPage() {
               type="button"
               className="flex h-11 items-center justify-center gap-2 rounded-full border border-border bg-background text-sm font-medium text-foreground transition-colors hover:bg-muted"
             >
-              <Image src="/logos/google-com.png" alt="" width={16} height={16} className="size-4" />
-              <span>Google</span>
+              <Image src="/logos/github.svg" alt="" width={16} height={16} className="size-4" />
+              <span>GitHub</span>
             </button>
             <button
               type="button"

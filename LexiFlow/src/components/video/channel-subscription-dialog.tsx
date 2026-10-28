@@ -4,7 +4,6 @@ import { useMemo, useRef, useState } from "react"
 import { CheckIcon, Loader2Icon, PlusIcon, SearchIcon, Trash2Icon, UploadIcon, XIcon } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import type { ChannelSubscription } from "@/lib/api-client"
-import channelCatalog from "@/data/channel-discovery.json"
 
 type DialogMode = "add" | "manage"
 
@@ -22,7 +21,16 @@ interface ChannelSubscriptionDialogProps {
 }
 
 const CATEGORIES = ["全部", "英语学习", "科技", "科学", "商业", "文化"] as const
-const RECOMMENDATIONS = channelCatalog.items
+// Add a reviewed recommendation catalog here when suitable sources are available.
+const RECOMMENDATIONS: Array<{
+  id: string
+  category: string
+  name: string
+  handle: string
+  description: string
+  latestTitle: string
+  image: string
+}> = []
 
 export function ChannelSubscriptionDialog({
   mode,
@@ -62,8 +70,8 @@ export function ChannelSubscriptionDialog({
       >
         <DialogHeader className="flex-row items-center justify-between gap-4 border-b border-border px-5 py-4">
           <div className="min-w-0 text-left">
-            <DialogTitle className="text-base font-bold">{mode === "manage" ? "管理订阅频道" : "发现并订阅频道"}</DialogTitle>
-            <p className="mt-0.5 text-xs text-muted-foreground">{mode === "manage" ? `已订阅 ${subscriptions.length} 个频道` : "选择领域或输入频道地址"}</p>
+            <DialogTitle className="text-base font-bold">{mode === "manage" ? "管理订阅频道" : "添加订阅频道"}</DialogTitle>
+            <p className="mt-0.5 text-xs text-muted-foreground">{mode === "manage" ? `已订阅 ${subscriptions.length} 个频道` : "输入频道地址以添加订阅"}</p>
           </div>
           <button type="button" onClick={() => onOpenChange(false)} aria-label="关闭频道弹窗" className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <XIcon className="size-4" />
@@ -76,7 +84,7 @@ export function ChannelSubscriptionDialog({
           </div>
         )}
 
-        <div className="flex items-center gap-2 border-b border-border px-5 py-3">
+        {mode === "manage" && <div className="flex items-center gap-2 border-b border-border px-5 py-3">
           <SearchIcon className="size-4 shrink-0 text-muted-foreground" />
           <input
             value={query}
@@ -86,7 +94,7 @@ export function ChannelSubscriptionDialog({
             className="h-8 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
           {query && <button type="button" onClick={() => setQuery("")} aria-label="清空搜索" className="rounded-md p-1 text-muted-foreground hover:bg-muted"><XIcon className="size-3.5" /></button>}
-        </div>
+        </div>}
 
         {mode === "manage" ? (
           <div className="min-h-52 overflow-y-auto p-3 sm:p-4">
@@ -107,7 +115,7 @@ export function ChannelSubscriptionDialog({
           </div>
         ) : (
           <>
-            <div className="grid min-h-52 min-w-0 flex-1 grid-cols-[7rem_minmax(0,1fr)] overflow-hidden sm:grid-cols-[10rem_minmax(0,1fr)]">
+            {RECOMMENDATIONS.length > 0 && <div className="grid min-h-52 min-w-0 flex-1 grid-cols-[7rem_minmax(0,1fr)] overflow-hidden sm:grid-cols-[10rem_minmax(0,1fr)]">
               <nav aria-label="频道领域" className="flex flex-col gap-0.5 overflow-y-auto border-r border-border bg-muted/30 p-2 sm:p-3">
                 {CATEGORIES.map((item) => (
                   <button key={item} type="button" aria-pressed={category === item} onClick={() => setCategory(item)} className={`rounded-lg px-2.5 py-2 text-left text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${category === item ? "bg-foreground font-semibold text-background" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>{item}</button>
@@ -116,7 +124,7 @@ export function ChannelSubscriptionDialog({
               <div className="max-h-96 min-w-0 overflow-y-auto p-2 sm:p-3">
                 <p className="px-2 pb-2 text-[11px] text-muted-foreground">精选频道 · {recommendations.length}</p>
                 {recommendations.length === 0 ? (
-                  <p className="px-3 py-8 text-center text-xs text-muted-foreground">精选列表里没有匹配频道，可在下方输入 @handle 或链接。</p>
+                  <p className="px-3 py-8 text-center text-xs text-muted-foreground">当前没有预置推荐频道，可在下方输入 @handle 或频道链接。</p>
                 ) : recommendations.map((channel) => {
                   const subscribed = subscriptions.some((item) =>
                     item.channelHandle?.toLowerCase() === channel.handle.toLowerCase() ||
@@ -136,10 +144,10 @@ export function ChannelSubscriptionDialog({
                   )
                 })}
               </div>
-            </div>
+            </div>}
             <div className="space-y-3 border-t border-border p-4 sm:p-5">
               <form onSubmit={(event) => { event.preventDefault(); if (input.trim()) void onSubscribe(input.trim()).then((success) => { if (success) setInput("") }) }} className="flex min-w-0 gap-2">
-                <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="输入 @handle 或 YouTube 频道链接" aria-label="频道地址" className="h-10 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="输入创作者 @handle 或频道链接" aria-label="频道地址" className="h-10 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" />
                 <button type="submit" disabled={!input.trim() || isSubscribing} className="h-10 shrink-0 whitespace-nowrap rounded-xl bg-foreground px-4 text-xs font-semibold text-background hover:opacity-90 disabled:opacity-40">
                   {isSubscribing ? <Loader2Icon className="size-4 animate-spin" /> : "订阅"}
                 </button>

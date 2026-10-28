@@ -192,7 +192,7 @@ export const mockCognitiveLoadData = [
 ]
 
 export const mockCorpusDistributionData = [
-  { source: "YouTube 播客精听", count: 35, percentage: 42, fill: "#09090B" },
+  { source: "外部视频精听", count: 35, percentage: 42, fill: "#09090B" },
   { source: "B站技术原声演讲", count: 24, percentage: 28, fill: "#3F3F46" },
   { source: "外刊深度长文阅读", count: 15, percentage: 18, fill: "#71717A" },
   { source: "CET-6 权威大纲词书", count: 10, percentage: 12, fill: "#A1A1AA" },

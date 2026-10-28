@@ -71,7 +71,7 @@ import {
   type SpeechPhonemeWords,
 } from "@/lib/api-client"
 
-type SourceTab = "ARTICLE" | "VIDEO" | "PODCAST" | "CARD" | "BBC" | "MEDIA" | "CUSTOM"
+type SourceTab = "ARTICLE" | "VIDEO" | "PODCAST" | "CARD" | "CURATED" | "MEDIA" | "CUSTOM"
 type PracticeSentence = Omit<ShadowingSentence, "sourceType"> & {
   sourceType: SourceTab
   persisted?: boolean
@@ -109,7 +109,7 @@ const SOURCE_META: Record<
     icon: PodcastIcon,
     description: "选择已导入的播客进行原声跟读",
   },
-  BBC: {
+  CURATED: {
     label: "精选短句",
     icon: SparklesIcon,
     description: "预置的独立练习句；完整文章请从语境文章中选择",
@@ -835,7 +835,7 @@ function SentenceWorkspace({
 /* ══════════════════════════════════════════════════════════════════════════ */
 
 export default function ShadowingPracticePage() {
-  const [activeTab, setActiveTab] = useState<SourceTab>("BBC")
+  const [activeTab, setActiveTab] = useState<SourceTab>("CURATED")
   const [sentences, setSentences] = useState<PracticeSentence[]>([])
   const [articles, setArticles] = useState<ReadingArticle[]>([])
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([])
@@ -987,8 +987,8 @@ export default function ShadowingPracticePage() {
         const list = await fetchSentenceLibrary()
         if (cancelled) return
         setSentences(list)
-        const first = list.find((s) => s.sourceType === "BBC") ?? list[0]
-        if (first) setActiveTab((tab) => tab === "BBC" ? first.sourceType : tab)
+        const first = list.find((s) => s.sourceType === "CURATED") ?? list[0]
+        if (first) setActiveTab((tab) => tab === "CURATED" ? first.sourceType : tab)
         setCurrentId(first?.id ?? null)
       } catch (err: unknown) {
         if (!cancelled) {
@@ -1192,7 +1192,7 @@ export default function ShadowingPracticePage() {
         if (currentId === id) {
           const next =
             list.find((s) => s.sourceType === activeTab) ??
-            list.find((s) => s.sourceType === "BBC")
+            list.find((s) => s.sourceType === "CURATED")
           setCurrentId(next?.id ?? null)
         }
       } catch (err: unknown) {
@@ -1662,7 +1662,7 @@ export default function ShadowingPracticePage() {
               const isActive = item.id === current?.id
               const showGroup = activeTab === "ARTICLE"
                 ? item.paragraphIndex !== undefined && item.paragraphIndex !== previous?.paragraphIndex
-                : (activeTab === "BBC" || activeTab === "MEDIA") && item.sourceTitle !== previous?.sourceTitle
+                : (activeTab === "CURATED" || activeTab === "MEDIA") && item.sourceTitle !== previous?.sourceTitle
               return (
                 <div key={`${item.sourceType}:${item.id}`} role="listitem">
                   {showGroup && <p className="px-3 pb-1 pt-4 text-[11px] font-semibold text-muted-foreground first:pt-1">{activeTab === "ARTICLE" ? `第 ${(item.paragraphIndex ?? 0) + 1} 段` : item.sourceTitle}</p>}

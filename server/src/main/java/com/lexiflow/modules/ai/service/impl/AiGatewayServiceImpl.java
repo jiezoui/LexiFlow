@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.lexiflow.common.exception.BusinessException;
 import com.lexiflow.modules.ai.dto.AiExplainRequest;
 import com.lexiflow.modules.ai.dto.AiTestConnectionRequest;
 import com.lexiflow.modules.ai.model.AiResolvedConfig;
@@ -823,8 +824,14 @@ public class AiGatewayServiceImpl implements AiGatewayService {
             if (response.statusCode() == 200) {
                 return extractChatContent(cfg, response.body());
             }
+            if (response.statusCode() == 401) {
+                log.warn("AI GenerateText 凭据无效: provider=[{}], model=[{}]", cfg.provider(), cfg.model());
+                throw new BusinessException("API Key 无效或未授权，请检查是否填写正确且无多余空格");
+            }
             log.warn("AI GenerateText 响应状态码异常: {}, body: {}", response.statusCode(), response.body());
             throw new RuntimeException("AI 服务响应异常: " + parseErrorResponse(response.statusCode(), response.body()));
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             log.error("AI GenerateText 请求失败: {}", e.getMessage(), e);
             throw new RuntimeException("AI 生成失败: " + e.getMessage(), e);

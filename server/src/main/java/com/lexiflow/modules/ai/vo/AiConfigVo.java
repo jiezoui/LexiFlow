@@ -27,6 +27,9 @@ public class AiConfigVo {
     @Schema(description = "当前生效供应商是否可直接调用", example = "true")
     private Boolean activeConfigured;
 
+    @Schema(description = "当前访问者的 AI 配置只保存在浏览器会话中")
+    private Boolean sessionOnly;
+
     private Double temperature;
 
     private Boolean enableReadingAi;

@@ -5,7 +5,6 @@
 `run.py` 使用 Python 标准库，通过 DeepSeek 的 OpenAI 兼容接口调用模型。根据用户当前配置，默认模型是 `deepseek-flash`、官方 API 地址是 `https://api.deepseek.com`。请求显式关闭该模型默认开启的思考模式；试点发现默认思考模式会占用输出上限并截断结构化文章。当前协议的 `thinking=disabled` 与 `max_tokens=5000` 固定写入 `manifest.json`。项目模型设置保存在账号配置里，实验脚本不会读取或打印该密钥。运行前在当前终端设置 `STORY_BENCH_API_KEY` 环境变量，或用 `--key-file` 指定本地私有密钥文件；文件内容只写密钥本身，文件名以 `.local` 结尾，已被 Git 忽略。不要把密钥写入命令、仓库或实验输出。若前端配置的 API Host 不同，用 `--base-url` 覆盖。
 
 ```powershell
-cd C:\Users\JieZou\Desktop\AIC\LexiFlow-Core
 python experiments/story_p0/run.py --validate-only
 python experiments/story_p0/run.py --limit 1 --output experiments/story_p0/pilot.local
 python experiments/story_p0/run.py --output experiments/story_p0/full.local

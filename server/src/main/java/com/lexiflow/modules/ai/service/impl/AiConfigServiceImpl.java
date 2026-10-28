@@ -13,6 +13,7 @@ import com.lexiflow.modules.ai.mapper.AiPreferenceMapper;
 import com.lexiflow.modules.ai.mapper.AiProviderConfigMapper;
 import com.lexiflow.modules.ai.model.AiResolvedConfig;
 import com.lexiflow.modules.ai.service.AiConfigService;
+import com.lexiflow.modules.ai.service.AiConfigAccessPolicy;
 import com.lexiflow.modules.ai.service.AiConfigStore;
 import com.lexiflow.modules.ai.service.AiGatewayService;
 import com.lexiflow.modules.ai.vo.AiConfigVo;
@@ -43,6 +44,7 @@ public class AiConfigServiceImpl implements AiConfigService {
     private final AiPreferenceMapper preferenceMapper;
     private final AiConfigStore configStore;
     private final AiGatewayService aiGatewayService;
+    private final AiConfigAccessPolicy configAccessPolicy;
     private final ObjectMapper objectMapper;
 
     /** 预置供应商，顺序与前端保持一致 */
@@ -164,7 +166,9 @@ public class AiConfigServiceImpl implements AiConfigService {
 
         // 探测成功即把可用模型与结论回写账号配置：用户只需填一次 Key，
         // 之后模型列表在任意设备打开设置页都能直接复原。
-        persistDetection(userId, resolved.provider(), detection, request);
+        if (!configAccessPolicy.isSessionOnlyVisitor()) {
+            persistDetection(userId, resolved.provider(), detection, request);
+        }
         return detection;
     }
 

@@ -9,6 +9,7 @@ import com.lexiflow.modules.ai.dto.AiExplainRequest;
 import com.lexiflow.modules.ai.dto.AiFetchModelsRequest;
 import com.lexiflow.modules.ai.dto.AiTestConnectionRequest;
 import com.lexiflow.modules.ai.service.AiConfigService;
+import com.lexiflow.modules.ai.service.AiConfigAccessPolicy;
 import com.lexiflow.modules.ai.service.AiGatewayService;
 import com.lexiflow.modules.ai.service.AiUsagePolicy;
 import com.lexiflow.modules.ai.vo.AiConfigVo;
@@ -31,6 +32,7 @@ public class AiGatewayController {
 
     private final AiGatewayService aiGatewayService;
     private final AiConfigService aiConfigService;
+    private final AiConfigAccessPolicy configAccessPolicy;
     private final AiUsagePolicy usagePolicy;
 
     @Operation(
@@ -41,7 +43,9 @@ public class AiGatewayController {
     @GetMapping("/config")
     public Result<AiConfigVo> getConfig() {
         Long userId = UserContext.requireCurrentUserId();
-        return Result.success(aiConfigService.getConfig(userId));
+        AiConfigVo config = aiConfigService.getConfig(userId);
+        config.setSessionOnly(configAccessPolicy.isSessionOnlyVisitor());
+        return Result.success(config);
     }
 
     @Operation(
@@ -79,7 +83,7 @@ public class AiGatewayController {
 
     private Long requireConfigOwner() {
         Long userId = UserContext.getCurrentUserId();
-        if (userId == null && "3".equals(System.getenv("LEXIFLOW_DEFAULT_USER_ID"))) {
+        if (configAccessPolicy.isSessionOnlyVisitor()) {
             throw new BusinessException(ResultCode.FORBIDDEN.getCode(), "演示访问不能修改 AI 凭据");
         }
         return userId != null ? userId : UserContext.requireCurrentUserId();

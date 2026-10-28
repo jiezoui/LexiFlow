@@ -2,18 +2,6 @@
   "generatedAt": "2026-09-23T06:08:52.182876+00:00",
   "items": [
     {
-      "id": "262026947",
-      "title": "6 Minute English",
-      "author": "BBC Radio",
-      "category": "英语学习",
-      "description": "Learn and practise useful English with clips from programmes around the BBC. Each week, we talk about an interesting topic and learn helpful words and phrases used in natural spoken English - all in 6 minutes! Practise your listening and hear natural spoken En",
-      "feedUrl": "https://podcasts.files.bbci.co.uk/p02pc9tn.rss",
-      "image": "/subscription-catalog/podcasts/262026947.webp",
-      "latestTitle": "Is rejection good for us?",
-      "latestPublished": "Thu, 17 Sep 2026 08:34:00 +0000",
-      "episodeCount": 342
-    },
-    {
       "id": "751574016",
       "title": "All Ears English Podcast",
       "author": "Lindsay McMahon and Michelle Kaplan",
@@ -162,7 +150,7 @@
       "title": "Hard Fork",
       "author": "The New York Times",
       "category": "科技",
-      "description": "“Hard Fork” is a show about the future that’s already here. Each week, journalists Kevin Roose and Casey Newton explore and make sense of the latest in the rapidly changing world of tech. Subscribe today at nytimes.com/podcasts or on Apple Podcasts, Spotify an",
+      "description": "“Hard Fork” is a show about the future that’s already here. Each week, journalists Kevin Roose and Casey Newton explore and make sense of the latest in the rapidly changing world of tech.",
       "feedUrl": "https://feeds.simplecast.com/6HKOhNgS",
       "image": "/subscription-catalog/podcasts/1528594034.webp",
       "latestTitle": "A.I. Safety Goes Mainstream + a ‘Hard Fork’ Exit AMA",
@@ -210,7 +198,7 @@
       "title": "Waveform: The MKBHD Podcast",
       "author": "MKBHD",
       "category": "科技",
-      "description": "A tech podcast for the gadget lovers and tech heads among us from the mind of Marques Brownlee, better known as MKBHD. MKBHD has made a name for himself on YouTube reviewing everything from the newest smartphones to cameras to electric cars. Pulling from over ",
+      "description": "A tech podcast for gadget lovers from Marques Brownlee, known as MKBHD. The show covers smartphones, cameras, electric cars and more.",
       "feedUrl": "https://feeds.megaphone.fm/STU4418364045",
       "image": "/subscription-catalog/podcasts/1474429475.webp",
       "latestTitle": "WTF is a Googlebook?",
@@ -228,18 +216,6 @@
       "latestTitle": "LOW - Now Available",
       "latestPublished": "Tue, 22 Sep 2026 14:00:00 -0000",
       "episodeCount": 193
-    },
-    {
-      "id": "1051557000",
-      "title": "Science Vs",
-      "author": "Spotify Studios",
-      "category": "科学",
-      "description": "There are a lot of fads, blogs and strong opinions, but then there’s SCIENCE. Science Vs is the show from Spotify Studios that finds out what’s fact, what’s not, and what’s somewhere in between. We do the hard work of sifting through all the science so you don",
-      "feedUrl": "https://feeds.megaphone.fm/sciencevs",
-      "image": "/subscription-catalog/podcasts/1051557000.webp",
-      "latestTitle": "Could AI Really Kill Us All?",
-      "latestPublished": "Thu, 17 Sep 2026 20:25:00 -0000",
-      "episodeCount": 345
     },
     {
       "id": "152249110",
@@ -410,18 +386,6 @@
       "episodeCount": 2163
     },
     {
-      "id": "135067274",
-      "title": "Global News Podcast",
-      "author": "BBC World Service",
-      "category": "新闻",
-      "description": "The Global News Podcast brings you the breaking news you need to hear, as it happens. Listen for the latest headlines and current affairs from around the world. Politics, economics, climate, business, technology, health – we cover it all with expert analysis a",
-      "feedUrl": "https://podcasts.files.bbci.co.uk/p02nq0gn.rss",
-      "image": "/subscription-catalog/podcasts/135067274.webp",
-      "latestTitle": "US and Iran hold talks on sidelines of UN General Assembly",
-      "latestPublished": "Wed, 23 Sep 2026 04:28:00 +0000",
-      "episodeCount": 2952
-    },
-    {
       "id": "1665219519",
       "title": "Reuters World News",
       "author": "Reuters",
@@ -432,18 +396,6 @@
       "latestTitle": "Trump's UN speech, ICC sanctions and Turkey's LGBTQ+ crackdown (Updated)",
       "latestPublished": "Tue, 22 Sep 2026 09:59:00 -0000",
       "episodeCount": 1176
-    },
-    {
-      "id": "1469394914",
-      "title": "The Journal.",
-      "author": "The Wall Street Journal & Spotify Studios",
-      "category": "新闻",
-      "description": "The most important stories about money, business and power. Hosted by Ryan Knutson and Jessica Mendoza. The Journal is a co-production of Spotify and The Wall Street Journal. Get show merch here: https://wsjshop.com/collections/clothing",
-      "feedUrl": "https://video-api.shdsvc.dowjones.io/api/podcasts/feed/the%20journal",
-      "image": "/subscription-catalog/podcasts/1469394914.webp",
-      "latestTitle": "Inside Canada's EU Courtship",
-      "latestPublished": "Tue, 22 Sep 2026 20:48:00 -0000",
-      "episodeCount": 1853
     },
     {
       "id": "160904630",

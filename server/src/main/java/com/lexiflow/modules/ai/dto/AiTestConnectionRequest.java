@@ -7,7 +7,7 @@ import lombok.Data;
 @Schema(description = "AI 模型连通性测试请求体")
 public class AiTestConnectionRequest {
 
-    @Schema(description = "供应商标识 (如 deepseek, openai, siliconflow, claude, ollama, custom)", example = "deepseek")
+    @Schema(description = "供应商标识", example = "deepseek")
     private String provider;
 
     @Schema(description = "接口 Base URL / Host", example = "https://api.deepseek.com/v1")

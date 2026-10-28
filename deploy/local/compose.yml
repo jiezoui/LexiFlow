@@ -36,7 +36,7 @@ services:
       LEXIFLOW_STORAGE_ROOT: /app/storage
       LEXIFLOW_ECDICT_CSV_PATH: /app/material/ecdict.csv
       LEXIFLOW_LIBRETRANSLATE_ENABLED: "false"
-      LEXIFLOW_OPENAI_TRANSLATION_ENABLED: "false"
+      LEXIFLOW_TRANSLATION_ENABLED: "false"
     ports:
       - "127.0.0.1:8080:8080"
     volumes:

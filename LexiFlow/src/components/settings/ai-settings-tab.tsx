@@ -32,6 +32,7 @@ import {
   getAiSettings,
   getDefaultAiSettings,
   loadAiSettingsFromServer,
+  saveAiSettings,
   saveAiSettingsToServer,
   toSavePayload,
 } from "@/lib/ai-config"
@@ -59,6 +60,8 @@ function errorMessage(error: unknown, fallback: string) {
 
 export function AiSettingsTab() {
   const [settings, setSettings] = React.useState<AiSettings>(getDefaultAiSettings())
+  const settingsRef = React.useRef(settings)
+  const [loadingConfig, setLoadingConfig] = React.useState(true)
   const [showKey, setShowKey] = React.useState(false)
   const [fetchingModels, setFetchingModels] = React.useState(false)
   const [detection, setDetection] = React.useState<AiModelDetection | null>(null)
@@ -80,6 +83,10 @@ export function AiSettingsTab() {
   })
 
   React.useEffect(() => {
+    settingsRef.current = settings
+  }, [settings])
+
+  React.useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
@@ -87,6 +94,8 @@ export function AiSettingsTab() {
         if (!cancelled) setSettings(fromServer)
       } catch {
         if (!cancelled) setSettings(getAiSettings())
+      } finally {
+        if (!cancelled) setLoadingConfig(false)
       }
     })()
     return () => { cancelled = true }
@@ -181,13 +190,16 @@ export function AiSettingsTab() {
   }, [activeProvider, currentProviderConfig.apiKey, currentProviderConfig.apiHost, currentProviderConfig.configured, triggerDetection])
 
   const updateCurrentConfig = (updates: Partial<typeof currentProviderConfig>) => {
-    setSettings((prev) => ({
-      ...prev,
+    const previous = settingsRef.current
+    const next: AiSettings = {
+      ...previous,
       providers: {
-        ...prev.providers,
-        [activeProvider]: { ...prev.providers[activeProvider], ...updates },
+        ...previous.providers,
+        [activeProvider]: { ...previous.providers[activeProvider], ...updates },
       },
-    }))
+    }
+    settingsRef.current = next
+    setSettings(next)
     setSaveError(null)
   }
 
@@ -212,10 +224,11 @@ export function AiSettingsTab() {
   }
 
   const handleSave = async () => {
+    if (loadingConfig) return
     setSaving(true)
     setSaveError(null)
     try {
-      const persisted = await saveAiSettingsToServer(settings)
+      const persisted = await saveAiSettingsToServer(settingsRef.current)
       setSettings(persisted)
       setSavedSuccess(true)
       setTimeout(() => setSavedSuccess(false), 2000)
@@ -227,10 +240,25 @@ export function AiSettingsTab() {
   }
 
   const handleClearKey = async () => {
-    updateCurrentConfig({ apiKey: "" })
     setDetection(null)
+    if (settings.sessionOnly) {
+      const next: AiSettings = {
+        ...settings,
+        providers: {
+          ...settings.providers,
+          [activeProvider]: { ...currentProviderConfig, apiKey: "", configured: false },
+        },
+      }
+      try {
+        saveAiSettings(next)
+        setSettings(next)
+      } catch (error) {
+        setSaveError(errorMessage(error, "清除密钥失败"))
+      }
+      return
+    }
     try {
-      await aiApi.clearProvider(activeProvider)
+      setSettings(applyServerAiConfig(await aiApi.clearProvider(activeProvider)))
     } catch (error) {
       setSaveError(errorMessage(error, "清除密钥失败"))
     }
@@ -265,7 +293,13 @@ export function AiSettingsTab() {
     setAdding(true)
     setAddError(null)
     try {
-      const persisted = applyServerAiConfig(await aiApi.saveConfig(toSavePayload(next)))
+      let persisted: AiSettings
+      if (next.sessionOnly) {
+        saveAiSettings(next)
+        persisted = next
+      } else {
+        persisted = applyServerAiConfig(await aiApi.saveConfig(toSavePayload(next)))
+      }
       setSettings(persisted)
       setAddingProvider(false)
       setNewProvider({ name: "", apiHost: "", apiKey: "", selectedModel: "" })
@@ -282,7 +316,15 @@ export function AiSettingsTab() {
     setDeleting(true)
     setDeleteError(null)
     try {
-      const persisted = applyServerAiConfig(await aiApi.deleteProvider(activeProvider))
+      let persisted: AiSettings
+      if (settings.sessionOnly) {
+        const providers = { ...settings.providers }
+        delete providers[activeProvider]
+        persisted = { ...settings, activeProvider: "deepseek", providers }
+        saveAiSettings(persisted)
+      } else {
+        persisted = applyServerAiConfig(await aiApi.deleteProvider(activeProvider))
+      }
       setSettings(persisted)
       setDetection(null)
       setShowKey(false)
@@ -298,6 +340,11 @@ export function AiSettingsTab() {
 
   return (
     <>
+      {settings.sessionOnly && (
+        <p className="mb-4 rounded-xl border border-border bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
+          演示模式：API Key 与模型设置仅保存在当前浏览器标签页，关闭标签页后清除，不会写入共享账号。
+        </p>
+      )}
       <div className="overflow-hidden rounded-xl border border-border/70 bg-card md:grid md:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="border-b border-border/70 bg-muted/20 md:border-b-0 md:border-r">
           <div className="px-4 pb-2 pt-5 text-xs font-medium text-muted-foreground">供应商</div>
@@ -407,7 +454,7 @@ export function AiSettingsTab() {
                     )}
                   </div>
                   <div className="relative">
-                    <Input id="provider-key" type={showKey ? "text" : "password"} autoComplete="off" value={currentProviderConfig.apiKey} onChange={(event) => updateCurrentConfig({ apiKey: event.target.value })} className="pr-10 font-mono text-xs" placeholder={currentProviderConfig.configured ? "已在服务器配置；输入新 Key 可替换" : "输入 API Key"} />
+                    <Input id="provider-key" type={showKey ? "text" : "password"} autoComplete="off" disabled={loadingConfig} value={currentProviderConfig.apiKey} onChange={(event) => updateCurrentConfig({ apiKey: event.target.value })} className="pr-10 font-mono text-xs" placeholder={!settings.sessionOnly && currentProviderConfig.configured ? "已在服务器配置；输入新 Key 可替换" : "输入 API Key"} />
                     <button type="button" onClick={() => setShowKey(!showKey)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={showKey ? "隐藏密钥" : "显示密钥"}>
                       {showKey ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
                     </button>
@@ -478,9 +525,9 @@ export function AiSettingsTab() {
               </Button>
             )}
             <p role="status" className="min-w-0 text-xs text-destructive">{saveError}</p>
-            <Button type="button" onClick={() => void handleSave()} disabled={saving} className="ml-auto min-w-24">
+            <Button type="button" onClick={() => void handleSave()} disabled={saving || loadingConfig} className="ml-auto min-w-24">
               {saving && <Loader2Icon className="size-4 animate-spin" />}
-              {saving ? "保存中" : savedSuccess ? "已保存" : "保存"}
+              {saving ? "保存中" : savedSuccess ? "已保存" : settings.sessionOnly ? "保存到此标签页" : "保存"}
             </Button>
           </div>
             </>
@@ -491,7 +538,7 @@ export function AiSettingsTab() {
         <DialogContent showCloseButton={!deleting}>
           <DialogHeader>
             <DialogTitle>删除供应商？</DialogTitle>
-            <DialogDescription>将删除“{providerName}”及其保存的密钥和模型配置。</DialogDescription>
+            <DialogDescription>将删除“{providerName}”及其{settings.sessionOnly ? "本标签页" : "账号"}保存的密钥和模型配置。</DialogDescription>
           </DialogHeader>
           {deleteError && <p role="alert" className="text-xs text-destructive">{deleteError}</p>}
           <DialogFooter>

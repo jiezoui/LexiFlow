@@ -19,10 +19,10 @@ public class ShadowingAttemptRequest {
     @Schema(description = "关联跟读句 ID（文章、视频、播客的临时选句可为空）", example = "1")
     private Long sentenceId;
 
-    @Schema(description = "题源类型: ARTICLE / VIDEO / PODCAST / BBC / CARD / CUSTOM / MEDIA", example = "ARTICLE")
+    @Schema(description = "题源类型: ARTICLE / VIDEO / PODCAST / CURATED / CARD / CUSTOM / MEDIA", example = "ARTICLE")
     private String sourceType;
 
-    @Schema(description = "题源标题", example = "BBC World: Global Economic Dynamics")
+    @Schema(description = "题源标题", example = "外刊精选：全球经济动态")
     private String sourceTitle;
 
     @NotBlank(message = "基准句不能为空")

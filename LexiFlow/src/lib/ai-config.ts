@@ -118,6 +118,7 @@ export interface SingleProviderConfig {
 
 export interface AiSettings {
   activeProvider: AiProviderId
+  sessionOnly?: boolean
   providers: Record<string, SingleProviderConfig>
   enableReadingAi: boolean
   enableStoryAi: boolean
@@ -127,6 +128,19 @@ export interface AiSettings {
 }
 
 const STORAGE_KEY = "lexiflow_ai_settings_v1"
+const SESSION_STORAGE_KEY = "lexiflow_ai_settings_session_v1"
+
+function readSessionAiSettings(): AiSettings | null {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = sessionStorage.getItem(SESSION_STORAGE_KEY)
+    if (!raw) return null
+    const settings = JSON.parse(raw) as AiSettings
+    return settings.sessionOnly && settings.providers ? settings : null
+  } catch {
+    return null
+  }
+}
 
 function withoutApiKeys(settings: AiSettings): AiSettings {
   return {
@@ -180,6 +194,7 @@ export function getDefaultAiSettings(): AiSettings {
 
   return {
     activeProvider: "deepseek",
+    sessionOnly: false,
     providers,
     enableReadingAi: true,
     enableStoryAi: true,
@@ -207,6 +222,9 @@ export function getAiSettings(): AiSettings {
   if (typeof window === "undefined") {
     return getDefaultAiSettings()
   }
+
+  const sessionSettings = readSessionAiSettings()
+  if (sessionSettings) return sessionSettings
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -236,11 +254,21 @@ export function getAiSettings(): AiSettings {
 export function saveAiSettings(settings: AiSettings): void {
   if (typeof window === "undefined") return
   try {
+    if (settings.sessionOnly) {
+      sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(settings))
+      localStorage.removeItem(STORAGE_KEY)
+      window.dispatchEvent(new CustomEvent("lexiflow_ai_settings_updated", { detail: withoutApiKeys(settings) }))
+      return
+    }
+    sessionStorage.removeItem(SESSION_STORAGE_KEY)
     const publicSettings = withoutApiKeys(settings)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(publicSettings))
     // 派发全局变更事件，通知所有打开的组件无缝同步
     window.dispatchEvent(new CustomEvent("lexiflow_ai_settings_updated", { detail: publicSettings }))
   } catch (e) {
+    if (settings.sessionOnly) {
+      throw new Error("浏览器当前无法保存会话配置，请允许站点使用存储空间")
+    }
     console.error("保存 AI 配置失败:", e)
   }
 }
@@ -248,6 +276,7 @@ export function saveAiSettings(settings: AiSettings): void {
 /** 把后端返回的账号配置合并进本地缓存，保持两处一致 */
 export function applyServerAiConfig(account: AiAccountConfig): AiSettings {
   const settings = getDefaultAiSettings()
+  settings.sessionOnly = account.sessionOnly === true
   settings.activeProvider = (account.activeProvider as AiProviderId) || settings.activeProvider
   settings.temperature = account.temperature ?? settings.temperature
   settings.enableReadingAi = account.enableReadingAi ?? settings.enableReadingAi
@@ -261,13 +290,20 @@ export function applyServerAiConfig(account: AiAccountConfig): AiSettings {
     settings.providers[pid] = {
       displayName: entry.displayName ?? settings.providers[pid]?.displayName,
       apiKey: "",
-      configured: entry.configured,
+      configured: settings.sessionOnly ? pid === "ollama" : entry.configured,
       apiHost: entry.apiHost || preset.defaultHost,
       selectedModel: entry.selectedModel || preset.defaultModel,
       customModels: entry.customModels ?? [],
     }
   }
 
+  if (settings.sessionOnly) {
+    const visitorSettings = readSessionAiSettings()
+    if (visitorSettings) {
+      saveAiSettings(visitorSettings)
+      return visitorSettings
+    }
+  }
   saveAiSettings(settings)
   return settings
 }
@@ -300,6 +336,10 @@ export async function loadAiSettingsFromServer(): Promise<AiSettings> {
 
 /** 以账号保存结果为准，同步更新本地缓存 */
 export async function saveAiSettingsToServer(settings: AiSettings): Promise<AiSettings> {
+  if (settings.sessionOnly) {
+    saveAiSettings(settings)
+    return settings
+  }
   const account = await aiApi.saveConfig(toSavePayload(settings))
   return applyServerAiConfig(account)
 }

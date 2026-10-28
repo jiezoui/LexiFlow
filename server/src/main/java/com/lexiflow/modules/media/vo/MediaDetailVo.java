@@ -46,6 +46,12 @@ public record MediaDetailVo(
             case "YOUTUBE_IFRAME" -> media.getExternalId() == null ? null
                     : "https://www.youtube-nocookie.com/embed/" + media.getExternalId()
                     + "?enablejsapi=1&playsinline=1&rel=0";
+            case "BILIBILI_IFRAME" -> media.getExternalId() == null ? null
+                    : "https://player.bilibili.com/player.html?bvid="
+                    + media.getExternalId().replaceFirst(":.*$", "")
+                    + (media.getExternalId().contains(":")
+                    ? "&p=" + media.getExternalId().substring(media.getExternalId().indexOf(':') + 1) : "")
+                    + "&danmaku=0";
             case "HTML5_AUDIO_REMOTE" -> media.getSourceUrl();
             case "HTML5_AUDIO_LOCAL" -> media.getStorageKey() == null ? null
                     : "/api/media/" + media.getPublicId() + "/stream";
@@ -59,7 +65,7 @@ public record MediaDetailVo(
         String translationStatus = track == null || track.getTranslationStatus() == null
                 ? TranslationStatus.DISABLED.name() : track.getTranslationStatus();
         return new MediaDetailVo(
-                media.getPublicId(), media.getTitle(), media.getCreator(), media.getPlatform(), media.getSourceUrl(),
+                media.getPublicId(), media.getTitle(), media.getCreator(), publicPlatform(media.getPlatform()), media.getSourceUrl(),
                 media.getCoverUrl(), media.getDurationMs() == null ? null : media.getDurationMs() / 1000,
                 media.getWidth(), media.getHeight(), media.getCefrLevel(), media.getWpm(),
                 media.getStatus(), media.getProcessingStage(), processingProgress, processingDetail,
@@ -67,10 +73,24 @@ public record MediaDetailVo(
                 track == null || track.getTranslationProgress() == null ? 0 : track.getTranslationProgress(),
                 track == null ? null : track.getTranslationTarget(),
                 track == null ? null : track.getTranslationError(),
-                media.getErrorMessage(),
-                new MediaPlaybackVo(media.getPlaybackType(), url, media.getExternalId(),
+                publicError(media.getErrorMessage()),
+                new MediaPlaybackVo("YOUTUBE_IFRAME".equals(media.getPlaybackType()) ? "EXTERNAL_IFRAME" : media.getPlaybackType(), url, media.getExternalId(),
                         media.getMimeType(), media.getFileSize()),
                 media.getCreatedAt()
         );
+    }
+
+    private static String publicError(String error) {
+        if (error == null) return null;
+        String normalized = error.toLowerCase(java.util.Locale.ROOT);
+        if (normalized.contains("youtube") || normalized.contains("youtu.be")
+                || normalized.contains("yt-dlp") || normalized.contains("command ['")) {
+            return "未能获取字幕，请检查视频是否可访问，或导入本地字幕。";
+        }
+        return error;
+    }
+
+    private static String publicPlatform(String platform) {
+        return "YOUTUBE".equals(platform) ? "EXTERNAL_VIDEO" : platform;
     }
 }
