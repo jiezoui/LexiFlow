@@ -286,3 +286,4 @@ Invoke-RestMethod http://127.0.0.1:8100/health
 - [前端说明](./LexiFlow/README.md)
 - [媒体 Worker 说明](./media-worker/README.md)
 - [语音服务说明](./speech-bridge/README.md)
+- [开源及第三方资源清单](./开源及第三方资源清单.pdf)
